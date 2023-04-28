@@ -2,14 +2,15 @@ package core
 
 import (
 	"testing"
+	"testing/fstest"
 
 	"cuelang.org/go/cue/cuecontext"
 	"gotest.tools/v3/assert"
 )
 
-func TestEntryBuilder_Build(t *testing.T) {
+func TestContentEntryBuilder_Build(t *testing.T) {
 	ctx := cuecontext.New()
-	builder := NewEntryBuilder(ctx)
+	builder := NewContentEntryBuilder(ctx)
 	result, err := builder.Build(`
 		entry: app: {
 		 intervalSeconds: 1
@@ -34,9 +35,9 @@ func TestEntryBuilder_Build(t *testing.T) {
 	assert.Equal(t, result.Dependencies[0], "app")
 }
 
-func TestEntryBuilder_Build_Schema(t *testing.T) {
+func TestContentEntryBuilder_Build_Schema(t *testing.T) {
 	ctx := cuecontext.New()
-	builder := NewEntryBuilder(ctx)
+	builder := NewContentEntryBuilder(ctx)
 	_, err := builder.Build(`
 		entry: app: {
 		 intervalSeconds: "60"
@@ -53,4 +54,22 @@ func TestEntryBuilder_Build_Schema(t *testing.T) {
 	`,
 	)
 	assert.Error(t, err, "entry.app.dependencies.0: conflicting values 1 and string (mismatched types int and string)")
+}
+
+func TestFileEntryBuilder_Build(t *testing.T) {
+	ctx := cuecontext.New()
+	fs := fstest.MapFS{
+		"entry.cue": {
+			Data: []byte(`
+		entry: app: {
+		 intervalSeconds: 60
+		}
+	`),
+		},
+	}
+	builder := NewFileEntryBuilder(ctx, fs, NewContentEntryBuilder(ctx))
+	result, err := builder.Build("entry.cue")
+	assert.NilError(t, err)
+	assert.Equal(t, result.Name, "app")
+	assert.Equal(t, result.IntervalSeconds, 60)
 }
