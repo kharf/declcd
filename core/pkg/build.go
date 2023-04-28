@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"io/fs"
 
 	"cuelang.org/go/cue"
 	"github.com/kharf/declcd/core/api"
@@ -12,19 +13,26 @@ var (
 )
 
 // EntryBuilder compiles and decodes CUE entry definitions to the corresponding Go struct.
-type EntryBuilder struct {
+type EntryBuilder interface {
+	Build(entry string) (*api.Entry, error)
+}
+
+// ContentEntryBuilder compiles and decodes CUE entry definitions based on their content to the corresponding Go struct.
+type ContentEntryBuilder struct {
 	ctx *cue.Context
 }
 
-// NewEntryBuilder contructs an [EntryBuilder] with given CUE context
-func NewEntryBuilder(ctx *cue.Context) EntryBuilder {
-	return EntryBuilder{
+// NewContentEntryBuilder contructs an [EntryBuilder] with given CUE context.
+func NewContentEntryBuilder(ctx *cue.Context) ContentEntryBuilder {
+	return ContentEntryBuilder{
 		ctx: ctx,
 	}
 }
 
+var _ EntryBuilder = ContentEntryBuilder{}
+
 // Build accepts an entry CUE definition as string and compiles it to the corresponding Go struct.
-func (b EntryBuilder) Build(plainEntry string) (*api.Entry, error) {
+func (b ContentEntryBuilder) Build(entryContent string) (*api.Entry, error) {
 	ctx := b.ctx
 
 	specVal := ctx.CompileString(api.EntrySchema)
@@ -32,7 +40,7 @@ func (b EntryBuilder) Build(plainEntry string) (*api.Entry, error) {
 		return nil, specVal.Err()
 	}
 
-	val := ctx.CompileString(plainEntry)
+	val := ctx.CompileString(entryContent)
 	if val.Err() != nil {
 		return nil, val.Err()
 	}
@@ -64,4 +72,31 @@ func (b EntryBuilder) Build(plainEntry string) (*api.Entry, error) {
 	}
 
 	return &entry, nil
+}
+
+// FileEntryBuilder compiles and decodes CUE entry definitions from a FileSystem to the corresponding Go struct.
+type FileEntryBuilder struct {
+	ctx          *cue.Context
+	fs           fs.FS
+	entryBuilder ContentEntryBuilder
+}
+
+// NewFileEntryBuilder contructs an [EntryBuilder] with given CUE context and FileSystem.
+func NewFileEntryBuilder(ctx *cue.Context, fs fs.FS, entryBuilder ContentEntryBuilder) FileEntryBuilder {
+	return FileEntryBuilder{
+		ctx:          ctx,
+		fs:           fs,
+		entryBuilder: entryBuilder,
+	}
+}
+
+var _ EntryBuilder = FileEntryBuilder{}
+
+// Build accepts a path to an entry file and compiles it to the corresponding Go struct.
+func (b FileEntryBuilder) Build(entryFilePath string) (*api.Entry, error) {
+	entryContent, err := fs.ReadFile(b.fs, entryFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return b.entryBuilder.Build(string(entryContent))
 }
