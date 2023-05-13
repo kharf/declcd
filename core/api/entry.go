@@ -10,6 +10,10 @@ const EntrySchema = `
 entry: #entry
 `
 
+const (
+	EntryFileName = "entry.cue"
+)
+
 // EntryDef is an identifiable entry definition, corresponding to the schema. It always only contains one key, which is the name of the [Entry].
 type EntryDef struct {
 	EntriesByName map[string]Entry `json:"entry"`
