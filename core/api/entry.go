@@ -19,7 +19,7 @@ type EntryDef struct {
 	EntriesByName map[string]Entry `json:"entry"`
 }
 
-// Entry is the entrypoint of a decl package. It used to define the package's dependencies and its reconciliation interval.
+// Entry is the entrypoint of a decl component. It used to define the component's dependencies and its reconciliation interval.
 type Entry struct {
 	Name            string   `json: "name"`
 	IntervalSeconds int      `json: "intervalSeconds"`

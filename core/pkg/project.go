@@ -42,6 +42,7 @@ func NewSubDeclarativeComponent(entry api.Entry, subComponents []*SubDeclarative
 	return SubDeclarativeComponent{entry: entry, subComponents: subComponents, manifests: manifests}
 }
 
+// Manifest is a declarative object description.
 type Manifest struct {
 	name string
 }
