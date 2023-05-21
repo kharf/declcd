@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"testing"
 	"testing/fstest"
 
@@ -158,4 +159,27 @@ func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
 	_, err := pm.Load("project/")
 	assert.ErrorIs(t, err, ErrMainComponentNotFound)
 	assert.Error(t, err, "main component not found: could not load project/infra/entry.cue")
+}
+
+func TestProjectManager_Load_TestData(t *testing.T) {
+	logger := setUp(t)
+	ctx := cuecontext.New()
+	fileSystem := os.DirFS("testdata")
+	builder := NewFileEntryBuilder(ctx, fileSystem, NewContentEntryBuilder(ctx))
+	pm := NewProjectManager(fileSystem, builder, logger)
+	proj, err := pm.Load("mib")
+	assert.NilError(t, err)
+	assert.Assert(t, len(proj.mainComponents) == 2)
+	apps := proj.mainComponents[0]
+	assert.Equal(t, apps.entry.Name, "apps")
+	assert.Assert(t, len(apps.subComponents) == 0)
+	infra := proj.mainComponents[1]
+	assert.Equal(t, infra.entry.Name, "infra")
+	assert.Assert(t, len(infra.subComponents) == 1)
+	prometheus := infra.subComponents[0]
+	assert.Equal(t, prometheus.entry.Name, "prometheus")
+	assert.Assert(t, len(prometheus.manifests) == 2)
+	assert.Equal(t, prometheus.manifests[0].name, "deployment.cue")
+	assert.Equal(t, prometheus.manifests[1].name, "namespace.cue")
+	assert.Assert(t, len(prometheus.subComponents) == 1)
 }

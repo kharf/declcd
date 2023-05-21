@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path"
 	"testing"
 	"testing/fstest"
 
@@ -72,4 +74,42 @@ func TestFileEntryBuilder_Build(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, result.Name, "app")
 	assert.Equal(t, result.IntervalSeconds, 60)
+}
+
+func TestManifestInstanceBuilder_Build(t *testing.T) {
+	ctx := cuecontext.New()
+	builder := NewComponnentManifestBuilder(ctx)
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	projectRoot := path.Join(cwd, "testdata", "mib")
+	unstructureds, err := builder.Build(WithProjectRoot(projectRoot), WithComponent("prometheus", "./infra/prometheus"))
+	assert.NilError(t, err)
+	assert.Assert(t, len(unstructureds) == 2)
+	deployment := unstructureds[0].Object
+	assert.Equal(t, deployment["apiVersion"], "v1")
+	assert.Equal(t, deployment["kind"], "Deployment")
+	deployMetadata := deployment["metadata"].(map[string]interface{})
+	assert.Equal(t, deployMetadata["name"], "mydeployment")
+	deploySpec := deployment["spec"].(map[string]interface{})
+	assert.Equal(t, deploySpec["replicas"], 1)
+	deployTemplate := deploySpec["template"].(map[string]interface{})
+	deployTemplateSpec := deployTemplate["spec"].(map[string]interface{})
+	deployContainers := deployTemplateSpec["containers"].([]interface{})
+	assert.Equal(t, len(deployContainers), 1)
+	deployContainer := deployContainers[0].(map[string]interface{})
+	assert.Equal(t, deployContainer["name"], "nginx")
+	assert.Equal(t, deployContainer["image"], "nginx:1.14.2")
+	deployContainerPorts := deployContainer["ports"].([]interface{})
+	deployContainerPort := deployContainerPorts[0].(map[string]interface{})
+	assert.Equal(t, deployContainerPort["containerPort"], 80)
+	namespace := unstructureds[1].Object
+	assert.Equal(t, namespace["apiVersion"], "v1")
+	assert.Equal(t, namespace["kind"], "Namespace")
+	nsMetadata := namespace["metadata"].(map[string]interface{})
+	assert.Equal(t, nsMetadata["name"], "mynamespace")
+
+	_, err = builder.Build(WithProjectRoot(projectRoot), WithComponent("nodeexporter", "./infra/prometheus/nodeexporter"))
+	assert.NilError(t, err)
 }
