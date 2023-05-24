@@ -2,14 +2,20 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
+	"strings"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
+	"cuelang.org/go/cue/load"
 	"github.com/kharf/declcd/core/api"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var (
-	ErrWrongEntryFormat = errors.New("wrong entry format")
+	ErrWrongEntryFormat    = errors.New("wrong entry format")
+	ErrWrongManifestFormat = errors.New("wrong manifest format")
 )
 
 // EntryBuilder compiles and decodes CUE entry definitions to the corresponding Go struct.
@@ -99,4 +105,117 @@ func (b FileEntryBuilder) Build(entryFilePath string) (*api.Entry, error) {
 		return nil, err
 	}
 	return b.entryBuilder.Build(string(entryContent))
+}
+
+// ComponentManifestBuilder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
+type ComponentManifestBuilder struct {
+	ctx *cue.Context
+}
+
+// NewComponnentManifestBuilder contructs a [ComponentManifestBuilder] with given CUE context.
+func NewComponnentManifestBuilder(ctx *cue.Context) ComponentManifestBuilder {
+	return ComponentManifestBuilder{
+		ctx: ctx,
+	}
+}
+
+// ManifestBuildOptions defining what component is compiled and how it is done.
+type ManifestBuildOptions struct {
+	componentName string
+	componentPath string
+	projectRoot   string
+}
+
+type manifestBuildOption = func(opts *ManifestBuildOptions)
+
+// WithComponent provides component name and path configuration.
+func WithComponent(componentName, componentPath string) manifestBuildOption {
+	return func(opts *ManifestBuildOptions) {
+		opts.componentName = componentName
+		opts.componentPath = componentPath
+	}
+}
+
+// WithProjectRoot provides the path to the project root.
+func WithProjectRoot(projectRootPath string) manifestBuildOption {
+	return func(opts *ManifestBuildOptions) {
+		opts.projectRoot = projectRootPath
+	}
+}
+
+const (
+	AllPackages     = "*"
+	ProjectRootPath = "."
+)
+
+// Build accepts options defining what component to be compiled and how it is done and compiles it to a k8s unstructured API object/struct.
+func (b ComponentManifestBuilder) Build(opts ...manifestBuildOption) ([]unstructured.Unstructured, error) {
+	ctx := cuecontext.New()
+	options := &ManifestBuildOptions{
+		componentName: AllPackages,
+		componentPath: "",
+		projectRoot:   ProjectRootPath,
+	}
+
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	cfg := &load.Config{
+		Package:    options.componentName,
+		ModuleRoot: options.projectRoot,
+		Dir:        options.projectRoot,
+	}
+
+	packagePath := options.componentPath
+	harmonizedPackagePath := packagePath
+	currentDirectoryPrefix := "./"
+	if !strings.HasPrefix(packagePath, currentDirectoryPrefix) {
+		harmonizedPackagePath = currentDirectoryPrefix + packagePath
+	}
+
+	instances := load.Instances([]string{harmonizedPackagePath}, cfg)
+	unstructureds := make([]unstructured.Unstructured, 0, len(instances))
+	for _, instance := range instances {
+		if instance.Err != nil {
+			return []unstructured.Unstructured{}, instance.Err
+		}
+
+		value := ctx.BuildInstance(instance)
+		if value.Err() != nil {
+			return []unstructured.Unstructured{}, value.Err()
+		}
+
+		err := value.Validate()
+		if err != nil {
+			return []unstructured.Unstructured{}, err
+		}
+
+		iter, err := value.Fields()
+		if err != nil {
+			return []unstructured.Unstructured{}, err
+		}
+
+		for iter.Next() {
+			typeValue := iter.Value()
+			typeIter, err := typeValue.Fields()
+			if err != nil {
+				return []unstructured.Unstructured{}, err
+			}
+
+			if !typeIter.Next() {
+				return []unstructured.Unstructured{}, fmt.Errorf("%w: manifest name struct undefined", ErrWrongManifestFormat)
+			}
+
+			nameValue := typeIter.Value()
+			var obj map[string]interface{}
+			err = nameValue.Decode(&obj)
+			if err != nil {
+				return nil, err
+			}
+			unstructureds = append(unstructureds, unstructured.Unstructured{Object: obj})
+		}
+	}
+
+	return unstructureds, nil
 }
