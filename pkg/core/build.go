@@ -9,7 +9,6 @@ import (
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
-	"github.com/kharf/declcd/core/api"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -20,7 +19,7 @@ var (
 
 // EntryBuilder compiles and decodes CUE entry definitions to the corresponding Go struct.
 type EntryBuilder interface {
-	Build(entry string) (*api.Entry, error)
+	Build(entry string) (*Entry, error)
 }
 
 // ContentEntryBuilder compiles and decodes CUE entry definitions based on their content to the corresponding Go struct.
@@ -38,10 +37,10 @@ func NewContentEntryBuilder(ctx *cue.Context) ContentEntryBuilder {
 var _ EntryBuilder = ContentEntryBuilder{}
 
 // Build accepts an entry CUE definition as string and compiles it to the corresponding Go struct.
-func (b ContentEntryBuilder) Build(entryContent string) (*api.Entry, error) {
+func (b ContentEntryBuilder) Build(entryContent string) (*Entry, error) {
 	ctx := b.ctx
 
-	specVal := ctx.CompileString(api.EntrySchema)
+	specVal := ctx.CompileString(EntrySchema)
 	if specVal.Err() != nil {
 		return nil, specVal.Err()
 	}
@@ -61,7 +60,7 @@ func (b ContentEntryBuilder) Build(entryContent string) (*api.Entry, error) {
 		return nil, err
 	}
 
-	var entryDef api.EntryDef
+	var entryDef EntryDef
 	err = unifiedVal.Decode(&entryDef)
 	if err != nil {
 		return nil, err
@@ -71,7 +70,7 @@ func (b ContentEntryBuilder) Build(entryContent string) (*api.Entry, error) {
 		return nil, ErrWrongEntryFormat
 	}
 
-	var entry api.Entry
+	var entry Entry
 	for _, e := range entryDef.EntriesByName {
 		entry = e
 		break
@@ -99,7 +98,7 @@ func NewFileEntryBuilder(ctx *cue.Context, fs fs.FS, entryBuilder ContentEntryBu
 var _ EntryBuilder = FileEntryBuilder{}
 
 // Build accepts a path to an entry file and compiles it to the corresponding Go struct.
-func (b FileEntryBuilder) Build(entryFilePath string) (*api.Entry, error) {
+func (b FileEntryBuilder) Build(entryFilePath string) (*Entry, error) {
 	entryContent, err := fs.ReadFile(b.fs, entryFilePath)
 	if err != nil {
 		return nil, err
@@ -112,8 +111,8 @@ type ComponentManifestBuilder struct {
 	ctx *cue.Context
 }
 
-// NewComponnentManifestBuilder contructs a [ComponentManifestBuilder] with given CUE context.
-func NewComponnentManifestBuilder(ctx *cue.Context) ComponentManifestBuilder {
+// NewComponentManifestBuilder contructs a [ComponentManifestBuilder] with given CUE context.
+func NewComponentManifestBuilder(ctx *cue.Context) ComponentManifestBuilder {
 	return ComponentManifestBuilder{
 		ctx: ctx,
 	}
