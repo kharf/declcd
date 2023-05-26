@@ -78,7 +78,7 @@ func TestFileEntryBuilder_Build(t *testing.T) {
 
 func TestManifestInstanceBuilder_Build(t *testing.T) {
 	ctx := cuecontext.New()
-	builder := NewComponnentManifestBuilder(ctx)
+	builder := NewComponentManifestBuilder(ctx)
 	cwd, err := os.Getwd()
 	if err != nil {
 		panic(err)

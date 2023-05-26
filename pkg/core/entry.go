@@ -1,4 +1,4 @@
-package api
+package core
 
 // Defines the CUE schema of decl's entry manifests.
 const EntrySchema = `

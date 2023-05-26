@@ -4,12 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"go.uber.org/zap"
 
-	"github.com/kharf/declcd/core/api"
+	"github.com/go-git/go-git/v5"
 )
 
 var (
@@ -23,23 +24,25 @@ var (
 
 // MainDeclarativeComponent is an expected entry point for the project, containing all the declarative components.
 type MainDeclarativeComponent struct {
-	entry         api.Entry
-	subComponents []*SubDeclarativeComponent
+	entry         Entry
+	SubComponents []*SubDeclarativeComponent
 }
 
-func NewMainDeclarativeComponent(entry api.Entry, subComponents []*SubDeclarativeComponent) MainDeclarativeComponent {
-	return MainDeclarativeComponent{entry: entry, subComponents: subComponents}
+func NewMainDeclarativeComponent(entry Entry, subComponents []*SubDeclarativeComponent) MainDeclarativeComponent {
+	return MainDeclarativeComponent{entry: entry, SubComponents: subComponents}
 }
 
 // SubDeclarativeComponent is an entry point for containing all the declarative manifests.
 type SubDeclarativeComponent struct {
-	entry         api.Entry
-	subComponents []*SubDeclarativeComponent
-	manifests     []*Manifest
+	Entry         Entry
+	SubComponents []*SubDeclarativeComponent
+	Manifests     []*Manifest
+	// Relative path to the project path.
+	Path string
 }
 
-func NewSubDeclarativeComponent(entry api.Entry, subComponents []*SubDeclarativeComponent, manifests []*Manifest) SubDeclarativeComponent {
-	return SubDeclarativeComponent{entry: entry, subComponents: subComponents, manifests: manifests}
+func NewSubDeclarativeComponent(entry Entry, subComponents []*SubDeclarativeComponent, manifests []*Manifest, path string) SubDeclarativeComponent {
+	return SubDeclarativeComponent{Entry: entry, SubComponents: subComponents, Manifests: manifests, Path: path}
 }
 
 // Manifest is a declarative object description.
@@ -49,11 +52,11 @@ type Manifest struct {
 
 // Project is the declcd representation of the "GitOps" repository with all its declarative components.
 type Project struct {
-	mainComponents []MainDeclarativeComponent
+	MainComponents []MainDeclarativeComponent
 }
 
 func NewProject(mainComponents []MainDeclarativeComponent) Project {
-	return Project{mainComponents: mainComponents}
+	return Project{MainComponents: mainComponents}
 }
 
 // ProjectManager loads a declcd [Project] from given File System.
@@ -74,7 +77,7 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 	for _, mainComponentPath := range projectMainComponentPaths {
 		fullMainComponentPath := projectPath + mainComponentPath
 		p.logger.Debugf("walking main component path %s", fullMainComponentPath)
-		entryFilePath := fullMainComponentPath + "/" + api.EntryFileName
+		entryFilePath := fullMainComponentPath + "/" + EntryFileName
 		if _, err := fs.Stat(p.fs, entryFilePath); errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: could not load %s", ErrMainComponentNotFound, entryFilePath)
 		}
@@ -90,7 +93,7 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 			p.logger.Debugf("walking path %s", path)
 			parentPath := strings.TrimSuffix(path, "/"+dirEntry.Name())
 			if !dirEntry.IsDir() && parentPath == fullMainComponentPath {
-				if dirEntry.Name() == api.EntryFileName {
+				if dirEntry.Name() == EntryFileName {
 					p.logger.Debugf("skipping entry %s as it is part of a main declarative component", path)
 				} else {
 					p.logger.Debugf("skipping file %s as it is not part of a sub declarative component", path)
@@ -105,7 +108,7 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 
 			parent := subComponentsByPath[parentPath]
 			if dirEntry.IsDir() {
-				entryFilePath = path + "/" + api.EntryFileName
+				entryFilePath = path + "/" + EntryFileName
 				if _, err := fs.Stat(p.fs, entryFilePath); errors.Is(err, fs.ErrNotExist) {
 					p.logger.Infof("skipping directory %s, because no entry.cue was found", dirEntry.Name())
 					return filepath.SkipDir
@@ -115,17 +118,21 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 					return err
 				}
 				p.logger.Infof("found sub declarative component %s", path)
-				subDeclarativeComponent := &SubDeclarativeComponent{entry: *entry}
+				relativePath, err := filepath.Rel(projectPath, path)
+				if err != nil {
+					return err
+				}
+				subDeclarativeComponent := &SubDeclarativeComponent{Entry: *entry, Path: relativePath}
 				subComponentsByPath[path] = subDeclarativeComponent
 				if parentPath != fullMainComponentPath {
-					parent.subComponents = append(parent.subComponents, subDeclarativeComponent)
+					parent.SubComponents = append(parent.SubComponents, subDeclarativeComponent)
 				} else {
 					mainDeclarativeSubComponents = append(mainDeclarativeSubComponents, subDeclarativeComponent)
 				}
-			} else if dirEntry.Name() != api.EntryFileName {
+			} else if dirEntry.Name() != EntryFileName {
 				p.logger.Infof("found sub declarative component manifest %s", dirEntry.Name())
 				p.logger.Debugf("adding sub declarative component manifest %s to parent sub declarative component %s", dirEntry.Name(), parentPath)
-				parent.manifests = append(parent.manifests, &Manifest{name: dirEntry.Name()})
+				parent.Manifests = append(parent.Manifests, &Manifest{name: dirEntry.Name()})
 			} else {
 				p.logger.Debugf("skipping entry %s as it is already included", path)
 			}
@@ -141,4 +148,65 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 
 	proj := NewProject(mainDeclarativeComponents)
 	return &proj, nil
+}
+
+// A vcs Repository.
+type Repository struct {
+	path string
+}
+
+func NewRepository(path string) Repository {
+	return Repository{path: path}
+}
+
+// RepositoryManager clones a remote vcs repository to a local path.
+type RepositoryManager struct{}
+
+func NewRepositoryManager() RepositoryManager {
+	return RepositoryManager{}
+}
+
+// CloneOptions define configuration how to clone a vcs repository.
+type CloneOptions struct {
+	// Location of the remote vcs repository.
+	url string
+	// Location to where the vcs repository is loaded.
+	targetPath string
+}
+
+type cloneOption = func(opt *CloneOptions)
+
+// WithUrl provides a URL configuration for the clone function.
+func WithUrl(url string) func(*CloneOptions) {
+	return func(opt *CloneOptions) {
+		opt.url = url
+	}
+}
+
+// WithTarget provides a local path to where the vcs repository is cloned.
+func WithTarget(path string) func(*CloneOptions) {
+	return func(opt *CloneOptions) {
+		opt.targetPath = path
+	}
+}
+
+// Clone loads a remote vcs repository to a local path.
+func (manager RepositoryManager) Clone(opts ...cloneOption) (*Repository, error) {
+	options := &CloneOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	targetPath := options.targetPath
+	_, err := git.PlainClone(targetPath, false, &git.CloneOptions{
+		URL:      options.url,
+		Progress: os.Stdout,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	repository := NewRepository(targetPath)
+	return &repository, nil
 }
