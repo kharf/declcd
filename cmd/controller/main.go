@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"cuelang.org/go/cue/cuecontext"
 	"github.com/kharf/declcd/pkg/core"
+	"github.com/kharf/declcd/pkg/kube"
 	"go.uber.org/zap"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 )
 
 // WIP
@@ -36,22 +39,38 @@ func main() {
 		panic(err)
 	}
 
+	// k8s
+	config, err := controllerruntime.GetConfig()
+	if err != nil {
+		panic(err)
+	}
+
+	// create the client
+	client, err := kube.NewClient(config)
+
 	manifestBuilder := core.NewComponentManifestBuilder(ctx)
 	for _, component := range project.MainComponents {
-		buildSubComponent(localRepositoryPath, manifestBuilder, component.SubComponents)
+		buildSubComponent(localRepositoryPath, manifestBuilder, component.SubComponents, client)
 	}
 }
 
-func buildSubComponent(localRepositoryPath string, builder core.ComponentManifestBuilder, components []*core.SubDeclarativeComponent) {
+func buildSubComponent(localRepositoryPath string, builder core.ComponentManifestBuilder, components []*core.SubDeclarativeComponent, client *kube.Client) {
+	ctx := context.TODO()
 	for _, component := range components {
+		fmt.Println("component: ", component.Path)
 		unstructureds, err := builder.Build(core.WithProjectRoot(localRepositoryPath), core.WithComponent(component.Entry.Name, component.Path))
 		if err != nil {
 			panic(err)
 		}
 
-		for _, unstructured := range unstructureds {
-			fmt.Println("built manifest", unstructured.Object)
+		for _, obj := range unstructureds {
+			err = client.Apply(ctx, &obj)
+			if err != nil {
+				panic(err)
+			}
 		}
+
+		buildSubComponent(localRepositoryPath, builder, component.SubComponents, client)
 	}
 }
 

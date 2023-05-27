@@ -26,15 +26,12 @@ func TestContentEntryBuilder_Build(t *testing.T) {
 	result, err = builder.Build(`
 		entry: infrastructure: {
 		 intervalSeconds: 60
-		 dependencies: ["app"]
 		}
 	`,
 	)
 	assert.NilError(t, err)
 	assert.Equal(t, result.Name, "infrastructure")
 	assert.Equal(t, result.IntervalSeconds, 60)
-	assert.Assert(t, len(result.Dependencies) == 1)
-	assert.Equal(t, result.Dependencies[0], "app")
 }
 
 func TestContentEntryBuilder_Build_Schema(t *testing.T) {
@@ -47,15 +44,6 @@ func TestContentEntryBuilder_Build_Schema(t *testing.T) {
 	`,
 	)
 	assert.Error(t, err, "entry.app.intervalSeconds: 2 errors in empty disjunction: (and 2 more errors)")
-
-	_, err = builder.Build(`
-		entry: app: {
-		 intervalSeconds: 60
-		 dependencies: [1]
-		}
-	`,
-	)
-	assert.Error(t, err, "entry.app.dependencies.0: conflicting values 1 and string (mismatched types int and string)")
 }
 
 func TestFileEntryBuilder_Build(t *testing.T) {
@@ -87,12 +75,11 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	unstructureds, err := builder.Build(WithProjectRoot(projectRoot), WithComponent("prometheus", "./infra/prometheus"))
 	assert.NilError(t, err)
 	assert.Assert(t, len(unstructureds) == 2)
-	deployment := unstructureds[0].Object
-	assert.Equal(t, deployment["apiVersion"], "v1")
-	assert.Equal(t, deployment["kind"], "Deployment")
-	deployMetadata := deployment["metadata"].(map[string]interface{})
-	assert.Equal(t, deployMetadata["name"], "mydeployment")
-	deploySpec := deployment["spec"].(map[string]interface{})
+	deployment := unstructureds[0]
+	assert.Equal(t, deployment.GetAPIVersion(), "v1")
+	assert.Equal(t, deployment.GetKind(), "Deployment")
+	assert.Equal(t, deployment.GetName(), "mydeployment")
+	deploySpec := deployment.Object["spec"].(map[string]interface{})
 	assert.Equal(t, deploySpec["replicas"], 1)
 	deployTemplate := deploySpec["template"].(map[string]interface{})
 	deployTemplateSpec := deployTemplate["spec"].(map[string]interface{})

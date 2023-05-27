@@ -203,7 +203,7 @@ func (b ComponentManifestBuilder) Build(opts ...manifestBuildOption) ([]unstruct
 			}
 
 			if !typeIter.Next() {
-				return []unstructured.Unstructured{}, fmt.Errorf("%w: manifest name struct undefined", ErrWrongManifestFormat)
+				return []unstructured.Unstructured{}, fmt.Errorf("%w: manifest identifier struct undefined", ErrWrongManifestFormat)
 			}
 
 			nameValue := typeIter.Value()
