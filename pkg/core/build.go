@@ -202,9 +202,9 @@ func (b ComponentManifestBuilder) Build(opts ...manifestBuildOption) ([]unstruct
 			}
 
 			for objIter.Next() {
-				nameValue := objIter.Value()
+				idValue := objIter.Value()
 				var obj map[string]interface{}
-				err = nameValue.Decode(&obj)
+				err = idValue.Decode(&obj)
 				if err != nil {
 					return nil, err
 				}
