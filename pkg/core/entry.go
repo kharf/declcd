@@ -5,7 +5,6 @@ const EntrySchema = `
 #entry: [Name=_]: {
 	name:             Name
 	intervalSeconds: uint | *60
-	dependencies?: [...string]
 }
 entry: #entry
 `
@@ -21,7 +20,6 @@ type EntryDef struct {
 
 // Entry is the entrypoint of a decl component. It used to define the component's dependencies and its reconciliation interval.
 type Entry struct {
-	Name            string   `json:"name"`
-	IntervalSeconds int      `json:"intervalSeconds"`
-	Dependencies    []string `json:"dependencies"`
+	Name            string `json:"name"`
+	IntervalSeconds int    `json:"intervalSeconds"`
 }
