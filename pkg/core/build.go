@@ -196,23 +196,22 @@ func (b ComponentManifestBuilder) Build(opts ...manifestBuildOption) ([]unstruct
 		}
 
 		for iter.Next() {
-			typeValue := iter.Value()
-			typeIter, err := typeValue.Fields()
+			objValue := iter.Value()
+			fmt.Println("current: ", objValue)
+			objIter, err := objValue.Fields()
 			if err != nil {
 				return []unstructured.Unstructured{}, err
 			}
 
-			if !typeIter.Next() {
-				return []unstructured.Unstructured{}, fmt.Errorf("%w: manifest identifier struct undefined", ErrWrongManifestFormat)
+			for objIter.Next() {
+				nameValue := objIter.Value()
+				var obj map[string]interface{}
+				err = nameValue.Decode(&obj)
+				if err != nil {
+					return nil, err
+				}
+				unstructureds = append(unstructureds, unstructured.Unstructured{Object: obj})
 			}
-
-			nameValue := typeIter.Value()
-			var obj map[string]interface{}
-			err = nameValue.Decode(&obj)
-			if err != nil {
-				return nil, err
-			}
-			unstructureds = append(unstructureds, unstructured.Unstructured{Object: obj})
 		}
 	}
 
