@@ -24,30 +24,22 @@ var (
 
 // MainDeclarativeComponent is an expected entry point for the project, containing all the declarative components.
 type MainDeclarativeComponent struct {
-	entry         Entry
 	SubComponents []*SubDeclarativeComponent
 }
 
-func NewMainDeclarativeComponent(entry Entry, subComponents []*SubDeclarativeComponent) MainDeclarativeComponent {
-	return MainDeclarativeComponent{entry: entry, SubComponents: subComponents}
+func NewMainDeclarativeComponent(subComponents []*SubDeclarativeComponent) MainDeclarativeComponent {
+	return MainDeclarativeComponent{SubComponents: subComponents}
 }
 
 // SubDeclarativeComponent is an entry point for containing all the declarative manifests.
 type SubDeclarativeComponent struct {
-	Entry         Entry
 	SubComponents []*SubDeclarativeComponent
-	Manifests     []*Manifest
 	// Relative path to the project path.
 	Path string
 }
 
-func NewSubDeclarativeComponent(entry Entry, subComponents []*SubDeclarativeComponent, manifests []*Manifest, path string) SubDeclarativeComponent {
-	return SubDeclarativeComponent{Entry: entry, SubComponents: subComponents, Manifests: manifests, Path: path}
-}
-
-// Manifest is a declarative object description.
-type Manifest struct {
-	name string
+func NewSubDeclarativeComponent(subComponents []*SubDeclarativeComponent, path string) SubDeclarativeComponent {
+	return SubDeclarativeComponent{SubComponents: subComponents, Path: path}
 }
 
 // Project is the declcd representation of the "GitOps" repository with all its declarative components.
@@ -61,13 +53,12 @@ func NewProject(mainComponents []MainDeclarativeComponent) Project {
 
 // ProjectManager loads a declcd [Project] from given File System.
 type ProjectManager struct {
-	fs           fs.FS
-	entryBuilder FileEntryBuilder
-	logger       *zap.SugaredLogger
+	fs     fs.FS
+	logger *zap.SugaredLogger
 }
 
-func NewProjectManager(fs fs.FS, entryBuilder FileEntryBuilder, logger *zap.SugaredLogger) ProjectManager {
-	return ProjectManager{fs: fs, entryBuilder: entryBuilder, logger: logger}
+func NewProjectManager(fs fs.FS, logger *zap.SugaredLogger) ProjectManager {
+	return ProjectManager{fs: fs, logger: logger}
 }
 
 // Load uses a given path to a project and loads it into a [Project].
@@ -77,24 +68,19 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 	for _, mainComponentPath := range projectMainComponentPaths {
 		fullMainComponentPath := projectPath + mainComponentPath
 		p.logger.Debugf("walking main component path %s", fullMainComponentPath)
-		entryFilePath := fullMainComponentPath + "/" + EntryFileName
-		if _, err := fs.Stat(p.fs, entryFilePath); errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%w: could not load %s", ErrMainComponentNotFound, entryFilePath)
-		}
-		mainDeclarativeComponentEntry, err := p.entryBuilder.Build(entryFilePath)
-		if err != nil {
-			return nil, err
+		if _, err := fs.Stat(p.fs, fullMainComponentPath); errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w: could not load %s", ErrMainComponentNotFound, fullMainComponentPath)
 		}
 		p.logger.Infof("found main declarative component %s", fullMainComponentPath)
 
 		mainDeclarativeSubComponents := make([]*SubDeclarativeComponent, 0, 10)
 		subComponentsByPath := make(map[string]*SubDeclarativeComponent)
-		err = fs.WalkDir(p.fs, fullMainComponentPath, func(path string, dirEntry fs.DirEntry, err error) error {
+		err := fs.WalkDir(p.fs, fullMainComponentPath, func(path string, dirEntry fs.DirEntry, err error) error {
 			p.logger.Debugf("walking path %s", path)
 			parentPath := strings.TrimSuffix(path, "/"+dirEntry.Name())
 			if !dirEntry.IsDir() && parentPath == fullMainComponentPath {
-				if dirEntry.Name() == EntryFileName {
-					p.logger.Debugf("skipping entry %s as it is part of a main declarative component", path)
+				if dirEntry.Name() == ComponentFileName {
+					p.logger.Debugf("skipping component %s as it is part of a main declarative component", path)
 				} else {
 					p.logger.Debugf("skipping file %s as it is not part of a sub declarative component", path)
 				}
@@ -108,33 +94,23 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 
 			parent := subComponentsByPath[parentPath]
 			if dirEntry.IsDir() {
-				entryFilePath = path + "/" + EntryFileName
-				if _, err := fs.Stat(p.fs, entryFilePath); errors.Is(err, fs.ErrNotExist) {
-					p.logger.Infof("skipping directory %s, because no entry.cue was found", dirEntry.Name())
+				componentFilePath := path + "/" + ComponentFileName
+				if _, err := fs.Stat(p.fs, componentFilePath); errors.Is(err, fs.ErrNotExist) {
+					p.logger.Infof("skipping directory %s, because no component.cue was found", dirEntry.Name())
 					return filepath.SkipDir
-				}
-				entry, err := p.entryBuilder.Build(entryFilePath)
-				if err != nil {
-					return err
 				}
 				p.logger.Infof("found sub declarative component %s", path)
 				relativePath, err := filepath.Rel(projectPath, path)
 				if err != nil {
 					return err
 				}
-				subDeclarativeComponent := &SubDeclarativeComponent{Entry: *entry, Path: relativePath}
+				subDeclarativeComponent := &SubDeclarativeComponent{Path: relativePath}
 				subComponentsByPath[path] = subDeclarativeComponent
 				if parentPath != fullMainComponentPath {
 					parent.SubComponents = append(parent.SubComponents, subDeclarativeComponent)
 				} else {
 					mainDeclarativeSubComponents = append(mainDeclarativeSubComponents, subDeclarativeComponent)
 				}
-			} else if dirEntry.Name() != EntryFileName {
-				p.logger.Infof("found sub declarative component manifest %s", dirEntry.Name())
-				p.logger.Debugf("adding sub declarative component manifest %s to parent sub declarative component %s", dirEntry.Name(), parentPath)
-				parent.Manifests = append(parent.Manifests, &Manifest{name: dirEntry.Name()})
-			} else {
-				p.logger.Debugf("skipping entry %s as it is already included", path)
 			}
 
 			return nil
@@ -143,7 +119,7 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 			return nil, fmt.Errorf("%w: %w", ErrLoadProject, err)
 		}
 
-		mainDeclarativeComponents = append(mainDeclarativeComponents, NewMainDeclarativeComponent(*mainDeclarativeComponentEntry, mainDeclarativeSubComponents))
+		mainDeclarativeComponents = append(mainDeclarativeComponents, NewMainDeclarativeComponent(mainDeclarativeSubComponents))
 	}
 
 	proj := NewProject(mainDeclarativeComponents)
@@ -198,12 +174,10 @@ func (manager RepositoryManager) Clone(opts ...cloneOption) (*Repository, error)
 	}
 
 	targetPath := options.targetPath
-	_, err := git.PlainClone(targetPath, false, &git.CloneOptions{
-		URL:      options.url,
-		Progress: os.Stdout,
-	})
-
-	if err != nil {
+	if _, err := git.PlainClone(
+		targetPath, false,
+		&git.CloneOptions{URL: options.url, Progress: os.Stdout},
+	); err != nil && err != git.ErrRepositoryAlreadyExists {
 		return nil, err
 	}
 

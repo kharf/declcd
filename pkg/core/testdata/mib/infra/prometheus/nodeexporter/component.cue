@@ -1,3 +1,3 @@
-entry: apps: {
+component: {
 	intervalSeconds: 60
 }
