@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"strings"
 
@@ -197,7 +196,6 @@ func (b ComponentManifestBuilder) Build(opts ...manifestBuildOption) ([]unstruct
 
 		for iter.Next() {
 			objValue := iter.Value()
-			fmt.Println("current: ", objValue)
 			objIter, err := objValue.Fields()
 			if err != nil {
 				return []unstructured.Unstructured{}, err
