@@ -1,4 +1,4 @@
-package core
+package project
 
 import (
 	"os"
@@ -16,7 +16,7 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	projectRoot := path.Join(cwd, "testdata", "mib")
+	projectRoot := path.Join(cwd, "testdata", "simple")
 	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
 	assert.Equal(t, component.IntervalSeconds, 1)
 	unstructureds := component.Manifests

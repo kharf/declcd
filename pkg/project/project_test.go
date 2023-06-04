@@ -1,4 +1,4 @@
-package core
+package project
 
 import (
 	"os"
@@ -79,12 +79,12 @@ func TestProjectManager_Load(t *testing.T) {
 	}
 
 	pm := NewProjectManager(mapfs, logger)
-	proj, err := pm.Load("project/")
+	mainComponents, err := pm.Load("project/")
 	assert.NilError(t, err)
-	assert.Assert(t, len(proj.MainComponents) == 2)
-	apps := proj.MainComponents[0]
+	assert.Assert(t, len(mainComponents) == 2)
+	apps := mainComponents[0]
 	assert.Assert(t, len(apps.SubComponents) == 0)
-	infra := proj.MainComponents[1]
+	infra := mainComponents[1]
 	assert.Assert(t, len(infra.SubComponents) == 1)
 	prometheus := infra.SubComponents[0]
 	assert.Assert(t, len(prometheus.SubComponents) == 1)
@@ -122,12 +122,12 @@ func TestProjectManager_Load_TestData(t *testing.T) {
 	logger := setUp(t)
 	fileSystem := os.DirFS("testdata")
 	pm := NewProjectManager(fileSystem, logger)
-	proj, err := pm.Load("mib")
+	mainComponents, err := pm.Load("simple")
 	assert.NilError(t, err)
-	assert.Assert(t, len(proj.MainComponents) == 2)
-	apps := proj.MainComponents[0]
+	assert.Assert(t, len(mainComponents) == 2)
+	apps := mainComponents[0]
 	assert.Assert(t, len(apps.SubComponents) == 0)
-	infra := proj.MainComponents[1]
+	infra := mainComponents[1]
 	assert.Assert(t, len(infra.SubComponents) == 1)
 	prometheus := infra.SubComponents[0]
 	assert.Assert(t, len(prometheus.SubComponents) == 1)

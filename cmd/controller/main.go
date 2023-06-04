@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"cuelang.org/go/cue/cuecontext"
-	"github.com/kharf/declcd/pkg/core"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/project"
 	"go.uber.org/zap"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 )
@@ -22,19 +22,19 @@ func main() {
 	defer basicLogger.Sync()
 	logger := basicLogger.Sugar()
 
-	repositoryManager := core.NewRepositoryManager()
+	repositoryManager := project.NewRepositoryManager()
 	rootDir := "/tmp"
 	repositoryDir := "decl"
 	localRepositoryPath := filepath.Join(rootDir, repositoryDir)
-	_, err = repositoryManager.Clone(core.WithUrl("https://github.com/kharf/declcd-test-repo.git"), core.WithTarget(localRepositoryPath))
+	_, err = repositoryManager.Clone(project.WithUrl("https://github.com/kharf/declcd-test-repo.git"), project.WithTarget(localRepositoryPath))
 	if err != nil {
 		panic(err)
 	}
 
 	fileSystem := os.DirFS(rootDir)
 	ctx := cuecontext.New()
-	projectManager := core.NewProjectManager(fileSystem, logger)
-	project, err := projectManager.Load(repositoryDir)
+	projectManager := project.NewProjectManager(fileSystem, logger)
+	mainComponents, err := projectManager.Load(repositoryDir)
 	if err != nil {
 		panic(err)
 	}
@@ -48,17 +48,17 @@ func main() {
 	// create the client
 	client, err := kube.NewClient(config)
 
-	manifestBuilder := core.NewComponentBuilder(ctx)
-	for _, component := range project.MainComponents {
+	manifestBuilder := project.NewComponentBuilder(ctx)
+	for _, component := range mainComponents {
 		buildSubComponent(localRepositoryPath, manifestBuilder, component.SubComponents, client)
 	}
 }
 
-func buildSubComponent(localRepositoryPath string, builder core.ComponentBuilder, subComponents []*core.SubDeclarativeComponent, client *kube.Client) {
+func buildSubComponent(localRepositoryPath string, builder project.ComponentBuilder, subComponents []*project.SubDeclarativeComponent, client *kube.Client) {
 	ctx := context.TODO()
 	for _, subComponent := range subComponents {
 		fmt.Println("component: ", subComponent.Path)
-		component, err := builder.Build(core.WithProjectRoot(localRepositoryPath), core.WithComponentPath(subComponent.Path))
+		component, err := builder.Build(project.WithProjectRoot(localRepositoryPath), project.WithComponentPath(subComponent.Path))
 		if err != nil {
 			panic(err)
 		}

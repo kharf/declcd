@@ -1,16 +1,14 @@
-package core
+package project
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"go.uber.org/zap"
-
-	"github.com/go-git/go-git/v5"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var (
@@ -21,6 +19,24 @@ var (
 		"/infra",
 	}
 )
+
+// Defines the CUE schema of decl's components.
+const ComponentSchema = `
+#component: {
+	intervalSeconds: uint | *60
+	manifests: [...]
+}
+`
+
+const (
+	ComponentFileName = "component.cue"
+)
+
+// Component defines the component's manifests and its reconciliation interval.
+type Component struct {
+	IntervalSeconds int                         `json:"intervalSeconds"`
+	Manifests       []unstructured.Unstructured `json:"manifests"`
+}
 
 // MainDeclarativeComponent is an expected entry point for the project, containing all the declarative components.
 type MainDeclarativeComponent struct {
@@ -42,15 +58,6 @@ func NewSubDeclarativeComponent(subComponents []*SubDeclarativeComponent, path s
 	return SubDeclarativeComponent{SubComponents: subComponents, Path: path}
 }
 
-// Project is the declcd representation of the "GitOps" repository with all its declarative components.
-type Project struct {
-	MainComponents []MainDeclarativeComponent
-}
-
-func NewProject(mainComponents []MainDeclarativeComponent) Project {
-	return Project{MainComponents: mainComponents}
-}
-
 // ProjectManager loads a declcd [Project] from given File System.
 type ProjectManager struct {
 	fs     fs.FS
@@ -62,7 +69,7 @@ func NewProjectManager(fs fs.FS, logger *zap.SugaredLogger) ProjectManager {
 }
 
 // Load uses a given path to a project and loads it into a [Project].
-func (p ProjectManager) Load(projectPath string) (*Project, error) {
+func (p ProjectManager) Load(projectPath string) ([]MainDeclarativeComponent, error) {
 	projectPath = strings.TrimSuffix(projectPath, "/")
 	mainDeclarativeComponents := make([]MainDeclarativeComponent, 0, len(projectMainComponentPaths))
 	for _, mainComponentPath := range projectMainComponentPaths {
@@ -122,65 +129,5 @@ func (p ProjectManager) Load(projectPath string) (*Project, error) {
 		mainDeclarativeComponents = append(mainDeclarativeComponents, NewMainDeclarativeComponent(mainDeclarativeSubComponents))
 	}
 
-	proj := NewProject(mainDeclarativeComponents)
-	return &proj, nil
-}
-
-// A vcs Repository.
-type Repository struct {
-	path string
-}
-
-func NewRepository(path string) Repository {
-	return Repository{path: path}
-}
-
-// RepositoryManager clones a remote vcs repository to a local path.
-type RepositoryManager struct{}
-
-func NewRepositoryManager() RepositoryManager {
-	return RepositoryManager{}
-}
-
-// CloneOptions define configuration how to clone a vcs repository.
-type CloneOptions struct {
-	// Location of the remote vcs repository.
-	url string
-	// Location to where the vcs repository is loaded.
-	targetPath string
-}
-
-type cloneOption = func(opt *CloneOptions)
-
-// WithUrl provides a URL configuration for the clone function.
-func WithUrl(url string) func(*CloneOptions) {
-	return func(opt *CloneOptions) {
-		opt.url = url
-	}
-}
-
-// WithTarget provides a local path to where the vcs repository is cloned.
-func WithTarget(path string) func(*CloneOptions) {
-	return func(opt *CloneOptions) {
-		opt.targetPath = path
-	}
-}
-
-// Clone loads a remote vcs repository to a local path.
-func (manager RepositoryManager) Clone(opts ...cloneOption) (*Repository, error) {
-	options := &CloneOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	targetPath := options.targetPath
-	if _, err := git.PlainClone(
-		targetPath, false,
-		&git.CloneOptions{URL: options.url, Progress: os.Stdout},
-	); err != nil && err != git.ErrRepositoryAlreadyExists {
-		return nil, err
-	}
-
-	repository := NewRepository(targetPath)
-	return &repository, nil
+	return mainDeclarativeComponents, nil
 }
