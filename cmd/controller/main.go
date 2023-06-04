@@ -19,6 +19,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer basicLogger.Sync()
 	logger := basicLogger.Sugar()
 
 	repositoryManager := core.NewRepositoryManager()
@@ -32,8 +33,7 @@ func main() {
 
 	fileSystem := os.DirFS(rootDir)
 	ctx := cuecontext.New()
-	builder := core.NewFileEntryBuilder(ctx, fileSystem, core.NewContentEntryBuilder(ctx))
-	projectManager := core.NewProjectManager(fileSystem, builder, logger)
+	projectManager := core.NewProjectManager(fileSystem, logger)
 	project, err := projectManager.Load(repositoryDir)
 	if err != nil {
 		panic(err)
@@ -48,29 +48,29 @@ func main() {
 	// create the client
 	client, err := kube.NewClient(config)
 
-	manifestBuilder := core.NewComponentManifestBuilder(ctx)
+	manifestBuilder := core.NewComponentBuilder(ctx)
 	for _, component := range project.MainComponents {
 		buildSubComponent(localRepositoryPath, manifestBuilder, component.SubComponents, client)
 	}
 }
 
-func buildSubComponent(localRepositoryPath string, builder core.ComponentManifestBuilder, components []*core.SubDeclarativeComponent, client *kube.Client) {
+func buildSubComponent(localRepositoryPath string, builder core.ComponentBuilder, subComponents []*core.SubDeclarativeComponent, client *kube.Client) {
 	ctx := context.TODO()
-	for _, component := range components {
-		fmt.Println("component: ", component.Path)
-		unstructureds, err := builder.Build(core.WithProjectRoot(localRepositoryPath), core.WithComponent(component.Entry.Name, component.Path))
+	for _, subComponent := range subComponents {
+		fmt.Println("component: ", subComponent.Path)
+		component, err := builder.Build(core.WithProjectRoot(localRepositoryPath), core.WithComponentPath(subComponent.Path))
 		if err != nil {
 			panic(err)
 		}
 
-		for _, obj := range unstructureds {
+		for _, obj := range component.Manifests {
 			err = client.Apply(ctx, &obj)
 			if err != nil {
 				panic(err)
 			}
 		}
 
-		buildSubComponent(localRepositoryPath, builder, component.SubComponents, client)
+		buildSubComponent(localRepositoryPath, builder, subComponent.SubComponents, client)
 	}
 }
 

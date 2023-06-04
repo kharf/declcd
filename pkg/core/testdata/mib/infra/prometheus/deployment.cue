@@ -2,7 +2,7 @@ package prometheus
 
 import "k8s.io/api/apps/v1"
 
-prometheus: deployment: v1.#Deployment & {
+_deployment: v1.#Deployment & {
 	apiVersion: "v1"
 	kind:       "Deployment"
 	metadata: name: "mydeployment"

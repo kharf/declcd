@@ -4,83 +4,35 @@ import (
 	"os"
 	"path"
 	"testing"
-	"testing/fstest"
 
 	"cuelang.org/go/cue/cuecontext"
 	"gotest.tools/v3/assert"
 )
 
-func TestContentEntryBuilder_Build(t *testing.T) {
-	ctx := cuecontext.New()
-	builder := NewContentEntryBuilder(ctx)
-	result, err := builder.Build(`
-		entry: app: {
-		 intervalSeconds: 1
-		}
-	`,
-	)
-	assert.NilError(t, err)
-	assert.Equal(t, result.Name, "app")
-	assert.Equal(t, result.IntervalSeconds, 1)
-
-	result, err = builder.Build(`
-		entry: infrastructure: {
-		 intervalSeconds: 60
-		}
-	`,
-	)
-	assert.NilError(t, err)
-	assert.Equal(t, result.Name, "infrastructure")
-	assert.Equal(t, result.IntervalSeconds, 60)
-}
-
-func TestContentEntryBuilder_Build_Schema(t *testing.T) {
-	ctx := cuecontext.New()
-	builder := NewContentEntryBuilder(ctx)
-	_, err := builder.Build(`
-		entry: app: {
-		 intervalSeconds: "60"
-		}
-	`,
-	)
-	assert.Error(t, err, "entry.app.intervalSeconds: 2 errors in empty disjunction: (and 2 more errors)")
-}
-
-func TestFileEntryBuilder_Build(t *testing.T) {
-	ctx := cuecontext.New()
-	fs := fstest.MapFS{
-		"entry.cue": {
-			Data: []byte(`
-		entry: app: {
-		 intervalSeconds: 60
-		}
-	`),
-		},
-	}
-	builder := NewFileEntryBuilder(ctx, fs, NewContentEntryBuilder(ctx))
-	result, err := builder.Build("entry.cue")
-	assert.NilError(t, err)
-	assert.Equal(t, result.Name, "app")
-	assert.Equal(t, result.IntervalSeconds, 60)
-}
-
 func TestManifestInstanceBuilder_Build(t *testing.T) {
 	ctx := cuecontext.New()
-	builder := NewComponentManifestBuilder(ctx)
+	builder := NewComponentBuilder(ctx)
 	cwd, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
 	projectRoot := path.Join(cwd, "testdata", "mib")
-	unstructureds, err := builder.Build(WithProjectRoot(projectRoot), WithComponent("prometheus", "./infra/prometheus"))
+	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
+	assert.Equal(t, component.IntervalSeconds, 1)
+	unstructureds := component.Manifests
 	assert.NilError(t, err)
 	assert.Assert(t, len(unstructureds) == 2)
-	deployment := unstructureds[0]
+	deployment := unstructureds[1]
 	assert.Equal(t, deployment.GetAPIVersion(), "v1")
 	assert.Equal(t, deployment.GetKind(), "Deployment")
 	assert.Equal(t, deployment.GetName(), "mydeployment")
 	deploySpec := deployment.Object["spec"].(map[string]interface{})
-	assert.Equal(t, deploySpec["replicas"], 1)
+	replicas := deploySpec["replicas"]
+	if _, ok := replicas.(int64); ok {
+		assert.Equal(t, replicas, int64(1))
+	} else {
+		assert.Equal(t, replicas, 1)
+	}
 	deployTemplate := deploySpec["template"].(map[string]interface{})
 	deployTemplateSpec := deployTemplate["spec"].(map[string]interface{})
 	deployContainers := deployTemplateSpec["containers"].([]interface{})
@@ -90,13 +42,18 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	assert.Equal(t, deployContainer["image"], "nginx:1.14.2")
 	deployContainerPorts := deployContainer["ports"].([]interface{})
 	deployContainerPort := deployContainerPorts[0].(map[string]interface{})
-	assert.Equal(t, deployContainerPort["containerPort"], 80)
-	namespace := unstructureds[1].Object
+	containerPort := deployContainerPort["containerPort"]
+	if _, ok := containerPort.(int64); ok {
+		assert.Equal(t, containerPort, int64(80))
+	} else {
+		assert.Equal(t, containerPort, 80)
+	}
+	namespace := unstructureds[0].Object
 	assert.Equal(t, namespace["apiVersion"], "v1")
 	assert.Equal(t, namespace["kind"], "Namespace")
 	nsMetadata := namespace["metadata"].(map[string]interface{})
 	assert.Equal(t, nsMetadata["name"], "mynamespace")
 
-	_, err = builder.Build(WithProjectRoot(projectRoot), WithComponent("nodeexporter", "./infra/prometheus/nodeexporter"))
+	_, err = builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus/nodeexporter"))
 	assert.NilError(t, err)
 }
