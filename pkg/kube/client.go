@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -68,7 +69,14 @@ func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured)
 
 	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: ClientName})
 	if err != nil {
-		return err
+		if errors.ReasonForError(err) == v1.StatusReasonAlreadyExists {
+			_, err = resourceInterface.Update(ctx, obj, v1.UpdateOptions{FieldManager: ClientName})
+			if err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 
 	for _, unstr := range list.Items {
