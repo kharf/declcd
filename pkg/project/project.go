@@ -14,9 +14,9 @@ import (
 var (
 	ErrMainComponentNotFound  = errors.New("main component not found")
 	ErrLoadProject            = errors.New("could not load project")
-	projectMainComponentPaths = []string{
-		"/apps",
+	ProjectMainComponentPaths = []string{
 		"/infra",
+		"/apps",
 	}
 )
 
@@ -58,55 +58,59 @@ func NewSubDeclarativeComponent(subComponents []*SubDeclarativeComponent, path s
 	return SubDeclarativeComponent{SubComponents: subComponents, Path: path}
 }
 
+// FileSystem provides access to a declcd file system.
+type FileSystem struct {
+	fs.FS
+	Root string
+}
+
+func NewFileSystem(fs fs.FS, root string) FileSystem {
+	return FileSystem{FS: fs, Root: root}
+}
+
 // ProjectManager loads a declcd [Project] from given File System.
 type ProjectManager struct {
-	fs     fs.FS
+	FS     FileSystem
 	logger *zap.SugaredLogger
 }
 
-func NewProjectManager(fs fs.FS, logger *zap.SugaredLogger) ProjectManager {
-	return ProjectManager{fs: fs, logger: logger}
+func NewProjectManager(fs FileSystem, logger *zap.SugaredLogger) ProjectManager {
+	return ProjectManager{FS: fs, logger: logger}
 }
 
-// Load uses a given path to a project and loads it into a [Project].
+// Load uses a given path to a project and loads it into a slice of [MainDeclarativeComponent]s.
 func (p ProjectManager) Load(projectPath string) ([]MainDeclarativeComponent, error) {
 	projectPath = strings.TrimSuffix(projectPath, "/")
-	mainDeclarativeComponents := make([]MainDeclarativeComponent, 0, len(projectMainComponentPaths))
-	for _, mainComponentPath := range projectMainComponentPaths {
+	mainDeclarativeComponents := make([]MainDeclarativeComponent, 0, len(ProjectMainComponentPaths))
+	for _, mainComponentPath := range ProjectMainComponentPaths {
 		fullMainComponentPath := projectPath + mainComponentPath
-		p.logger.Debugf("walking main component path %s", fullMainComponentPath)
-		if _, err := fs.Stat(p.fs, fullMainComponentPath); errors.Is(err, fs.ErrNotExist) {
+		if _, err := fs.Stat(p.FS, fullMainComponentPath); errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: could not load %s", ErrMainComponentNotFound, fullMainComponentPath)
 		}
-		p.logger.Infof("found main declarative component %s", fullMainComponentPath)
 
 		mainDeclarativeSubComponents := make([]*SubDeclarativeComponent, 0, 10)
 		subComponentsByPath := make(map[string]*SubDeclarativeComponent)
-		err := fs.WalkDir(p.fs, fullMainComponentPath, func(path string, dirEntry fs.DirEntry, err error) error {
-			p.logger.Debugf("walking path %s", path)
+		err := fs.WalkDir(p.FS, fullMainComponentPath, func(path string, dirEntry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
 			parentPath := strings.TrimSuffix(path, "/"+dirEntry.Name())
 			if !dirEntry.IsDir() && parentPath == fullMainComponentPath {
-				if dirEntry.Name() == ComponentFileName {
-					p.logger.Debugf("skipping component %s as it is part of a main declarative component", path)
-				} else {
-					p.logger.Debugf("skipping file %s as it is not part of a sub declarative component", path)
-				}
 				return nil
 			}
 
 			if dirEntry.IsDir() && path == fullMainComponentPath {
-				p.logger.Debugf("skipping directory %s as it is a main component", path)
 				return nil
 			}
 
 			parent := subComponentsByPath[parentPath]
 			if dirEntry.IsDir() {
 				componentFilePath := path + "/" + ComponentFileName
-				if _, err := fs.Stat(p.fs, componentFilePath); errors.Is(err, fs.ErrNotExist) {
+				if _, err := fs.Stat(p.FS, componentFilePath); errors.Is(err, fs.ErrNotExist) {
 					p.logger.Infof("skipping directory %s, because no component.cue was found", dirEntry.Name())
 					return filepath.SkipDir
 				}
-				p.logger.Infof("found sub declarative component %s", path)
+				p.logger.Infof("found component %s", path)
 				relativePath, err := filepath.Rel(projectPath, path)
 				if err != nil {
 					return err

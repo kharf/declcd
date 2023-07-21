@@ -1,81 +1,135 @@
+/*
+Copyright 2023.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
-	"context"
-	"fmt"
+	"flag"
 	"os"
 	"path/filepath"
 
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	// to ensure that exec-entrypoint and run can make use of them.
 	"cuelang.org/go/cue/cuecontext"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/project"
 	"go.uber.org/zap"
-	controllerruntime "sigs.k8s.io/controller-runtime"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	gitopsv1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/internal/controller"
+	"github.com/kharf/declcd/pkg/project"
+	//+kubebuilder:scaffold:imports
 )
 
-// WIP
+var (
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
+)
+
+func init() {
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	utilruntime.Must(gitopsv1.AddToScheme(scheme))
+	//+kubebuilder:scaffold:scheme
+}
+
 func main() {
-	basicLogger, err := initZap()
-	if err != nil {
-		panic(err)
+	var metricsAddr string
+	var enableLeaderElection bool
+	var probeAddr string
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	opts := ctrlZap.Options{
+		Development: true,
 	}
-	defer basicLogger.Sync()
-	logger := basicLogger.Sugar()
+	opts.BindFlags(flag.CommandLine)
+	flag.Parse()
 
-	repositoryManager := project.NewRepositoryManager()
-	rootDir := "/tmp"
-	repositoryDir := "decl"
-	localRepositoryPath := filepath.Join(rootDir, repositoryDir)
-	_, err = repositoryManager.Clone(project.WithUrl("https://github.com/kharf/declcd-test-repo.git"), project.WithTarget(localRepositoryPath))
+	ctrl.SetLogger(ctrlZap.New(ctrlZap.UseFlagOptions(&opts)))
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:                 scheme,
+		MetricsBindAddress:     metricsAddr,
+		Port:                   9443,
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "597c047a.declcd.io",
+		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
+		// when the Manager ends. This requires the binary to immediately end when the
+		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
+		// speeds up voluntary leader transitions as the new leader don't have to wait
+		// LeaseDuration time first.
+		//
+		// In the default scaffold provided, the program ends immediately after
+		// the manager stops, so would be fine to enable this option. However,
+		// if you are doing or is intended to do any operation such as perform cleanups
+		// after the manager stops then its usage might be unsafe.
+		// LeaderElectionReleaseOnCancel: true,
+	})
 	if err != nil {
-		panic(err)
+		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
 	}
 
-	fileSystem := os.DirFS(rootDir)
+	gitOpsRepositoryDir := filepath.Join(os.TempDir(), "decl")
+	fs := os.DirFS(gitOpsRepositoryDir)
 	ctx := cuecontext.New()
-	projectManager := project.NewProjectManager(fileSystem, logger)
-	mainComponents, err := projectManager.Load(repositoryDir)
+	// TODO: replace with logr
+	ctrlZapConfig := zap.NewDevelopmentConfig()
+	ctrlZapConfig.OutputPaths = []string{"stdout"}
+	logger, err := ctrlZapConfig.Build()
 	if err != nil {
-		panic(err)
+		setupLog.Error(err, "unable to build logger")
+		os.Exit(1)
+	}
+	defer logger.Sync()
+	sugarredLogger := logger.Sugar()
+	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, sugarredLogger)
+	if err = (&controller.GitOpsProjectReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		CueContext:     ctx,
+		ProjectManager: projectManager,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "GitOpsProject")
+		os.Exit(1)
+	}
+	//+kubebuilder:scaffold:builder
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
 	}
 
-	// k8s
-	config, err := controllerruntime.GetConfig()
-	if err != nil {
-		panic(err)
+	setupLog.Info("starting manager")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
 	}
-
-	// create the client
-	client, err := kube.NewClient(config)
-
-	manifestBuilder := project.NewComponentBuilder(ctx)
-	for _, component := range mainComponents {
-		buildSubComponent(localRepositoryPath, manifestBuilder, component.SubComponents, client)
-	}
-}
-
-func buildSubComponent(localRepositoryPath string, builder project.ComponentBuilder, subComponents []*project.SubDeclarativeComponent, client *kube.Client) {
-	ctx := context.TODO()
-	for _, subComponent := range subComponents {
-		fmt.Println("component: ", subComponent.Path)
-		component, err := builder.Build(project.WithProjectRoot(localRepositoryPath), project.WithComponentPath(subComponent.Path))
-		if err != nil {
-			panic(err)
-		}
-
-		for _, obj := range component.Manifests {
-			err = client.Apply(ctx, &obj)
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		buildSubComponent(localRepositoryPath, builder, subComponent.SubComponents, client)
-	}
-}
-
-func initZap() (*zap.Logger, error) {
-	zapConfig := zap.NewDevelopmentConfig()
-	zapConfig.OutputPaths = []string{"stdout"}
-	return zapConfig.Build()
 }

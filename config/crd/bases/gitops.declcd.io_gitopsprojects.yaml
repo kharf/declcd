@@ -1,0 +1,69 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.11.3
+  creationTimestamp: null
+  name: gitopsprojects.gitops.declcd.io
+spec:
+  group: gitops.declcd.io
+  names:
+    kind: GitOpsProject
+    listKind: GitOpsProjectList
+    plural: gitopsprojects
+    singular: gitopsproject
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: GitOpsProject is the Schema for the gitopsprojects API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: GitOpsProjectSpec defines the desired state of GitOpsProject
+            properties:
+              pullIntervalSeconds:
+                description: This defines how often decl will try to fetch changes
+                  from the gitops repository.
+                minimum: 5
+                type: integer
+              suspend:
+                description: This flag tells the controller to suspend subsequent
+                  executions, it does not apply to already started executions.  Defaults
+                  to false.
+                type: boolean
+              url:
+                description: The url to the gitops repository.
+                minLength: 1
+                type: string
+            required:
+            - pullIntervalSeconds
+            - url
+            type: object
+          status:
+            description: GitOpsProjectStatus defines the observed state of GitOpsProject
+            properties:
+              lastPullTime:
+                description: Information when was the last time the gitops repository
+                  was successfully pulled.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

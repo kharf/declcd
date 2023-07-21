@@ -1,0 +1,14 @@
+apiVersion: gitops.declcd.io/v1
+kind: GitOpsProject
+metadata:
+  labels:
+    app.kubernetes.io/name: gitopsproject
+    app.kubernetes.io/instance: gitopsproject-sample
+    app.kubernetes.io/part-of: declcd
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: declcd
+  name: gitopsproject-sample
+spec:
+  url: "https://github.com/kharf/declcd-test-repo.git"
+  suspend: false
+  pullIntervalSeconds: 30

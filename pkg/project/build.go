@@ -19,7 +19,7 @@ type ComponentBuilder struct {
 	ctx *cue.Context
 }
 
-// NewComponentBuilder contructs a [ComponentManifestBuilder] with given CUE context.
+// NewComponentBuilder contructs a [ComponentBuilder] with given CUE context.
 func NewComponentBuilder(ctx *cue.Context) ComponentBuilder {
 	return ComponentBuilder{
 		ctx: ctx,

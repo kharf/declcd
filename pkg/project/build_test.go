@@ -13,9 +13,7 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	ctx := cuecontext.New()
 	builder := NewComponentBuilder(ctx)
 	cwd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
+	assert.NilError(t, err)
 	projectRoot := path.Join(cwd, "testdata", "simple")
 	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
 	assert.Equal(t, component.IntervalSeconds, 1)

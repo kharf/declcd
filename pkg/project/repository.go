@@ -8,11 +8,18 @@ import (
 
 // A vcs Repository.
 type Repository struct {
-	path string
+	Path string
+	pull PullFunc
 }
 
-func NewRepository(path string) Repository {
-	return Repository{path: path}
+type PullFunc = func() error
+
+func NewRepository(path string, pull PullFunc) Repository {
+	return Repository{Path: path, pull: pull}
+}
+
+func (repository *Repository) Pull() error {
+	return repository.pull()
 }
 
 // RepositoryManager clones a remote vcs repository to a local path.
@@ -25,22 +32,24 @@ func NewRepositoryManager() RepositoryManager {
 // CloneOptions define configuration how to clone a vcs repository.
 type CloneOptions struct {
 	// Location of the remote vcs repository.
+	// mandatory
 	url string
 	// Location to where the vcs repository is loaded.
+	// mandatory
 	targetPath string
 }
 
 type cloneOption = func(opt *CloneOptions)
 
 // WithUrl provides a URL configuration for the clone function.
-func WithUrl(url string) func(*CloneOptions) {
+func WithUrl(url string) cloneOption {
 	return func(opt *CloneOptions) {
 		opt.url = url
 	}
 }
 
 // WithTarget provides a local path to where the vcs repository is cloned.
-func WithTarget(path string) func(*CloneOptions) {
+func WithTarget(path string) cloneOption {
 	return func(opt *CloneOptions) {
 		opt.targetPath = path
 	}
@@ -54,13 +63,27 @@ func (manager RepositoryManager) Clone(opts ...cloneOption) (*Repository, error)
 	}
 
 	targetPath := options.targetPath
-	if _, err := git.PlainClone(
+	gitRepository, err := git.PlainClone(
 		targetPath, false,
 		&git.CloneOptions{URL: options.url, Progress: os.Stdout},
-	); err != nil && err != git.ErrRepositoryAlreadyExists {
+	)
+	if err != nil && err != git.ErrRepositoryAlreadyExists {
 		return nil, err
 	}
 
-	repository := NewRepository(targetPath)
+	worktree, err := gitRepository.Worktree()
+	if err != nil {
+		return nil, err
+	}
+
+	pullFunc := func() error {
+		err := worktree.Pull(&git.PullOptions{})
+		if err == git.NoErrAlreadyUpToDate {
+			return nil
+		}
+		return err
+	}
+
+	repository := NewRepository(targetPath, pullFunc)
 	return &repository, nil
 }
