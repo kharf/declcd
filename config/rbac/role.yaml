@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - gitops.declcd.io
+  resources:
+  - gitopsprojects
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gitops.declcd.io
+  resources:
+  - gitopsprojects/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - gitops.declcd.io
+  resources:
+  - gitopsprojects/status
+  verbs:
+  - get
+  - patch
+  - update

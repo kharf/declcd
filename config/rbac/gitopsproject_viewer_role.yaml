@@ -1,0 +1,27 @@
+# permissions for end users to view gitopsprojects.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: gitopsproject-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: declcd
+    app.kubernetes.io/part-of: declcd
+    app.kubernetes.io/managed-by: kustomize
+  name: gitopsproject-viewer-role
+rules:
+- apiGroups:
+  - gitops.declcd.io
+  resources:
+  - gitopsprojects
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - gitops.declcd.io
+  resources:
+  - gitopsprojects/status
+  verbs:
+  - get

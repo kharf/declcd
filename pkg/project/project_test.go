@@ -78,13 +78,13 @@ func TestProjectManager_Load(t *testing.T) {
 		},
 	}
 
-	pm := NewProjectManager(mapfs, logger)
+	pm := NewProjectManager(FileSystem{FS: mapfs, Root: ""}, logger)
 	mainComponents, err := pm.Load("project/")
 	assert.NilError(t, err)
 	assert.Assert(t, len(mainComponents) == 2)
-	apps := mainComponents[0]
+	apps := mainComponents[1]
 	assert.Assert(t, len(apps.SubComponents) == 0)
-	infra := mainComponents[1]
+	infra := mainComponents[0]
 	assert.Assert(t, len(infra.SubComponents) == 1)
 	prometheus := infra.SubComponents[0]
 	assert.Assert(t, len(prometheus.SubComponents) == 1)
@@ -100,7 +100,7 @@ func TestProjectManager_Load_AppsDoesNotExist(t *testing.T) {
 		"project/infra": {},
 	}
 
-	pm := NewProjectManager(mapfs, logger)
+	pm := NewProjectManager(FileSystem{FS: mapfs, Root: ""}, logger)
 	_, err := pm.Load("project/")
 	assert.ErrorIs(t, err, ErrMainComponentNotFound)
 	assert.Error(t, err, "main component not found: could not load project/apps")
@@ -112,7 +112,7 @@ func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
 		"project/apps/": {},
 	}
 
-	pm := NewProjectManager(mapfs, logger)
+	pm := NewProjectManager(FileSystem{FS: mapfs, Root: ""}, logger)
 	_, err := pm.Load("project/")
 	assert.ErrorIs(t, err, ErrMainComponentNotFound)
 	assert.Error(t, err, "main component not found: could not load project/infra")
@@ -120,14 +120,15 @@ func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
 
 func TestProjectManager_Load_TestData(t *testing.T) {
 	logger := setUp(t)
-	fileSystem := os.DirFS("testdata")
-	pm := NewProjectManager(fileSystem, logger)
+	root := "testdata"
+	fileSystem := os.DirFS(root)
+	pm := NewProjectManager(FileSystem{FS: fileSystem, Root: root}, logger)
 	mainComponents, err := pm.Load("simple")
 	assert.NilError(t, err)
 	assert.Assert(t, len(mainComponents) == 2)
-	apps := mainComponents[0]
+	apps := mainComponents[1]
 	assert.Assert(t, len(apps.SubComponents) == 0)
-	infra := mainComponents[1]
+	infra := mainComponents[0]
 	assert.Assert(t, len(infra.SubComponents) == 1)
 	prometheus := infra.SubComponents[0]
 	assert.Assert(t, len(prometheus.SubComponents) == 1)
