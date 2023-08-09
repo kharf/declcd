@@ -3,8 +3,18 @@ package build
 import "json.schemastore.org/github"
 
 #workflow: {
-	filename: string
-	workflow: github.#Workflow
+	_name:    string
+	workflow: github.#Workflow & {
+		name:        _name
+		permissions: "read-all"
+		jobs: [string]: {
+			"runs-on": "ubuntu-latest"
+			steps: [
+				#checkoutCode,
+				...,
+			]
+		}
+	}
 	...
 }
 
@@ -20,43 +30,70 @@ import "json.schemastore.org/github"
 	name: "Setup Go"
 	uses: "actions/setup-go@v4"
 	with: {
-		"go-version-file":       "go.mod"
+		"go-version-file":       "build/go.mod"
 		"check-latest":          true
 		cache:                   true
-		"cache-dependency-path": "go.sum"
+		"cache-dependency-path": "build/go.sum"
 	}
 }
 
-pr: #workflow & {
-	filename: "pr.yaml"
-	workflow: github.#Workflow & {
-		name: "PR"
-		on: {
-			pull_request: {
-				branches: [
-					"*",
-				]
-				"tags-ignore": [
-					"*",
+#pipeline: {
+	name:                string
+	run:                 string
+	"working-directory": "./build"
+}
+
+workflows: [
+	#workflow & {
+		_name:    "pr-verification"
+		workflow: github.#Workflow & {
+			on: {
+				pull_request: {
+					branches: [
+						"*",
+					]
+					"tags-ignore": [
+						"*",
+					]
+				}
+			}
+
+			jobs: "\(_name)": {
+				steps: [
+					#checkoutCode,
+					#setupGo,
+					#pipeline & {
+						name: "Verification Pipeline"
+						run:  "go run cmd/test/main.go"
+					},
 				]
 			}
 		}
+	},
+	#workflow & {
+		_name:    "main-build"
+		workflow: github.#Workflow & {
+			on: {
+				push: {
+					branches: [
+						"main",
+					]
+					"tags-ignore": [
+						"*",
+					]
+				}
+			}
 
-		permissions: "read-all"
-
-		jobs: pr: {
-			"runs-on": "ubuntu-latest"
-			steps: [
-				#checkoutCode,
-				#setupGo,
-				{
-					name:                "Verification Pipeline"
-					run:                 "go run cmd/build/test.go"
-					"working-directory": "./build"
-				},
-			]
+			jobs: "\(_name)": {
+				steps: [
+					#checkoutCode,
+					#setupGo,
+					#pipeline & {
+						name: "Build Pipeline"
+						run:  "go run cmd/build/main.go"
+					},
+				]
+			}
 		}
-	}
-}
-
-workflows: [pr]
+	},
+]
