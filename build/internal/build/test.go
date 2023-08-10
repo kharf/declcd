@@ -7,7 +7,7 @@ import (
 	"dagger.io/dagger"
 )
 
-type test func(ctx context.Context, container *dagger.Container) error
+type test stepFunc
 
 var _ step = (*test)(nil)
 var Test test
@@ -16,13 +16,14 @@ func (_ test) name() string {
 	return "Tests"
 }
 
-func (_ test) run(ctx context.Context, base *dagger.Container) (stepOutput, error) {
+func (_ test) run(ctx context.Context, base *dagger.Container) (*stepResult, error) {
 	testBase := base.
+		WithExec([]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"}).
 		WithExec([]string{envTest, "use", "1.26.1", "--bin-dir", localBin, "-p", "path"})
 
 	apiServerPath, err := testBase.Stdout(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	prepareTest := testBase.WithExec([]string{"mkdir", "-p", declTmp}).
@@ -41,8 +42,11 @@ func (_ test) run(ctx context.Context, base *dagger.Container) (stepOutput, erro
 
 	testOutput, err := test.Stderr(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return stepOutput(testOutput), nil
+	return &stepResult{
+		output:    testOutput,
+		container: test,
+	}, nil
 }

@@ -41,6 +41,9 @@ import "json.schemastore.org/github"
 	name:                string
 	run:                 string
 	"working-directory": "./build"
+	env?: {
+		[string]: string | number | bool
+	}
 }
 
 workflows: [
@@ -91,6 +94,32 @@ workflows: [
 					#pipeline & {
 						name: "Build Pipeline"
 						run:  "go run cmd/build/main.go"
+					},
+				]
+			}
+		}
+	},
+	#workflow & {
+		_name:    "update"
+		workflow: github.#Workflow & {
+			on: {
+				workflow_dispatch: null
+				schedule: [{
+					cron: "0 5 * * 1-5"
+				},
+				]
+			}
+
+			jobs: "\(_name)": {
+				steps: [
+					#checkoutCode,
+					#setupGo,
+					#pipeline & {
+						name: "Update Pipeline"
+						run:  "go run cmd/update/main.go"
+						env: {
+							DECL_PAT: "${{ secrets.PAT }}"
+						}
 					},
 				]
 			}

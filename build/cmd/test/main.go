@@ -9,6 +9,7 @@ import (
 
 func main() {
 	if err := build.RunWith(
+		build.Gen,
 		build.Test,
 	); err != nil {
 		fmt.Println(err)
