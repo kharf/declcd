@@ -4,6 +4,7 @@
     "config:base"
   ],
   "platform": "github",
+  "dependencyDashboard": true,
   "semanticCommits": "enabled",
   "rebaseWhen": "auto",
   "branchConcurrentLimit": 0,
