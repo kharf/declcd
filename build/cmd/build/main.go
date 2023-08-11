@@ -10,6 +10,7 @@ import (
 func main() {
 	// Only build when tests pass
 	if err := build.RunWith(
+		build.Gen,
 		build.Test,
 		build.Build,
 	); err != nil {
