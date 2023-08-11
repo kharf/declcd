@@ -118,7 +118,7 @@ workflows: [
 						name: "Update Pipeline"
 						run:  "go run cmd/update/main.go"
 						env: {
-							DECL_PAT: "${{ secrets.PAT }}"
+							RENOVATE_TOKEN: "${{ secrets.PAT }}"
 						}
 					},
 				]
