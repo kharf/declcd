@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -26,20 +25,13 @@ func run() error {
 	}
 	defer client.Close()
 
-	pat := client.SetSecret("pat", os.Getenv("DECL_PAT"))
-
-	if err := os.Mkdir("tmp", 0755); err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			return err
-		}
-	}
+	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
 
 	updateContainer := client.Container().
 		From("renovate/renovate:latest").
-		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
-		WithMountedDirectory("/tmp", client.Host().Directory("tmp"), dagger.ContainerWithMountedDirectoryOpts{Owner: "1000:0"}).
-		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
+		WithEnvVariable("LOG_LEVEL", "DEBUG").
+		WithDefaultArgs(dagger.ContainerWithDefaultArgsOpts{Args: []string{"kharf/declcd"}}).
 		WithSecretVariable("RENOVATE_TOKEN", pat)
 
 	output, err := updateContainer.Stderr(ctx)
