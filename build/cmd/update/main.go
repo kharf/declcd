@@ -27,10 +27,6 @@ func run() error {
 	defer client.Close()
 
 	pat := client.SetSecret("pat", os.Getenv("DECL_PAT"))
-	patString, err := pat.Plaintext(ctx)
-	if err != nil {
-		return err
-	}
 
 	if err := os.Mkdir("tmp", 0755); err != nil {
 		if !errors.Is(err, os.ErrExist) {
@@ -39,16 +35,13 @@ func run() error {
 	}
 
 	updateContainer := client.Container().
-		From("renovate/renovate:36.42.1").
+		From("renovate/renovate:latest").
+		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
 		WithMountedDirectory("/tmp", client.Host().Directory("tmp"), dagger.ContainerWithMountedDirectoryOpts{Owner: "1000:0"}).
-		WithFile("renovate.json", client.Host().File("renovate.json")).
+		WithFile("/usr/src/app/renovate.json", client.Host().File("renovate.json")).
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
-		WithSecretVariable("RENOVATE_TOKEN", pat).
-		WithEnvVariable("RENOVATE_CONFIG_FILE", "renovate.json").
-		WithEnvVariable("GOPRIVATE", "github.com/kharf").
-		WithEnvVariable("RENOVATE_HOST_RULES", "[{\"hostType\": \"github\", \"matchHost\": \"https://api.github.com/repos/kharf\","+
-			"\"token\": \""+patString+"\"},{\"hostType\": \"go\", \"matchHost\": \"https://github.com/kharf\", \"token\": \""+patString+"\"},]")
+		WithSecretVariable("RENOVATE_TOKEN", pat)
 
 	output, err := updateContainer.Stderr(ctx)
 	if err != nil {
