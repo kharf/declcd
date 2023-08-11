@@ -1,3 +1,30 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json"
+  "labels": ["dependencies", "renovate"],
+  "extends": [
+    "config:base"
+  ],
+  "platform": "github",
+  "dependencyDashboard": true,
+  "semanticCommits": "enabled",
+  "rebaseWhen": "auto",
+  "branchConcurrentLimit": 0,
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "github-actions": {
+    "enabled": false
+  },
+  "regexManagers": [
+    {
+     "fileMatch": ["^build/(.*?).cue$"],
+     "matchStrings": ["uses: \"(?<depName>.*?)@(?<currentValue>.*?)\""],
+     "datasourceTemplate": "github-tags",
+     "versioningTemplate": "semver-coerced"
+    },
+    {
+     "fileMatch": ["^build/(.*?).cue$"],
+     "matchStrings": ["https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"],
+     "datasourceTemplate": "github-releases",
+     "versioningTemplate": "semver-coerced"
+    },
+  ]
 }

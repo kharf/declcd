@@ -39,7 +39,6 @@ func run() error {
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
 		WithMountedDirectory("/tmp", client.Host().Directory("tmp"), dagger.ContainerWithMountedDirectoryOpts{Owner: "1000:0"}).
-		WithFile("/usr/src/app/renovate.json", client.Host().File("renovate.json")).
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
 		WithSecretVariable("RENOVATE_TOKEN", pat)
 
