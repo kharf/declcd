@@ -25,6 +25,6 @@
      "matchStrings": ["https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"],
      "datasourceTemplate": "github-releases",
      "versioningTemplate": "semver-coerced"
-    },
+    }
   ]
 }
