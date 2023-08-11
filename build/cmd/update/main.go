@@ -32,16 +32,16 @@ func run() error {
 	}
 
 	updateContainer := client.Container().
-		From("renovate/renovate:36.41").
+		From("renovate/renovate:36.42.1").
+		WithEnvVariable("CACHEBUSTER", time.Now().String()).
+		WithMountedDirectory("/tmp", client.Host().Directory("tmp")).
 		WithFile("renovate.json", client.Host().File("renovate.json")).
-		WithEnvVariable("LOG_LEVEL", "debug").
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
 		WithSecretVariable("RENOVATE_TOKEN", pat).
 		WithEnvVariable("RENOVATE_CONFIG_FILE", "renovate.json").
 		WithEnvVariable("GOPRIVATE", "github.com/kharf").
 		WithEnvVariable("RENOVATE_HOST_RULES", "[{\"hostType\": \"github\", \"matchHost\": \"https://api.github.com/repos/kharf\","+
-			"\"token\": \""+patString+"\"},{\"hostType\": \"go\", \"matchHost\": \"https://github.com/kharf\", \"token\": \""+patString+"\"},]").
-		WithEnvVariable("CACHEBUSTER", time.Now().String())
+			"\"token\": \""+patString+"\"},{\"hostType\": \"go\", \"matchHost\": \"https://github.com/kharf\", \"token\": \""+patString+"\"},]")
 
 	output, err := updateContainer.Stderr(ctx)
 	if err != nil {

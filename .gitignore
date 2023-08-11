@@ -27,3 +27,6 @@ Dockerfile.cross
 # go ws
 go.work
 go.work.sum
+
+# temporary
+tmp/*
