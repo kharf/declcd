@@ -9,9 +9,9 @@ require (
 	github.com/onsi/gomega v1.27.8
 	go.uber.org/zap v1.24.0
 	gotest.tools/v3 v3.5.0
-	k8s.io/api v0.27.2
-	k8s.io/apimachinery v0.27.2
-	k8s.io/client-go v0.27.2
+	k8s.io/api v0.27.4
+	k8s.io/apimachinery v0.27.4
+	k8s.io/client-go v0.27.4
 	sigs.k8s.io/controller-runtime v0.15.1
 )
 
