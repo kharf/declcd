@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -31,10 +32,16 @@ func run() error {
 		return err
 	}
 
+	if err := os.Mkdir("tmp", 0755); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+	}
+
 	updateContainer := client.Container().
 		From("renovate/renovate:36.42.1").
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
-		WithMountedDirectory("/tmp", client.Host().Directory("tmp")).
+		WithMountedDirectory("/tmp", client.Host().Directory("tmp"), dagger.ContainerWithMountedDirectoryOpts{Owner: "1000:0"}).
 		WithFile("renovate.json", client.Host().File("renovate.json")).
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
 		WithSecretVariable("RENOVATE_TOKEN", pat).
