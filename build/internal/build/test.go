@@ -3,21 +3,20 @@ package build
 import (
 	"context"
 	"path/filepath"
-
-	"dagger.io/dagger"
 )
 
-type test stepFunc
+type test struct{}
+
+var Test = test{}
 
 var _ step = (*test)(nil)
-var Test test
 
 func (_ test) name() string {
 	return "Tests"
 }
 
-func (_ test) run(ctx context.Context, base *dagger.Container) (*stepResult, error) {
-	testBase := base.
+func (_ test) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	testBase := request.container.
 		WithExec([]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"}).
 		WithExec([]string{envTest, "use", "1.26.1", "--bin-dir", localBin, "-p", "path"})
 
@@ -40,13 +39,7 @@ func (_ test) run(ctx context.Context, base *dagger.Container) (*stepResult, err
 		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath)).
 		WithExec([]string{"go", "test", "./...", "-coverprofile", "cover.out"})
 
-	testOutput, err := test.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	return &stepResult{
-		output:    testOutput,
 		container: test,
 	}, nil
 }
