@@ -67,7 +67,10 @@ workflows: [
 					#setupGo,
 					#pipeline & {
 						name: "Verification Pipeline"
-						run:  "go run cmd/test/main.go"
+						run:  "go run cmd/verification/main.go"
+						env: {
+							GH_PAT: "${{ secrets.PAT }}"
+						}
 					},
 				]
 			}

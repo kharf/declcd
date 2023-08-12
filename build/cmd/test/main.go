@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if err := build.RunWith(
-		build.Gen,
+		build.ControllerGen,
 		build.Test,
 	); err != nil {
 		fmt.Println(err)

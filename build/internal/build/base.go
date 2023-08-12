@@ -20,14 +20,18 @@ var (
 	declTmp = filepath.Join(tmp, "decl")
 )
 
-type stepResult struct {
-	output    string
-	container *dagger.Container
-}
-
 type step interface {
 	name() string
-	run(context.Context, *dagger.Container) (*stepResult, error)
+	run(context.Context, stepRequest) (*stepResult, error)
+}
+
+type stepRequest struct {
+	container *dagger.Container
+	client    *dagger.Client
+}
+
+type stepResult struct {
+	container *dagger.Container
 }
 
 func RunWith(steps ...step) error {
@@ -44,27 +48,36 @@ func RunWith(steps ...step) error {
 		From("golang:1.21").
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
 			Include: []string{
+				".git",
+				".gitignore",
+				".github",
 				"cmd",
 				"pkg",
 				"internal",
 				"api",
 				"go.mod",
 				"go.sum",
+				"build/cue.mod",
+				"build/gen_tool.cue",
+				"build/workflows.cue",
 			},
 		}).
 		WithMountedCache("/go", goCache).
 		WithWorkdir(workDir).
-		WithoutEnvVariable("GOPATH").
 		WithEnvVariable("GOBIN", filepath.Join(workDir, localBin)).
 		WithEnvVariable("TMPDIR", tmp)
 
 	latestContainer := base
 	for _, step := range steps {
-		stepResult, err := step.run(ctx, latestContainer)
+		stepResult, err := step.run(ctx, stepRequest{client: client, container: latestContainer})
 		if err != nil {
 			return err
 		}
-		fmt.Println(stepResult.output)
+		output, err := stepResult.container.Stderr(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Println(output)
 		fmt.Println("\033[32m", step.name()+" passed!")
 		latestContainer = stepResult.container
 	}
