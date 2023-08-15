@@ -2,49 +2,41 @@ package build
 
 import (
 	"context"
-
-	"dagger.io/dagger"
 )
 
-type stepFunc = func(context.Context, *dagger.Container) error
+type controllerGen struct{}
 
-type gen stepFunc
+var ControllerGen = controllerGen{}
 
-var _ step = (*gen)(nil)
-var Gen gen
+var _ step = (*controllerGen)(nil)
 
-func (_ gen) name() string {
-	return "Generate"
+func (_ controllerGen) name() string {
+	return "Generate Controller"
 }
 
-func (_ gen) run(ctx context.Context, base *dagger.Container) (*stepResult, error) {
-	gen := base.
+func (_ controllerGen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	gen := request.container.
 		WithExec([]string{"go", "install", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.3"}).
 		WithExec([]string{controllerGenPath, "rbac:roleName=manager-role", "crd", "webhook", "paths=\"./...\"", "output:crd:artifacts:config=config/crd/bases"})
 
-	genOutput, err := gen.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	return &stepResult{
-		output:    genOutput,
 		container: gen,
 	}, nil
 }
 
-type build stepFunc
+type build struct{}
+
+var Build = build{}
 
 var _ step = (*build)(nil)
-var Build build
 
 func (_ build) name() string {
 	return "Build"
 }
 
-func (_ build) run(ctx context.Context, base *dagger.Container) (*stepResult, error) {
+func (_ build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	binary := "bin/manager"
-	build := base.
+	build := request.container.
 		WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, "cmd/controller/main.go"})
 
 	_, err := build.File(binary).Export(ctx, binary)
@@ -52,13 +44,7 @@ func (_ build) run(ctx context.Context, base *dagger.Container) (*stepResult, er
 		return nil, err
 	}
 
-	buildOutput, err := build.Stderr(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	return &stepResult{
-		output:    buildOutput,
 		container: build,
 	}, nil
 }

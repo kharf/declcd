@@ -8,11 +8,11 @@ import (
 )
 
 func main() {
-	// Only build when tests pass
 	if err := build.RunWith(
+		build.WorkflowsGen{Export: false},
+		build.CommitWorkflows,
 		build.ControllerGen,
 		build.Test,
-		build.Build,
 	); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

@@ -23,6 +23,8 @@ jobs:
           cache: true
           cache-dependency-path: build/go.sum
       - name: Verification Pipeline
-        run: go run cmd/test/main.go
+        run: go run cmd/verification/main.go
         working-directory: ./build
+        env:
+          GH_PAT: ${{ secrets.PAT }}
 permissions: read-all
