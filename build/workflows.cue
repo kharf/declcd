@@ -22,7 +22,8 @@ import "json.schemastore.org/github"
 	name: "Checkout code"
 	uses: "actions/checkout@v3.5.3"
 	with: {
-		token: "${{ secrets.PAT }}"
+		[string]: string | number | bool
+		token:    "${{ secrets.PAT }}"
 	}
 }
 
@@ -63,7 +64,11 @@ workflows: [
 
 			jobs: "\(_name)": {
 				steps: [
-					#checkoutCode,
+					#checkoutCode & {
+						with: {
+							ref: "${{ github.event.pull_request.head.sha }}"
+						}
+					},
 					#setupGo,
 					#pipeline & {
 						name: "Verification Pipeline"
