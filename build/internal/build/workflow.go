@@ -48,6 +48,7 @@ func (_ commitWorkflows) name() string {
 
 func (_ commitWorkflows) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	pat := request.client.SetSecret("gh-token", os.Getenv("GH_PAT"))
+	branch := os.Getenv("BRANCH")
 
 	commitContainer, err := request.container.
 		WithExec([]string{"sh", "-c", "git diff --exit-code .github; echo -n $? > /exit_code"}).
@@ -70,7 +71,7 @@ func (_ commitWorkflows) run(ctx context.Context, request stepRequest) (*stepRes
 			WithExec([]string{"sh", "-c", "git remote set-url origin https://$GH_PAT@github.com/kharf/declcd.git"}).
 			WithExec([]string{"git", "add", ".github/workflows"}).
 			WithExec([]string{"git", "commit", "-m", "chore: update yaml workflows"}).
-			WithExec([]string{"git", "push"})
+			WithExec([]string{"git", "push", "origin", "HEAD:" + branch})
 	}
 
 	return &stepResult{

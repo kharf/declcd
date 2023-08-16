@@ -64,17 +64,14 @@ workflows: [
 
 			jobs: "\(_name)": {
 				steps: [
-					#checkoutCode & {
-						with: {
-							ref: "${{ github.event.pull_request.head.sha }}"
-						}
-					},
+					#checkoutCode,
 					#setupGo,
 					#pipeline & {
 						name: "Verification Pipeline"
 						run:  "go run cmd/verification/main.go"
 						env: {
 							GH_PAT: "${{ secrets.PAT }}"
+							BRANCH: "${{ github.head_ref || github.ref_name }}"
 						}
 					},
 				]
