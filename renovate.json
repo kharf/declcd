@@ -23,7 +23,7 @@
     },
     {
      "fileMatch": ["^build/(.*?).go$"],
-     "matchStrings": ["From\(\"(?<depName>.*?):(?<currentValue>.*?).\"\)"],
+     "matchStrings": ["From\\(\"(?<depName>.*?):(?<currentValue>.*?).\"\\)"],
      "datasourceTemplate": "docker",
      "versioningTemplate": "semver-coerced"
     },
