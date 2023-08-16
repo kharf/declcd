@@ -45,7 +45,7 @@ func RunWith(steps ...step) error {
 	goCache := client.CacheVolume("go")
 
 	base := client.Container().
-		From("golang:1.21").
+		From("golang:1.21.01").
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
 			Include: []string{
 				".git",
