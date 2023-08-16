@@ -22,6 +22,12 @@
      "versioningTemplate": "semver-coerced"
     },
     {
+     "fileMatch": ["^build/(.*?).go$"],
+     "matchStrings": ["From(\"(?<depName>.*?):(?<currentValue>.*?)\")"],
+     "datasourceTemplate": "docker",
+     "versioningTemplate": "semver-coerced"
+    },
+    {
      "fileMatch": ["^build/(.*?).cue$"],
      "matchStrings": ["https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"],
      "datasourceTemplate": "github-releases",
