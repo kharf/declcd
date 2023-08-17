@@ -66,6 +66,11 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ct
 
 	requeueResult := ctrl.Result{RequeueAfter: time.Duration(gProject.Spec.PullIntervalSeconds) * time.Second}
 
+	if *gProject.Spec.Suspend {
+		log.V(2).Info("project suspended. Doing nothing")
+		return requeueResult, nil
+	}
+
 	repositoryUID := string(gProject.GetUID())
 	repositoryDir := filepath.Join(reconciler.ProjectManager.FS.Root, repositoryUID)
 	if reconciler.repository == nil {
