@@ -24,8 +24,7 @@
     {
      "fileMatch": ["^build/(.*?).go$"],
      "matchStrings": ["From\\(\"(?<depName>.*?):(?<currentValue>.*?)\"\\)"],
-     "datasourceTemplate": "docker",
-     "versioningTemplate": "semver-coerced"
+     "datasourceTemplate": "docker"
     },
     {
      "fileMatch": ["^build/(.*?).cue$"],
