@@ -7,17 +7,20 @@ import (
 	"dagger.io/dagger"
 )
 
-type Test string
+type Test struct {
+	ID      string
+	Package string
+}
 
 const TestAllArg = "./..."
 
-var TestAll = Test(TestAllArg)
+var TestAll = Test{ID: "./..."}
 
 var _ step = (*Test)(nil)
 
 func (t Test) name() string {
-	if t != TestAll {
-		return "Test " + string(t)
+	if t.ID != TestAllArg {
+		return "Test " + t.ID
 	}
 	return "Tests"
 }
@@ -44,15 +47,20 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath))
 
 	var test *dagger.Container
-	if t == TestAll {
+	if t.ID == TestAllArg {
 		test = prepareTest.
 			WithExec([]string{"go", "test", TestAllArg, "-coverprofile", "cover.out"})
 	} else {
-		test = prepareTest.
-			WithExec([]string{"go", "test", "-run", string(t)})
+		if t.Package == "" {
+			test = prepareTest.
+				WithExec([]string{"go", "test", "-run", t.ID})
+		} else {
+			test = prepareTest.
+				WithExec([]string{"go", "test", "./" + t.Package, "-run", t.ID})
+		}
 	}
 
 	return &stepResult{
-		container: test,
+		container: test.WithWorkdir(workDir),
 	}, nil
 }
