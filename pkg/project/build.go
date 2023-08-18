@@ -52,7 +52,7 @@ const (
 	ProjectRootPath = "."
 )
 
-// Build accepts options defining what component to be compiled and how it is done and compiles it to a k8s unstructured API object/struct.
+// Build accepts options defining which component is to be compiled and how it is done and compiles it to a k8s unstructured API object/struct.
 func (b ComponentBuilder) Build(opts ...componentBuildOptions) (*Component, error) {
 	ctx := b.ctx
 	options := &ComponentBuildOptions{

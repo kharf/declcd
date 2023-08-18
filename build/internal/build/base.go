@@ -55,6 +55,7 @@ func RunWith(steps ...step) error {
 				"cmd",
 				"pkg",
 				"internal",
+				"test",
 				"api",
 				"go.mod",
 				"go.sum",

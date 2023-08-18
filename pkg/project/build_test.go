@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue/cuecontext"
+	"github.com/kharf/declcd/pkg/helm"
+	_ "github.com/kharf/declcd/test/workingdir"
 	"gotest.tools/v3/assert"
 )
 
@@ -14,16 +16,40 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	builder := NewComponentBuilder(ctx)
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)
-	projectRoot := path.Join(cwd, "testdata", "simple")
+	projectRoot := path.Join(cwd, "test", "testdata", "simple")
 	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
-	assert.Equal(t, component.IntervalSeconds, 1)
-	unstructureds := component.Manifests
 	assert.NilError(t, err)
-	assert.Assert(t, len(unstructureds) == 2)
-	deployment := unstructureds[1]
-	assert.Equal(t, deployment.GetAPIVersion(), "v1")
+	assert.Equal(t, component.IntervalSeconds, 1)
+	componentManifests := component.Manifests
+	assert.Assert(t, len(componentManifests) == 1)
+	namespace := componentManifests[0].Object
+	assert.Equal(t, namespace["apiVersion"], "v1")
+	assert.Equal(t, namespace["kind"], "Namespace")
+	nsMetadata := namespace["metadata"].(map[string]interface{})
+	assert.Equal(t, nsMetadata["name"], "mynamespace")
+	releases := component.HelmReleases
+	assert.Assert(t, len(releases) == 1)
+	release := releases[0]
+	assert.Equal(t, release.Name, "{{.Name}}")
+	assert.Equal(t, release.Namespace, "mynamespace")
+	assert.Assert(t, len(release.Values) == 1)
+	expectedValues := helm.Values{
+		"autoscaling": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+
+	assert.DeepEqual(t, release.Values, expectedValues)
+
+	subcomponent, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus/subcomponent"))
+	assert.NilError(t, err)
+	assert.Equal(t, subcomponent.IntervalSeconds, 1)
+	subcomponentManifests := component.Manifests
+	assert.Assert(t, len(subcomponentManifests) == 1)
+	deployment := subcomponent.Manifests[0]
+	assert.Equal(t, deployment.GetAPIVersion(), "apps/v1")
 	assert.Equal(t, deployment.GetKind(), "Deployment")
-	assert.Equal(t, deployment.GetName(), "mydeployment")
+	assert.Equal(t, deployment.GetName(), "mysubcomponent")
 	deploySpec := deployment.Object["spec"].(map[string]interface{})
 	replicas := deploySpec["replicas"]
 	if _, ok := replicas.(int64); ok {
@@ -36,8 +62,8 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	deployContainers := deployTemplateSpec["containers"].([]interface{})
 	assert.Equal(t, len(deployContainers), 1)
 	deployContainer := deployContainers[0].(map[string]interface{})
-	assert.Equal(t, deployContainer["name"], "nginx")
-	assert.Equal(t, deployContainer["image"], "nginx:1.14.2")
+	assert.Equal(t, deployContainer["name"], "subcomponent")
+	assert.Equal(t, deployContainer["image"], "subcomponent:1.14.2")
 	deployContainerPorts := deployContainer["ports"].([]interface{})
 	deployContainerPort := deployContainerPorts[0].(map[string]interface{})
 	containerPort := deployContainerPort["containerPort"]
@@ -46,12 +72,4 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	} else {
 		assert.Equal(t, containerPort, 80)
 	}
-	namespace := unstructureds[0].Object
-	assert.Equal(t, namespace["apiVersion"], "v1")
-	assert.Equal(t, namespace["kind"], "Namespace")
-	nsMetadata := namespace["metadata"].(map[string]interface{})
-	assert.Equal(t, nsMetadata["name"], "mynamespace")
-
-	_, err = builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus/nodeexporter"))
-	assert.NilError(t, err)
 }

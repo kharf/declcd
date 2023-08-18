@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-logr/logr"
 )
 
 // A vcs Repository.
@@ -23,14 +24,18 @@ func (repository *Repository) Pull() error {
 }
 
 // RepositoryManager clones a remote vcs repository to a local path.
-type RepositoryManager struct{}
-
-func NewRepositoryManager() RepositoryManager {
-	return RepositoryManager{}
+type RepositoryManager struct {
+	Log logr.Logger
 }
 
-// CloneOptions define configuration how to clone a vcs repository.
-type CloneOptions struct {
+func NewRepositoryManager(log logr.Logger) RepositoryManager {
+	return RepositoryManager{
+		Log: log,
+	}
+}
+
+// LoadOptions define configuration how to load a vcs repository.
+type LoadOptions struct {
 	// Location of the remote vcs repository.
 	// mandatory
 	url string
@@ -39,38 +44,48 @@ type CloneOptions struct {
 	targetPath string
 }
 
-type cloneOption = func(opt *CloneOptions)
+type loadOption = func(opt *LoadOptions)
 
-// WithUrl provides a URL configuration for the clone function.
-func WithUrl(url string) cloneOption {
-	return func(opt *CloneOptions) {
+// WithUrl provides a URL configuration for the load function.
+func WithUrl(url string) loadOption {
+	return func(opt *LoadOptions) {
 		opt.url = url
 	}
 }
 
 // WithTarget provides a local path to where the vcs repository is cloned.
-func WithTarget(path string) cloneOption {
-	return func(opt *CloneOptions) {
+func WithTarget(path string) loadOption {
+	return func(opt *LoadOptions) {
 		opt.targetPath = path
 	}
 }
 
-// Clone loads a remote vcs repository to a local path.
-func (manager RepositoryManager) Clone(opts ...cloneOption) (*Repository, error) {
-	options := &CloneOptions{}
+// Load loads a remote vcs repository to a local path or opens it if it exists.
+func (manager RepositoryManager) Load(opts ...loadOption) (*Repository, error) {
+	options := &LoadOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
 
 	targetPath := options.targetPath
-	gitRepository, err := git.PlainClone(
-		targetPath, false,
-		&git.CloneOptions{URL: options.url, Progress: os.Stdout},
-	)
-	if err != nil && err != git.ErrRepositoryAlreadyExists {
+	logArgs := []interface{}{"remote url", options.url, "target path", targetPath}
+	manager.Log.Info("trying to open repository", logArgs...)
+	gitRepository, err := git.PlainOpen(targetPath)
+	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
 
+	if err == git.ErrRepositoryNotExists {
+		manager.Log.Info("repository does not exist", logArgs...)
+		manager.Log.Info("trying to clone repository", logArgs...)
+		gitRepository, err = git.PlainClone(
+			targetPath, false,
+			&git.CloneOptions{URL: options.url, Progress: os.Stdout},
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 	worktree, err := gitRepository.Worktree()
 	if err != nil {
 		return nil, err

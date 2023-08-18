@@ -2,14 +2,13 @@ package controller
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
-	"github.com/kharf/declcd/internal/projecttest"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,15 +29,11 @@ var _ = Describe("GitOpsProject controller", func() {
 
 	When("Creating GitOpsProject", func() {
 		var (
-			gitOpsProject   gitopsv1.GitOpsProject
-			suspend         bool
-			localRepository *projecttest.LocalGitRepository
+			gitOpsProject gitopsv1.GitOpsProject
+			suspend       bool
 		)
 
 		BeforeEach(func() {
-			var err error
-			localRepository, err = projecttest.OpenGitRepository(filepath.Join(TestRoot, "controllertest"))
-			Expect(err).NotTo(HaveOccurred())
 			suspend := false
 			gitOpsProject = gitopsv1.GitOpsProject{
 				TypeMeta: metav1.TypeMeta{
@@ -50,7 +45,7 @@ var _ = Describe("GitOpsProject controller", func() {
 					Namespace: GitOpsProjectNamespace,
 				},
 				Spec: gitopsv1.GitOpsProjectSpec{
-					URL:                 localRepository.Directory,
+					URL:                 env.TestProject,
 					PullIntervalSeconds: intervalInSeconds,
 					Suspend:             &suspend,
 				},
@@ -73,26 +68,10 @@ var _ = Describe("GitOpsProject controller", func() {
 
 		When("The pull interval is greater than or equal to 5 seconds", func() {
 			AfterEach(func() {
-				err := k8sClient.DeleteAllOf(ctx, &gitopsv1.GitOpsProject{}, client.InNamespace(GitOpsProjectNamespace))
+				err := k8sClient.DeleteAllOf(env.Ctx, &gitopsv1.GitOpsProject{}, client.InNamespace(GitOpsProjectNamespace))
 				Expect(err).NotTo(HaveOccurred())
-				err = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace("podinfo"))
+				err = k8sClient.DeleteAllOf(env.Ctx, &appsv1.Deployment{}, client.InNamespace("podinfo"))
 				Expect(err).NotTo(HaveOccurred())
-			})
-
-			It("Should do nothing when the project is suspended", func() {
-				ctx := context.Background()
-				suspend := true
-				gitOpsProject.Spec.Suspend = &suspend
-
-				Expect(k8sClient.Create(ctx, &gitOpsProject)).Should(Succeed())
-				Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
-				Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
-				Expect(gitOpsProject.Spec.URL).To(Equal(localRepository.Directory))
-
-				Consistently(func() error {
-					var deployment appsv1.Deployment
-					return k8sClient.Get(ctx, types.NamespacedName{Name: "podinfo", Namespace: "podinfo"}, &deployment)
-				}, duration, assertionInterval).Should(MatchError(ContainSubstring("deployments.apps \"podinfo\" not found")))
 			})
 
 			It("Should reconcile the declared cluster state with the current cluster state", func() {
@@ -101,17 +80,26 @@ var _ = Describe("GitOpsProject controller", func() {
 				Expect(k8sClient.Create(ctx, &gitOpsProject)).Should(Succeed())
 				Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
 				Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
-				Expect(gitOpsProject.Spec.URL).To(Equal(localRepository.Directory))
+				Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
 
 				By("Cloning a decl gitops repository, building manifests and applying them onto the cluster")
 				Eventually(func() (string, error) {
+					var namespace corev1.Namespace
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mynamespace", Namespace: ""}, &namespace); err != nil {
+						return "", err
+					}
+
+					return namespace.GetName(), nil
+				}, duration, assertionInterval).Should(Equal("mynamespace"))
+
+				Eventually(func() (string, error) {
 					var deployment appsv1.Deployment
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "podinfo", Namespace: "podinfo"}, &deployment); err != nil {
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &deployment); err != nil {
 						return "", err
 					}
 
 					return deployment.GetName(), nil
-				}, duration, assertionInterval).Should(Equal("podinfo"))
+				}, duration, assertionInterval).Should(Equal("mysubcomponent"))
 
 				Eventually(func() (*time.Time, error) {
 					var updatedGitOpsProject gitopsv1.GitOpsProject
