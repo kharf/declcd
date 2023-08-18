@@ -3,19 +3,26 @@ package build
 import (
 	"context"
 	"path/filepath"
+
+	"dagger.io/dagger"
 )
 
-type test struct{}
+type Test string
 
-var Test = test{}
+const TestAllArg = "./..."
 
-var _ step = (*test)(nil)
+var TestAll = Test(TestAllArg)
 
-func (_ test) name() string {
+var _ step = (*Test)(nil)
+
+func (t Test) name() string {
+	if t != TestAll {
+		return "Test " + string(t)
+	}
 	return "Tests"
 }
 
-func (_ test) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	testBase := request.container.
 		WithExec([]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"}).
 		WithExec([]string{envTest, "use", "1.26.1", "--bin-dir", localBin, "-p", "path"})
@@ -33,11 +40,17 @@ func (_ test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 		WithExec([]string{"git", "config", "user.name", "test"}).
 		WithExec([]string{"git", "add", "."}).
 		WithExec([]string{"git", "commit", "-m", "\"init\""}).
-		WithWorkdir(workDir)
+		WithWorkdir(workDir).
+		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath))
 
-	test := prepareTest.
-		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath)).
-		WithExec([]string{"go", "test", "./...", "-coverprofile", "cover.out"})
+	var test *dagger.Container
+	if t == TestAll {
+		test = prepareTest.
+			WithExec([]string{"go", "test", TestAllArg, "-coverprofile", "cover.out"})
+	} else {
+		test = prepareTest.
+			WithExec([]string{"go", "test", "-run", string(t)})
+	}
 
 	return &stepResult{
 		container: test,

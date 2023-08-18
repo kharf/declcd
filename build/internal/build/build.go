@@ -2,6 +2,8 @@ package build
 
 import (
 	"context"
+
+	"dagger.io/dagger"
 )
 
 type controllerGen struct{}
@@ -24,24 +26,46 @@ func (_ controllerGen) run(ctx context.Context, request stepRequest) (*stepResul
 	}, nil
 }
 
-type build struct{}
+type build string
 
-var Build = build{}
+var (
+	Tidy  = build("tidy")
+	Build = build("build")
+)
 
 var _ step = (*build)(nil)
 
-func (_ build) name() string {
-	return "Build"
+func (b build) name() string {
+	return string(b)
 }
 
-func (_ build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
-	binary := "bin/manager"
-	build := request.container.
-		WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, "cmd/controller/main.go"})
+func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	var build *dagger.Container
 
-	_, err := build.File(binary).Export(ctx, binary)
-	if err != nil {
-		return nil, err
+	if b == Build {
+		binary := "bin/manager"
+		build = request.container.
+			WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, "cmd/controller/main.go"})
+
+		_, err := build.File(binary).Export(ctx, binary)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		sum := "go.sum"
+		mod := "go.mod"
+		build = request.container.
+			WithExec([]string{"go", "mod", "tidy"})
+
+		_, err := build.File(sum).Export(ctx, sum)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = build.File(mod).Export(ctx, mod)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &stepResult{

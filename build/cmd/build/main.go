@@ -11,7 +11,7 @@ func main() {
 	// Only build when tests pass
 	if err := build.RunWith(
 		build.ControllerGen,
-		build.Test,
+		build.TestAll,
 		build.Build,
 	); err != nil {
 		fmt.Println(err)

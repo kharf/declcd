@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"dagger.io/dagger"
 )
@@ -78,7 +79,7 @@ func RunWith(steps ...step) error {
 			return err
 		}
 		fmt.Println(output)
-		fmt.Println("\033[32m", step.name()+" passed!")
+		fmt.Println("\033[32m", strings.ToUpper(step.name())+" passed!")
 		latestContainer = stepResult.container
 	}
 

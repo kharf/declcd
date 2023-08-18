@@ -12,7 +12,7 @@ func main() {
 		build.WorkflowsGen{Export: false},
 		build.CommitWorkflows,
 		build.ControllerGen,
-		build.Test,
+		build.TestAll,
 	); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
