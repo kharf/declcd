@@ -28,7 +28,7 @@ func run() error {
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
 
 	updateContainer := client.Container().
-		From("renovate/renovate:36.57-full").
+		From("renovate/renovate:36.72-full").
 		WithDefaultArgs(dagger.ContainerWithDefaultArgsOpts{Args: []string{"kharf/declcd"}}).
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
