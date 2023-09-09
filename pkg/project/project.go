@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kharf/declcd/pkg/helm"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -20,14 +21,6 @@ var (
 	}
 )
 
-// Defines the CUE schema of decl's components.
-const ComponentSchema = `
-#component: {
-	intervalSeconds: uint | *60
-	manifests: [...]
-}
-`
-
 const (
 	ComponentFileName = "component.cue"
 )
@@ -36,6 +29,7 @@ const (
 type Component struct {
 	IntervalSeconds int                         `json:"intervalSeconds"`
 	Manifests       []unstructured.Unstructured `json:"manifests"`
+	HelmReleases    []helm.Release              `json:"helmReleases"`
 }
 
 // MainDeclarativeComponent is an expected entry point for the project, containing all the declarative components.

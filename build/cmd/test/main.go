@@ -14,9 +14,14 @@ func main() {
 		testToRun = args[0]
 	}
 
+	var pkgs string
+	if len(args) > 1 {
+		pkgs = args[1]
+	}
+
 	if err := build.RunWith(
 		build.ControllerGen,
-		build.Test(testToRun),
+		build.Test{ID: testToRun, Package: pkgs},
 	); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

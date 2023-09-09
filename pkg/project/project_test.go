@@ -1,10 +1,12 @@
-package project
+package project_test
 
 import (
 	"os"
 	"testing"
 	"testing/fstest"
 
+	"github.com/kharf/declcd/pkg/project"
+	_ "github.com/kharf/declcd/test/workingdir"
 	"go.uber.org/zap"
 	"gotest.tools/v3/assert"
 )
@@ -23,86 +25,15 @@ func setUp(t *testing.T) *zap.SugaredLogger {
 	return l.Sugar()
 }
 
-func TestProjectManager_Load(t *testing.T) {
-	logger := setUp(t)
-	mapfs := fstest.MapFS{
-		"project/infra/xxxx.cue": {
-			Data: []byte(`
-		xxxx: {
-		 intervalSeconds: 60
-		}
-	`),
-		},
-		"project/apps": {},
-		"project/infra/prometheus/node-exporter/component.cue": {
-			Data: []byte(`
-		component: {
-		 intervalSeconds: 60
-		}
-	`),
-		},
-		"project/infra/prometheus/node-exporter/deployment.cue": {
-			Data: []byte(`
-		_deployment: {
-		 kind: Deployment
-		}
-	`),
-		},
-		"project/infra/prometheus/node-exporter/plugin/component.cue": {
-			Data: []byte(`
-		component: {
-		 intervalSeconds: 60
-		}
-	`),
-		},
-		"project/infra/prometheus/node-exporter/plugin/deployment.cue": {
-			Data: []byte(`
-		deployment: {
-		 kind: Deployment
-		}
-	`),
-		},
-		"project/infra/prometheus/component.cue": {
-			Data: []byte(`
-		component: {
-		 intervalSeconds: 60
-		}
-	`),
-		},
-		"project/infra/prometheus/deployment.cue": {
-			Data: []byte(`
-		deployment: {
-		 kind: Deployment
-		}
-	`),
-		},
-	}
-
-	pm := NewProjectManager(FileSystem{FS: mapfs, Root: ""}, logger)
-	mainComponents, err := pm.Load("project/")
-	assert.NilError(t, err)
-	assert.Assert(t, len(mainComponents) == 2)
-	apps := mainComponents[1]
-	assert.Assert(t, len(apps.SubComponents) == 0)
-	infra := mainComponents[0]
-	assert.Assert(t, len(infra.SubComponents) == 1)
-	prometheus := infra.SubComponents[0]
-	assert.Assert(t, len(prometheus.SubComponents) == 1)
-	nodeExporter := prometheus.SubComponents[0]
-	assert.Assert(t, len(nodeExporter.SubComponents) == 1)
-	plugin := nodeExporter.SubComponents[0]
-	assert.Assert(t, len(plugin.SubComponents) == 0)
-}
-
 func TestProjectManager_Load_AppsDoesNotExist(t *testing.T) {
 	logger := setUp(t)
 	mapfs := fstest.MapFS{
 		"project/infra": {},
 	}
 
-	pm := NewProjectManager(FileSystem{FS: mapfs, Root: ""}, logger)
+	pm := project.NewProjectManager(project.FileSystem{FS: mapfs, Root: ""}, logger)
 	_, err := pm.Load("project/")
-	assert.ErrorIs(t, err, ErrMainComponentNotFound)
+	assert.ErrorIs(t, err, project.ErrMainComponentNotFound)
 	assert.Error(t, err, "main component not found: could not load project/apps")
 }
 
@@ -112,17 +43,17 @@ func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
 		"project/apps/": {},
 	}
 
-	pm := NewProjectManager(FileSystem{FS: mapfs, Root: ""}, logger)
+	pm := project.NewProjectManager(project.FileSystem{FS: mapfs, Root: ""}, logger)
 	_, err := pm.Load("project/")
-	assert.ErrorIs(t, err, ErrMainComponentNotFound)
+	assert.ErrorIs(t, err, project.ErrMainComponentNotFound)
 	assert.Error(t, err, "main component not found: could not load project/infra")
 }
 
-func TestProjectManager_Load_TestData(t *testing.T) {
+func TestProjectManager_Load(t *testing.T) {
 	logger := setUp(t)
-	root := "testdata"
+	root := "test/testdata"
 	fileSystem := os.DirFS(root)
-	pm := NewProjectManager(FileSystem{FS: fileSystem, Root: root}, logger)
+	pm := project.NewProjectManager(project.FileSystem{FS: fileSystem, Root: root}, logger)
 	mainComponents, err := pm.Load("simple")
 	assert.NilError(t, err)
 	assert.Assert(t, len(mainComponents) == 2)
@@ -131,5 +62,9 @@ func TestProjectManager_Load_TestData(t *testing.T) {
 	infra := mainComponents[0]
 	assert.Assert(t, len(infra.SubComponents) == 1)
 	prometheus := infra.SubComponents[0]
+	assert.Equal(t, prometheus.Path, "infra/prometheus")
 	assert.Assert(t, len(prometheus.SubComponents) == 1)
+	subcomponent := prometheus.SubComponents[0]
+	assert.Equal(t, subcomponent.Path, "infra/prometheus/subcomponent")
+	assert.Assert(t, len(subcomponent.SubComponents) == 0)
 }

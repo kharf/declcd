@@ -21,10 +21,12 @@ import (
 	"os"
 	"path/filepath"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
 	"cuelang.org/go/cue/cuecontext"
 	"go.uber.org/zap"
+	"helm.sh/helm/v3/pkg/action"
+
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,11 +35,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/controller"
+	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	//+kubebuilder:scaffold:imports
 )
@@ -69,16 +71,14 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(ctrlZap.New(ctrlZap.UseFlagOptions(&opts)))
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&opts))
+	ctrl.SetLogger(log)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme: scheme,
-		Metrics: server.Options{
-			BindAddress: metricsAddr,
-		},
-		WebhookServer: webhook.NewServer(webhook.Options{
-			Port: 9443,
-		}),
+	cfg := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme:                 scheme,
+		MetricsBindAddress:     metricsAddr,
+		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "597c047a.declcd.io",
@@ -113,11 +113,21 @@ func main() {
 	defer logger.Sync()
 	sugarredLogger := logger.Sugar()
 	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, sugarredLogger)
+	helmCfg := action.Configuration{}
+	getter := kube.InMemoryRESTClientGetter{
+		Cfg:        cfg,
+		RestMapper: mgr.GetRESTMapper(),
+	}
+	err = helmCfg.Init(getter, "default", "secret", sugarredLogger.Infof)
+	chartReconciler := helm.ChartReconciler{Cfg: helmCfg}
 	if err = (&controller.GitOpsProjectReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		CueContext:     ctx,
-		ProjectManager: projectManager,
+		Reconciler: project.Reconciler{
+			Client:            mgr.GetClient(),
+			CueContext:        ctx,
+			RepositoryManager: project.NewRepositoryManager(log),
+			ProjectManager:    projectManager,
+			ChartReconciler:   chartReconciler,
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitOpsProject")
 		os.Exit(1)

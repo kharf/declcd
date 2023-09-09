@@ -7,17 +7,20 @@ import (
 	"dagger.io/dagger"
 )
 
-type Test string
+type Test struct {
+	ID      string
+	Package string
+}
 
 const TestAllArg = "./..."
 
-var TestAll = Test(TestAllArg)
+var TestAll = Test{ID: "./..."}
 
 var _ step = (*Test)(nil)
 
 func (t Test) name() string {
-	if t != TestAll {
-		return "Test " + string(t)
+	if t.ID != TestAllArg {
+		return "Test " + t.ID
 	}
 	return "Tests"
 }
@@ -33,8 +36,8 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 	}
 
 	prepareTest := testBase.WithExec([]string{"mkdir", "-p", declTmp}).
-		WithExec([]string{"cp", "internal/controller/testdata/controllertest", "-r", declTmp}).
-		WithWorkdir(filepath.Join(declTmp, "controllertest")).
+		WithExec([]string{"cp", "test/testdata/simple", "-r", declTmp}).
+		WithWorkdir(filepath.Join(declTmp, "simple")).
 		WithExec([]string{"git", "init", "."}).
 		WithExec([]string{"git", "config", "user.email", "test@test.com"}).
 		WithExec([]string{"git", "config", "user.name", "test"}).
@@ -44,15 +47,20 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath))
 
 	var test *dagger.Container
-	if t == TestAll {
+	if t.ID == TestAllArg {
 		test = prepareTest.
-			WithExec([]string{"go", "test", TestAllArg, "-coverprofile", "cover.out"})
+			WithExec([]string{"go", "test", "-v", TestAllArg, "-coverprofile", "cover.out"})
 	} else {
-		test = prepareTest.
-			WithExec([]string{"go", "test", "-run", string(t)})
+		if t.Package == "" {
+			test = prepareTest.
+				WithExec([]string{"go", "test", "-v", "-run", t.ID})
+		} else {
+			test = prepareTest.
+				WithExec([]string{"go", "test", "-v", "./" + t.Package, "-run", t.ID})
+		}
 	}
 
 	return &stepResult{
-		container: test,
+		container: test.WithWorkdir(workDir),
 	}, nil
 }
