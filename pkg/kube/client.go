@@ -112,6 +112,10 @@ func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured)
 	return nil
 }
 
+func (client *Client) Get(ctx context.Context) {
+
+}
+
 // WIP
 func (client *Client) List(ctx context.Context, opts v1.ListOptions) ([]appsv1.Deployment, error) {
 	deployments := client.client.AppsV1().Deployments("default")

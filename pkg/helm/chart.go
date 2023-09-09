@@ -1,11 +1,15 @@
 package helm
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/pkg/kube"
+	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -14,6 +18,7 @@ import (
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var (
@@ -29,8 +34,9 @@ type Chart struct {
 }
 
 type ChartReconciler struct {
-	Cfg action.Configuration
-	Log logr.Logger
+	Cfg    action.Configuration
+	Log    logr.Logger
+	Client kube.Client
 }
 
 type options struct {
@@ -100,6 +106,7 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 	upgrade := action.NewUpgrade(&c.Cfg)
 	upgrade.Wait = false
 	upgrade.Namespace = namespace
+	upgrade.DryRun = true
 	c.Log.Info("upgrading chart", logArgs...)
 	release, err := upgrade.Run(releaseName, chrt, reconcileOpts.values)
 	if err != nil {
@@ -108,6 +115,35 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 	}
 	c.Log.Info("upgrading chart finished", logArgs...)
 	return release, nil
+}
+
+func (c ChartReconciler) diff(chrt *chart.Chart, releaseName string, values Values, namespace string) (bool, error) {
+	upgrade := action.NewUpgrade(&c.Cfg)
+	upgrade.Wait = false
+	upgrade.Namespace = namespace
+	upgrade.DryRun = true
+	release, err := upgrade.Run(releaseName, chrt, values)
+	if err != nil {
+		return false, err
+	}
+
+	newManifests := make([]unstructured.Unstructured, 0, 3)
+	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
+	for {
+		unstr := unstructured.Unstructured{}
+		if err = decoder.Decode(&unstr); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return false, err
+		}
+		newManifests = append(newManifests, unstr)
+	}
+
+	// query cluster
+	for _, manifest := range newManifests {
+
+	}
 }
 
 func (c ChartReconciler) pull(chartRequest Chart) (*chart.Chart, error) {
