@@ -119,7 +119,10 @@ func main() {
 		RestMapper: mgr.GetRESTMapper(),
 	}
 	err = helmCfg.Init(getter, "default", "secret", sugarredLogger.Infof)
-	chartReconciler := helm.ChartReconciler{Cfg: helmCfg}
+	chartReconciler := helm.ChartReconciler{
+		Cfg: helmCfg,
+		Log: log,
+	}
 	if err = (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
 			Client:            mgr.GetClient(),
@@ -127,6 +130,7 @@ func main() {
 			RepositoryManager: project.NewRepositoryManager(log),
 			ProjectManager:    projectManager,
 			ChartReconciler:   chartReconciler,
+			Log:               log,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitOpsProject")
