@@ -42,7 +42,7 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 	}
 
 	if err := repository.Pull(); err != nil {
-		log.Error(err, "unable to pull gitops project repository")
+		log.Error(err, "unable to pull gitops project repository", "repository", gProject.Spec.URL)
 		return reconcileResult, err
 	}
 
@@ -81,7 +81,7 @@ func (reconciler Reconciler) reconcileSubComponents(ctx context.Context, subComp
 			return err
 		}
 
-		if err := reconciler.reconcileHelmReleases(component.HelmReleases); err != nil {
+		if err := reconciler.reconcileHelmReleases(ctx, component.HelmReleases); err != nil {
 			return err
 		}
 
@@ -102,9 +102,10 @@ func (reconciler Reconciler) reconcileManifests(ctx context.Context, manifests [
 	return nil
 }
 
-func (reconciler Reconciler) reconcileHelmReleases(releases []helm.Release) error {
+func (reconciler Reconciler) reconcileHelmReleases(ctx context.Context, releases []helm.Release) error {
 	for _, release := range releases {
 		if _, err := reconciler.ChartReconciler.Reconcile(
+			ctx,
 			release.Chart,
 			release.Values,
 			helm.ReleaseName(release.Name),

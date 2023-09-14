@@ -2,10 +2,12 @@ package helm
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/kube"
@@ -19,6 +21,7 @@ import (
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var (
@@ -36,7 +39,7 @@ type Chart struct {
 type ChartReconciler struct {
 	Cfg    action.Configuration
 	Log    logr.Logger
-	Client kube.Client
+	Client *kube.Client
 }
 
 type options struct {
@@ -67,7 +70,7 @@ func (v Values) Apply(opts *options) {
 	opts.values = v
 }
 
-func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Release, error) {
+func (c ChartReconciler) Reconcile(ctx context.Context, chart Chart, opts ...option) (*release.Release, error) {
 	reconcileOpts := &options{}
 	for _, opt := range opts {
 		opt.Apply(reconcileOpts)
@@ -88,7 +91,8 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 	}
 	histClient := action.NewHistory(&c.Cfg)
 	histClient.Max = 1
-	if _, err := histClient.Run(releaseName); err == driver.ErrReleaseNotFound {
+	var releases []*release.Release
+	if releases, err = histClient.Run(releaseName); err == driver.ErrReleaseNotFound {
 		client := action.NewInstall(&c.Cfg)
 		client.Wait = false
 		client.ReleaseName = releaseName
@@ -103,10 +107,20 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 		c.Log.Info("installing chart finished", logArgs...)
 		return release, nil
 	}
+
+	diff, err := c.diff(ctx, chrt, releaseName, reconcileOpts.values, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	if !diff {
+		c.Log.Info("no changes", logArgs...)
+		return releases[0], nil
+	}
+
 	upgrade := action.NewUpgrade(&c.Cfg)
 	upgrade.Wait = false
 	upgrade.Namespace = namespace
-	upgrade.DryRun = true
 	c.Log.Info("upgrading chart", logArgs...)
 	release, err := upgrade.Run(releaseName, chrt, reconcileOpts.values)
 	if err != nil {
@@ -117,7 +131,7 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 	return release, nil
 }
 
-func (c ChartReconciler) diff(chrt *chart.Chart, releaseName string, values Values, namespace string) (bool, error) {
+func (c ChartReconciler) diff(ctx context.Context, chrt *chart.Chart, releaseName string, values Values, namespace string) (bool, error) {
 	upgrade := action.NewUpgrade(&c.Cfg)
 	upgrade.Wait = false
 	upgrade.Namespace = namespace
@@ -127,23 +141,51 @@ func (c ChartReconciler) diff(chrt *chart.Chart, releaseName string, values Valu
 		return false, err
 	}
 
+	fmt.Println(release.Manifest)
+
 	newManifests := make([]unstructured.Unstructured, 0, 3)
 	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
 	for {
-		unstr := unstructured.Unstructured{}
+		var unstr map[string]interface{}
 		if err = decoder.Decode(&unstr); err != nil {
 			if err == io.EOF {
 				break
 			}
 			return false, err
 		}
-		newManifests = append(newManifests, unstr)
+		newManifests = append(newManifests, unstructured.Unstructured{Object: unstr})
 	}
 
-	// query cluster
 	for _, manifest := range newManifests {
+		fmt.Println(manifest)
+		groupVersion := strings.Split(manifest.GetAPIVersion(), "/")
+		group := ""
+		var version string
+		if len(groupVersion) == 1 {
+			version = groupVersion[0]
+		} else {
+			group = groupVersion[0]
+			version = groupVersion[1]
+		}
+		obj, err := c.Client.Get(ctx, schema.GroupVersionKind{
+			Group:   group,
+			Version: version,
+			Kind:    manifest.GetKind(),
+		}, manifest.GetName(), namespace)
+		if err != nil {
+			return false, err
+		}
+
+		if obj == nil {
+			return true, nil
+		}
+
+		// TODO: diff here
+		// equality.Semantic.DeepEqual(obj, manifest)
 
 	}
+
+	return false, nil
 }
 
 func (c ChartReconciler) pull(chartRequest Chart) (*chart.Chart, error) {

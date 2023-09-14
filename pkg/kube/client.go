@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -112,8 +113,28 @@ func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured)
 	return nil
 }
 
-func (client *Client) Get(ctx context.Context) {
+func (client *Client) Get(ctx context.Context, gvk schema.GroupVersionKind, name string, namespace string) (*unstructured.Unstructured, error) {
+	restMapper := client.RestMapper
+	dynamicClient := client.dynamicClient
 
+	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	var resourceInterface dynamic.ResourceInterface
+	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+		resourceInterface = dynamicClient.Resource(mapping.Resource).Namespace(namespace)
+	} else {
+		resourceInterface = dynamicClient.Resource(mapping.Resource)
+	}
+
+	obj, err := resourceInterface.Get(ctx, name, v1.GetOptions{TypeMeta: v1.TypeMeta{Kind: gvk.Kind}})
+	if err != nil {
+		return nil, err
+	}
+
+	return obj, nil
 }
 
 // WIP

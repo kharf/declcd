@@ -18,6 +18,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/kubetest"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
@@ -50,7 +51,8 @@ func TestChartReconciler_Reconcile_Default(t *testing.T) {
 		Log: log,
 	}
 
-	testReconcile(t, reconciler, env, chart, "test", "test", "default", assertChartv1)
+	ctx := context.Background()
+	testReconcile(ctx, t, reconciler, env, chart, "test", "test", "default", assertChartv1)
 }
 
 func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
@@ -69,7 +71,8 @@ func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
 	}
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	ctx := context.Background()
+	testReconcile(ctx, t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
 }
 
 func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
@@ -82,13 +85,16 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 		Version: "1.0.0",
 	}
 
+	kubeClient, err := kube.NewClient(env.ControlPlane.Config)
 	reconciler := ChartReconciler{
-		Cfg: *env.HelmConfig,
-		Log: log,
+		Cfg:    *env.HelmConfig,
+		Log:    log,
+		Client: kubeClient,
 	}
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	ctx := context.Background()
+	testReconcile(ctx, t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
 
 	releasesFilePath := filepath.Join(env.TestProjectSource, "infra", "prometheus", "releases.cue")
 	releasesContent, err := os.ReadFile(releasesFilePath)
@@ -130,7 +136,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 		Version: "2.0.0",
 	}
 
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv2)
+	testReconcile(ctx, t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv2)
 }
 
 func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
@@ -186,6 +192,7 @@ func assertChartv2(t *testing.T, env *kubetest.KubetestEnv, liveName string, nam
 }
 
 func testReconcile(
+	ctx context.Context,
 	t *testing.T,
 	reconciler ChartReconciler,
 	env *kubetest.KubetestEnv,
@@ -202,6 +209,7 @@ func testReconcile(
 	}
 
 	release, err := reconciler.Reconcile(
+		ctx,
 		chart,
 		ReleaseName(releaseName),
 		Namespace(namespace),
