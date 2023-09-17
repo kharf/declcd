@@ -20,14 +20,16 @@ import (
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var (
-	ErrNoChartURLs      = errors.New("helm chart does not provide download urls")
-	ErrPullFailed       = errors.New("could not pull helm chart")
-	ErrHelmChartVersion = errors.New("helm chart version error")
+	ErrNoChartURLs        = errors.New("helm chart does not provide download urls")
+	ErrPullFailed         = errors.New("could not pull helm chart")
+	ErrHelmChartVersion   = errors.New("helm chart version error")
+	ErrManifestNoMetadata = errors.New("helm chart manifest has no metadata")
 )
 
 type Chart struct {
@@ -141,9 +143,7 @@ func (c ChartReconciler) diff(ctx context.Context, chrt *chart.Chart, releaseNam
 		return false, err
 	}
 
-	fmt.Println(release.Manifest)
-
-	newManifests := make([]unstructured.Unstructured, 0, 3)
+	newManifests := make([]*unstructured.Unstructured, 0, 3)
 	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
 	for {
 		var unstr map[string]interface{}
@@ -153,11 +153,10 @@ func (c ChartReconciler) diff(ctx context.Context, chrt *chart.Chart, releaseNam
 			}
 			return false, err
 		}
-		newManifests = append(newManifests, unstructured.Unstructured{Object: unstr})
+		newManifests = append(newManifests, &unstructured.Unstructured{Object: unstr})
 	}
 
 	for _, manifest := range newManifests {
-		fmt.Println(manifest)
 		groupVersion := strings.Split(manifest.GetAPIVersion(), "/")
 		group := ""
 		var version string
@@ -167,11 +166,17 @@ func (c ChartReconciler) diff(ctx context.Context, chrt *chart.Chart, releaseNam
 			group = groupVersion[0]
 			version = groupVersion[1]
 		}
+		name := ""
+		if metadata, ok := manifest.Object["metadata"].(map[interface{}]interface{}); ok {
+			name = metadata["name"].(string)
+		} else {
+			return false, ErrManifestNoMetadata
+		}
 		obj, err := c.Client.Get(ctx, schema.GroupVersionKind{
 			Group:   group,
 			Version: version,
 			Kind:    manifest.GetKind(),
-		}, manifest.GetName(), namespace)
+		}, name, namespace)
 		if err != nil {
 			return false, err
 		}
@@ -180,9 +185,12 @@ func (c ChartReconciler) diff(ctx context.Context, chrt *chart.Chart, releaseNam
 			return true, nil
 		}
 
-		// TODO: diff here
-		// equality.Semantic.DeepEqual(obj, manifest)
-
+		if !equality.Semantic.DeepEqual(obj.Object["spec"], manifest.Object["spec"]) {
+			fmt.Println("it diffs", obj.GetKind())
+			fmt.Println(obj.Object["spec"])
+			fmt.Println(manifest.Object["spec"])
+			return true, nil
+		}
 	}
 
 	return false, nil

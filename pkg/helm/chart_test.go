@@ -86,6 +86,9 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	}
 
 	kubeClient, err := kube.NewClient(env.ControlPlane.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
 	reconciler := ChartReconciler{
 		Cfg:    *env.HelmConfig,
 		Log:    log,
@@ -137,6 +140,32 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	}
 
 	testReconcile(ctx, t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv2)
+}
+
+func TestChartReconciler_Reconcile_Upgrade_NoChanges(t *testing.T) {
+	env := kubetest.StartKubetestEnv(t)
+	defer env.Stop()
+
+	chart := Chart{
+		Name:    "test",
+		RepoURL: env.HelmRepoServer.URL,
+		Version: "1.0.0",
+	}
+
+	kubeClient, err := kube.NewClient(env.ControlPlane.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := ChartReconciler{
+		Cfg:    *env.HelmConfig,
+		Log:    log,
+		Client: kubeClient,
+	}
+
+	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
+	ctx := context.Background()
+	testReconcile(ctx, t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	testReconcile(ctx, t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
 }
 
 func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
