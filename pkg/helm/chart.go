@@ -3,7 +3,9 @@ package helm
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/action"
@@ -61,12 +63,12 @@ func (v Values) Apply(opts *options) {
 	opts.values = v
 }
 
-func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Release, error) {
+func (c ChartReconciler) Reconcile(chartRequest Chart, opts ...option) (*release.Release, error) {
 	reconcileOpts := &options{}
 	for _, opt := range opts {
 		opt.Apply(reconcileOpts)
 	}
-	releaseName := chart.Name
+	releaseName := chartRequest.Name
 	if reconcileOpts.releaseName != "" {
 		releaseName = reconcileOpts.releaseName
 	}
@@ -74,12 +76,13 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 	if reconcileOpts.namespace != "" {
 		namespace = reconcileOpts.namespace
 	}
-	logArgs := []interface{}{"name", chart.Name, "url", chart.RepoURL, "version", chart.Version, "releasename", releaseName, "namespace", namespace}
-	c.Log.Info("pulling chart", logArgs...)
-	chrt, err := c.pull(chart)
+	logArgs := []interface{}{"name", chartRequest.Name, "url", chartRequest.RepoURL, "version", chartRequest.Version, "releasename", releaseName, "namespace", namespace}
+	c.Log.Info("loading chart", logArgs...)
+	chrt, err := c.load(chartRequest, logArgs)
 	if err != nil {
 		return nil, err
 	}
+
 	histClient := action.NewHistory(&c.Cfg)
 	histClient.Max = 1
 	if _, err := histClient.Run(releaseName); err == driver.ErrReleaseNotFound {
@@ -110,8 +113,34 @@ func (c ChartReconciler) Reconcile(chart Chart, opts ...option) (*release.Releas
 	return release, nil
 }
 
-func (c ChartReconciler) pull(chartRequest Chart) (*chart.Chart, error) {
+func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart.Chart, error) {
 	var err error
+	chartIdentifier := fmt.Sprintf("%s-%s", chartRequest.Name, chartRequest.Version)
+	chartPath := filepath.Join(os.TempDir(), chartIdentifier)
+	chartArchivePath := filepath.Join(chartPath, fmt.Sprintf("%s.tgz", chartIdentifier))
+	chart, err := loader.Load(chartArchivePath)
+	if err != nil {
+		pathErr := &fs.PathError{}
+		if errors.As(err, &pathErr) {
+			c.Log.Info("pulling chart", logArgs...)
+			if err := c.pull(chartRequest, chartPath); err != nil {
+				return nil, err
+			}
+			chart, err := loader.Load(chartArchivePath)
+			if err != nil {
+				return nil, err
+			}
+			return chart, nil
+		}
+		return nil, err
+	}
+
+	return chart, nil
+}
+
+func (c ChartReconciler) pull(chartRequest Chart, chartPath string) error {
+	var err error
+
 	getters := []getter.Provider{
 		{
 			Schemes: []string{"http", "https"},
@@ -128,46 +157,41 @@ func (c ChartReconciler) pull(chartRequest Chart) (*chart.Chart, error) {
 	}
 	chartRepo, err := repo.NewChartRepository(entry, getters)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	path, err := chartRepo.DownloadIndexFile()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	index, err := repo.LoadIndexFile(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	chartVersion, err := index.Get(chartRequest.Name, chartRequest.Version)
 	if err != nil {
-		return nil, fmt.Errorf("%w: version: %s not found: %w", ErrHelmChartVersion, chartRequest.Version, err)
+		return fmt.Errorf("%w: version: %s not found: %w", ErrHelmChartVersion, chartRequest.Version, err)
 	}
 
 	if len(chartVersion.URLs) < 1 {
-		return nil, ErrNoChartURLs
+		return ErrNoChartURLs
 	}
 
 	absoluteChartURL, err := repo.ResolveReferenceURL(chartRequest.RepoURL, chartVersion.URLs[0])
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	dest, err := os.MkdirTemp("", "")
+	err = os.Mkdir(chartPath, 0700)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	chartPath, _, err := chartDownloader.DownloadTo(absoluteChartURL, chartRequest.Version, dest)
+	_, _, err = chartDownloader.DownloadTo(absoluteChartURL, chartRequest.Version, chartPath)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPullFailed, err)
+		return fmt.Errorf("%w: %w", ErrPullFailed, err)
 	}
 
-	chart, err := loader.Load(chartPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return chart, nil
+	return nil
 }

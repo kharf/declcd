@@ -11,6 +11,7 @@ import (
 	"github.com/go-logr/logr"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"go.uber.org/zap/zapcore"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"gotest.tools/v3/assert"
@@ -131,6 +132,39 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	}
 
 	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv2)
+}
+
+func TestChartReconciler_Reconcile_Chart_Cache(t *testing.T) {
+	env := kubetest.StartKubetestEnv(t)
+	defer env.Stop()
+
+	chart := Chart{
+		Name:    "test",
+		RepoURL: env.HelmRepoServer.URL,
+		Version: "1.0.0",
+	}
+
+	reconciler := ChartReconciler{
+		Cfg: *env.HelmConfig,
+		Log: log,
+	}
+
+	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
+	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	env.HelmChartServer.Close()
+	env.HelmRepoServer.Close()
+	ctx := context.Background()
+	err := env.TestKubeClient.Delete(ctx, &appsv1.Deployment{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      liveName,
+			Namespace: "mynamespace",
+		},
+	})
+	assert.NilError(t, err)
+	var deployment appsv1.Deployment
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: "mynamespace"}, &deployment)
+	assert.Error(t, err, "deployments.apps \"myhelmrelease-test\" not found")
+	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
 }
 
 func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
