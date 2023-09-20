@@ -7,19 +7,24 @@ import (
 	"cuelang.org/go/cue"
 	"github.com/go-logr/logr"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/inventory"
 	"k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Reconciler struct {
+	Log               logr.Logger
 	Client            client.Client
 	ProjectManager    ProjectManager
 	RepositoryManager RepositoryManager
 	CueContext        *cue.Context
 	ChartReconciler   helm.ChartReconciler
-	Log               logr.Logger
+	InventoryManager  inventory.Manager
+	GarbageCollector  garbage.Collector
 }
 
 type ReconcileResult struct {
@@ -33,6 +38,7 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 	}
 
 	reconcileResult := &ReconcileResult{Suspended: false}
+
 	repositoryUID := string(gProject.GetUID())
 	repositoryDir := filepath.Join(reconciler.ProjectManager.FS.Root, repositoryUID)
 	repository, err := reconciler.RepositoryManager.Load(WithUrl(gProject.Spec.URL), WithTarget(repositoryDir))
@@ -52,6 +58,7 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 		return reconcileResult, err
 	}
 
+	//TODO: needs refactoring - getting ugly
 	if err := reconciler.reconcileComponents(ctx, mainComponents, repositoryDir); err != nil {
 		log.Error(err, "unable to reconcile components")
 		return reconcileResult, err
@@ -62,6 +69,25 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 
 func (reconciler Reconciler) reconcileComponents(ctx context.Context, mainComponents []MainDeclarativeComponent, repositoryDir string) error {
 	componentBuilder := NewComponentBuilder(reconciler.CueContext)
+	inventoryStorage, err := reconciler.InventoryManager.Load()
+	if err != nil {
+		return err
+	}
+	renderedManifest := make([]unstructured.Unstructured, 0, 30)
+	for _, mainComponent := range mainComponents {
+		for _, subComponent := range mainComponent.SubComponents {
+			component, err := componentBuilder.Build(WithProjectRoot(repositoryDir), WithComponentPath(subComponent.Path))
+			if err != nil {
+				return err
+			}
+			renderedManifest = append(renderedManifest, component.Manifests...)
+		}
+	}
+
+	if err := reconciler.GarbageCollector.Collect(ctx, *inventoryStorage, renderedManifest); err != nil {
+		return err
+	}
+
 	for _, mainComponent := range mainComponents {
 		if err := reconciler.reconcileSubComponents(ctx, mainComponent.SubComponents, repositoryDir, componentBuilder); err != nil {
 			return err
@@ -90,12 +116,24 @@ func (reconciler Reconciler) reconcileSubComponents(ctx context.Context, subComp
 		}
 
 	}
+
 	return nil
 }
 
 func (reconciler Reconciler) reconcileManifests(ctx context.Context, manifests []unstructured.Unstructured) error {
 	for _, manifest := range manifests {
 		if err := reconciler.createOrUpdate(ctx, &manifest); err != nil {
+			return err
+		}
+		invManifest := inventory.Manifest{
+			TypeMeta: v1.TypeMeta{
+				Kind:       manifest.GetKind(),
+				APIVersion: manifest.GetAPIVersion(),
+			},
+			Name:      manifest.GetName(),
+			Namespace: manifest.GetNamespace(),
+		}
+		if err := reconciler.InventoryManager.Store(invManifest); err != nil {
 			return err
 		}
 	}

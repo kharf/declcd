@@ -19,8 +19,19 @@ func (_ controllerGen) name() string {
 func (_ controllerGen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	gen := request.container.
 		WithExec([]string{"go", "install", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.3"}).
-		WithExec([]string{controllerGenPath, "rbac:roleName=manager-role", "crd", "webhook", "paths=\"./...\"", "output:crd:artifacts:config=config/crd/bases"})
+		WithExec([]string{controllerGenPath, "rbac:roleName=manager-role", "crd", "webhook", "paths=\"./...\"", "output:crd:artifacts:config=config/crd/bases"}).
+		WithExec([]string{controllerGenPath, "object:headerFile=\"hack/boilerplate.go.txt\"", "paths=\"./...\""})
 
+	apiDir := "api/"
+	_, err := gen.Directory(apiDir).Export(ctx, apiDir)
+	if err != nil {
+		return nil, err
+	}
+	config := "config/"
+	_, err = gen.Directory(config).Export(ctx, config)
+	if err != nil {
+		return nil, err
+	}
 	return &stepResult{
 		container: gen,
 	}, nil
