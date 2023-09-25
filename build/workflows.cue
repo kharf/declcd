@@ -20,7 +20,7 @@ import "json.schemastore.org/github"
 
 #checkoutCode: {
 	name: "Checkout code"
-	uses: "actions/checkout@v4"
+	uses: "actions/checkout@v4.1.0"
 	with: {
 		[string]: string | number | bool
 		token:    "${{ secrets.PAT }}"
