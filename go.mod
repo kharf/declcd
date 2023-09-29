@@ -6,7 +6,7 @@ require (
 	cuelang.org/go v0.6.0
 	github.com/go-git/go-git/v5 v5.9.0
 	github.com/onsi/ginkgo/v2 v2.12.1
-	github.com/onsi/gomega v1.27.10
+	github.com/onsi/gomega v1.28.0
 	go.uber.org/zap v1.26.0
 	gotest.tools/v3 v3.5.1
 	helm.sh/helm/v3 v3.13.0
