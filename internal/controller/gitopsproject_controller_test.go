@@ -101,19 +101,14 @@ var _ = Describe("GitOpsProject controller", func() {
 					return deployment.GetName(), nil
 				}, duration, assertionInterval).Should(Equal("mysubcomponent"))
 
-				Eventually(func() (*time.Time, error) {
+				Eventually(func() (int, error) {
 					var updatedGitOpsProject gitopsv1.GitOpsProject
 					if err := k8sClient.Get(ctx, types.NamespacedName{Name: GitOpsProjectName, Namespace: GitOpsProjectNamespace}, &updatedGitOpsProject); err != nil {
-						return nil, err
+						return 0, err
 					}
 
-					if updatedGitOpsProject.Status.LastPullTime == nil {
-						return nil, nil
-					}
-
-					time := updatedGitOpsProject.Status.LastPullTime.Time
-					return &time, nil
-				}, duration, assertionInterval).ShouldNot(BeNil())
+					return len(updatedGitOpsProject.Status.Conditions), nil
+				}, duration, assertionInterval).Should(Equal(2))
 			})
 		})
 

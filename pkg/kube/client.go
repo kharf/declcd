@@ -81,20 +81,9 @@ func NewClient(config *rest.Config) (*Client, error) {
 
 // Apply applies changes to an object through a Server-Side Apply and takes the ownership of this object.
 func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured) error {
-	restMapper := client.RestMapper
-	dynamicClient := client.dynamicClient
-
-	gvk := obj.GroupVersionKind()
-	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	resourceInterface, err := client.resourceInterface(obj)
 	if err != nil {
 		return err
-	}
-
-	var resourceInterface dynamic.ResourceInterface
-	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-		resourceInterface = dynamicClient.Resource(mapping.Resource).Namespace(obj.GetNamespace())
-	} else {
-		resourceInterface = dynamicClient.Resource(mapping.Resource)
 	}
 
 	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: ClientName})
@@ -110,6 +99,39 @@ func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured)
 	}
 
 	return nil
+}
+
+func (client *Client) Delete(ctx context.Context, obj *unstructured.Unstructured) error {
+	resourceInterface, err := client.resourceInterface(obj)
+	if err != nil {
+		return err
+	}
+
+	if err := resourceInterface.Delete(ctx, obj.GetName(), v1.DeleteOptions{
+		TypeMeta: v1.TypeMeta{
+			Kind:       obj.GetKind(),
+			APIVersion: obj.GetAPIVersion(),
+		},
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (client *Client) resourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
+	restMapper := client.RestMapper
+	dynamicClient := client.dynamicClient
+
+	gvk := obj.GroupVersionKind()
+	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil, err
+	}
+	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+		return dynamicClient.Resource(mapping.Resource).Namespace(obj.GetNamespace()), nil
+	}
+	return dynamicClient.Resource(mapping.Resource), nil
 }
 
 // WIP

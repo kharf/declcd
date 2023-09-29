@@ -38,7 +38,9 @@ import (
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/controller"
+	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	//+kubebuilder:scaffold:imports
@@ -66,7 +68,7 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	opts := ctrlZap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -103,8 +105,7 @@ func main() {
 	fs := os.DirFS(gitOpsRepositoryDir)
 	ctx := cuecontext.New()
 	// TODO: replace with logr
-	ctrlZapConfig := zap.NewDevelopmentConfig()
-	ctrlZapConfig.OutputPaths = []string{"stdout"}
+	ctrlZapConfig := zap.NewProductionConfig()
 	logger, err := ctrlZapConfig.Build()
 	if err != nil {
 		setupLog.Error(err, "unable to build logger")
@@ -118,19 +119,39 @@ func main() {
 		Cfg:        cfg,
 		RestMapper: mgr.GetRESTMapper(),
 	}
-	err = helmCfg.Init(getter, "default", "secret", sugarredLogger.Infof)
+	voidLog := func(string, ...interface{}) {}
+	err = helmCfg.Init(getter, "default", "secret", voidLog)
+	if err != nil {
+		setupLog.Error(err, "unable to init helm")
+		os.Exit(1)
+	}
 	chartReconciler := helm.ChartReconciler{
 		Cfg: helmCfg,
 		Log: log,
 	}
+	client, err := kube.NewClient(cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to init kubernetes client")
+		os.Exit(1)
+	}
+	inventoryManager := inventory.Manager{
+		Log:  log,
+		Path: "/tmp/inventory",
+	}
 	if err = (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
+			Log:               log,
 			Client:            mgr.GetClient(),
 			CueContext:        ctx,
 			RepositoryManager: project.NewRepositoryManager(log),
 			ProjectManager:    projectManager,
 			ChartReconciler:   chartReconciler,
-			Log:               log,
+			InventoryManager:  inventoryManager,
+			GarbageCollector: garbage.Collector{
+				Log:              log,
+				Client:           client,
+				InventoryManager: inventoryManager,
+			},
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitOpsProject")

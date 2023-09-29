@@ -19,7 +19,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/kharf/declcd/pkg/kubetest"
+	"github.com/kharf/declcd/internal/kubetest"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 

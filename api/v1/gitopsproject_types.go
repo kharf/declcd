@@ -40,9 +40,8 @@ type GitOpsProjectSpec struct {
 
 // GitOpsProjectStatus defines the observed state of GitOpsProject
 type GitOpsProjectStatus struct {
-	// Information when was the last time the gitops repository was successfully pulled.
 	// +optional
-	LastPullTime *metav1.Time `json:"lastPullTime,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true

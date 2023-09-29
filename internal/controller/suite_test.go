@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"cuelang.org/go/cue/cuecontext"
@@ -29,6 +31,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/project"
 
 	//+kubebuilder:scaffold:imports
@@ -73,7 +76,11 @@ var _ = BeforeSuite(func() {
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
-		Log:               env.Log,
+		InventoryManager: inventory.Manager{
+			Log:  env.Log,
+			Path: filepath.Join(os.TempDir(), "inventory"),
+		},
+		Log: env.Log,
 	}
 
 	err = (&GitOpsProjectReconciler{

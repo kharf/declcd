@@ -44,33 +44,61 @@ type GitOpsProjectReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.4/pkg/reconcile
-func (gReconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	log.Info("reconciliation triggered")
+	triggerTime := v1.Now()
 
 	var gProject gitopsv1.GitOpsProject
-	if err := gReconciler.Reconciler.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
+	if err := reconciler.Reconciler.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
 		log.Error(err, "unable to fetch the GitOpsProject resource from the cluster")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	requeueResult := ctrl.Result{RequeueAfter: time.Duration(gProject.Spec.PullIntervalSeconds) * time.Second}
 
-	_, err := gReconciler.Reconciler.Reconcile(ctx, gProject)
+	gProject.Status.Conditions = make([]v1.Condition, 0, 2)
+	if err := reconciler.updateCondition(ctx, &gProject, v1.Condition{
+		Type:               "Running",
+		Reason:             "Interval",
+		Message:            "Reconciling",
+		Status:             "True",
+		LastTransitionTime: triggerTime,
+	}); err != nil {
+		log.Error(err, "unable to update GitOpsProject status condition to 'Running'")
+		return requeueResult, err
+	}
+
+	_, err := reconciler.Reconciler.Reconcile(ctx, gProject)
 	if err != nil {
 		log.Info("reconciliation failed")
 		return requeueResult, err
 	}
 
-	pullTime := v1.Now()
-	gProject.Status.LastPullTime = &pullTime
-	if err := gReconciler.Reconciler.Client.Status().Update(ctx, &gProject); err != nil {
+	reconciledTime := v1.Now()
+	if err := reconciler.updateCondition(ctx, &gProject, v1.Condition{
+		Type:               "Finished",
+		Reason:             "Success",
+		Message:            "Reconciled",
+		Status:             "True",
+		LastTransitionTime: reconciledTime,
+	}); err != nil {
 		log.Error(err, "unable to update GitOpsProject status")
 		return requeueResult, err
 	}
+
 	log.Info("reconciliation finished")
 
 	return requeueResult, nil
+}
+
+func (reconciler *GitOpsProjectReconciler) updateCondition(ctx context.Context, gProject *gitopsv1.GitOpsProject, condition v1.Condition) error {
+	gProject.Status.Conditions = append(gProject.Status.Conditions, condition)
+	if err := reconciler.Reconciler.Client.Status().Update(ctx, gProject); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

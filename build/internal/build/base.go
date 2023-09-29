@@ -57,6 +57,7 @@ func RunWith(steps ...step) error {
 				"internal",
 				"test",
 				"api",
+				"hack/boilerplate.go.txt",
 				"go.mod",
 				"go.sum",
 				"build/cue.mod",
