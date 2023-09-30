@@ -103,6 +103,7 @@ func (c ChartReconciler) Reconcile(chartRequest Chart, opts ...option) (*release
 	upgrade := action.NewUpgrade(&c.Cfg)
 	upgrade.Wait = false
 	upgrade.Namespace = namespace
+	upgrade.MaxHistory = 5
 	c.Log.Info("upgrading chart", logArgs...)
 	release, err := upgrade.Run(releaseName, chrt, reconcileOpts.values)
 	if err != nil {
