@@ -43,7 +43,6 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
-	//+kubebuilder:scaffold:imports
 )
 
 var (
@@ -53,9 +52,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(gitopsv1.AddToScheme(scheme))
-	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
@@ -136,7 +133,7 @@ func main() {
 	}
 	inventoryManager := inventory.Manager{
 		Log:  log,
-		Path: "/tmp/inventory",
+		Path: "/inventory",
 	}
 	if err = (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
@@ -158,7 +155,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "GitOpsProject")
 		os.Exit(1)
 	}
-	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

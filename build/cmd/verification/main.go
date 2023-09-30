@@ -11,7 +11,6 @@ func main() {
 	if err := build.RunWith(
 		build.WorkflowsGen{Export: false},
 		build.CommitWorkflows,
-		build.ControllerGen,
 		build.TestAll,
 	); err != nil {
 		fmt.Println(err)

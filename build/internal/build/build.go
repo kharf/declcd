@@ -2,46 +2,19 @@ package build
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"time"
 
 	"dagger.io/dagger"
 )
 
-type controllerGen struct{}
-
-var ControllerGen = controllerGen{}
-
-var _ step = (*controllerGen)(nil)
-
-func (_ controllerGen) name() string {
-	return "Generate Controller"
-}
-
-func (_ controllerGen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
-	gen := request.container.
-		WithExec([]string{"go", "install", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.3"}).
-		WithExec([]string{controllerGenPath, "rbac:roleName=manager-role", "crd", "webhook", "paths=\"./...\"", "output:crd:artifacts:config=config/crd/bases"}).
-		WithExec([]string{controllerGenPath, "object:headerFile=\"hack/boilerplate.go.txt\"", "paths=\"./...\""})
-
-	apiDir := "api/"
-	_, err := gen.Directory(apiDir).Export(ctx, apiDir)
-	if err != nil {
-		return nil, err
-	}
-	config := "config/"
-	_, err = gen.Directory(config).Export(ctx, config)
-	if err != nil {
-		return nil, err
-	}
-	return &stepResult{
-		container: gen,
-	}, nil
-}
-
 type build string
 
 var (
-	Tidy  = build("tidy")
-	Build = build("build")
+	Tidy    = build("tidy")
+	Build   = build("build")
+	Publish = build("publish")
 )
 
 var _ step = (*build)(nil)
@@ -53,16 +26,32 @@ func (b build) name() string {
 func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	var build *dagger.Container
 
-	if b == Build {
+	switch b {
+	case Build:
 		binary := "bin/manager"
 		build = request.container.
-			WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, "cmd/controller/main.go"})
+			WithEnvVariable("CGO_ENABLED", "0").
+			WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, "cmd/controller/main.go"}).
+			WithExec([]string{"chmod", "+x", binary})
 
-		_, err := build.File(binary).Export(ctx, binary)
+		_, err := build.File(binary).Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: true})
 		if err != nil {
 			return nil, err
 		}
-	} else {
+	case Publish:
+		token := request.client.SetSecret("token", os.Getenv("GITHUB_TOKEN"))
+		ref, err := request.container.Directory(".").
+			DockerBuild().
+			WithRegistryAuth("ghcr.io", "kharf", token).
+			WithLabel("org.opencontainers.image.title", "declcd").
+			WithLabel("org.opencontainers.image.created", time.Now().String()).
+			WithLabel("org.opencontainers.image.source", "https://github.com/kharf/declcd").
+			Publish(ctx, "ghcr.io/kharf/declcd:latest")
+		if err != nil {
+			return nil, err
+		}
+		fmt.Printf("Published image to: %s\n", ref)
+	case Tidy:
 		sum := "go.sum"
 		mod := "go.mod"
 		build = request.container.

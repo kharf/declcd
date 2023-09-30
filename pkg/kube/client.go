@@ -2,10 +2,15 @@ package kube
 
 import (
 	"context"
+	"errors"
+	"slices"
+	"time"
 
 	"helm.sh/helm/v3/pkg/action"
+
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -44,15 +49,12 @@ func (c InMemoryRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 }
 
-const (
-	ClientName = "declcd-controller"
-)
-
 // Client connects to a Kubernetes cluster to create, read, update and delete unstructured manifests/objects.
 type Client struct {
 	dynamicClient *dynamic.DynamicClient
 	client        *kubernetes.Clientset
 	RestMapper    meta.RESTMapper
+	invalidate    func()
 }
 
 func NewClient(config *rest.Config) (*Client, error) {
@@ -71,25 +73,43 @@ func NewClient(config *rest.Config) (*Client, error) {
 		return nil, err
 	}
 
-	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
+	cacheClient := memory.NewMemCacheClient(discoveryClient)
+	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cacheClient)
 	return &Client{
 		dynamicClient: dynClient,
 		client:        client,
 		RestMapper:    restMapper,
+		invalidate:    restMapper.Reset,
 	}, nil
 }
 
+func (client *Client) Invalidate() error {
+	client.invalidate()
+	return nil
+}
+
+var ErrWaitingForResource = errors.New("error waiting for resource")
+
 // Apply applies changes to an object through a Server-Side Apply and takes the ownership of this object.
-func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured) error {
+func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string) error {
 	resourceInterface, err := client.resourceInterface(obj)
 	if err != nil {
 		return err
 	}
 
-	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: ClientName})
+	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: fieldManager})
 	if err != nil {
-		if errors.ReasonForError(err) == v1.StatusReasonAlreadyExists {
-			_, err = resourceInterface.Update(ctx, obj, v1.UpdateOptions{FieldManager: ClientName})
+		if k8sErrors.ReasonForError(err) == v1.StatusReasonAlreadyExists {
+			existingObj, err := resourceInterface.Get(ctx, obj.GetName(), v1.GetOptions{TypeMeta: v1.TypeMeta{
+				Kind:       obj.GetKind(),
+				APIVersion: obj.GetAPIVersion(),
+			},
+			})
+			if err != nil {
+				return err
+			}
+			obj.SetResourceVersion(existingObj.GetResourceVersion())
+			_, err = resourceInterface.Update(ctx, obj, v1.UpdateOptions{FieldManager: fieldManager})
 			if err != nil {
 				return err
 			}
@@ -98,7 +118,92 @@ func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured)
 		}
 	}
 
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, err = client.wait(
+		timeoutCtx,
+		obj.GetName(),
+		v1.TypeMeta{
+			Kind:       obj.GetKind(),
+			APIVersion: obj.GetAPIVersion(),
+		},
+		resourceInterface,
+	)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (client *Client) wait(ctx context.Context, name string, typeMeta v1.TypeMeta, resourceInterface dynamic.ResourceInterface) (bool, error) {
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
+	obj, err := resourceInterface.Get(ctx, name, v1.GetOptions{
+		TypeMeta: typeMeta,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	if obj.GetKind() != "CustomResourceDefinition" {
+		return true, nil
+	}
+
+	conditions := getConditions(obj)
+	ok := slices.ContainsFunc(conditions, func(cond condition) bool {
+		if cond.cType == string(apiextensionsv1.Established) {
+			return true
+		}
+		return false
+	})
+
+	if ok {
+		return true, nil
+	}
+
+	time.Sleep(1 * time.Second)
+
+	return client.wait(ctx, name, typeMeta, resourceInterface)
+}
+
+type condition struct {
+	cType string
+}
+
+func getConditions(obj *unstructured.Unstructured) []condition {
+	conditions := make([]condition, 0, 2)
+	status, ok := obj.Object["status"]
+	if !ok {
+		return conditions
+	}
+	statusMap, ok := status.(map[string]interface{})
+	if !ok {
+		return conditions
+	}
+	conditionsArr, ok := statusMap["conditions"].([]interface{})
+	if !ok {
+		return conditions
+	}
+
+	for _, c := range conditionsArr {
+		cond, ok := c.(map[string]interface{})
+		if !ok {
+			return conditions
+		}
+		t, ok := cond["type"].(string)
+		if !ok {
+			return conditions
+		}
+		conditions = append(conditions, condition{cType: t})
+	}
+
+	return conditions
 }
 
 func (client *Client) Delete(ctx context.Context, obj *unstructured.Unstructured) error {

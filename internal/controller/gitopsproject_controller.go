@@ -35,10 +35,6 @@ type GitOpsProjectReconciler struct {
 	Reconciler project.Reconciler
 }
 
-//+kubebuilder:rbac:groups=gitops.declcd.io,resources=gitopsprojects,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=gitops.declcd.io,resources=gitopsprojects/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=gitops.declcd.io,resources=gitopsprojects/finalizers,verbs=update
-
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 //

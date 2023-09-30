@@ -20,7 +20,6 @@ func main() {
 	}
 
 	if err := build.RunWith(
-		build.ControllerGen,
 		build.Test{ID: testToRun, Package: pkgs},
 	); err != nil {
 		fmt.Println(err)

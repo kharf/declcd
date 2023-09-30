@@ -22,8 +22,11 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue/cuecontext"
+	gitopsv1 "github.com/kharf/declcd/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubectl/pkg/scheme"
 
 	"github.com/kharf/declcd/internal/projecttest"
@@ -36,7 +39,6 @@ import (
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 
-	//+kubebuilder:scaffold:imports
 	_ "github.com/kharf/declcd/test/workingdir"
 )
 
@@ -65,6 +67,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 	client, err := kube.NewClient(env.ControlPlane.Config)
+	Expect(err).NotTo(HaveOccurred())
+
+	declKubeClient, err := kube.NewClient(env.ControlPlane.Config)
+	Expect(err).NotTo(HaveOccurred())
+	crd := gitopsv1.CRD(map[string]string{})
+	unstrObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(crd)
+	Expect(err).NotTo(HaveOccurred())
+	unstr := &unstructured.Unstructured{Object: unstrObj}
+	err = declKubeClient.Apply(env.Ctx, unstr, "")
 	Expect(err).NotTo(HaveOccurred())
 
 	cueCtx := cuecontext.New()

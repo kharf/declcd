@@ -37,7 +37,7 @@ var _ = Describe("GitOpsProject controller", func() {
 			suspend := false
 			gitOpsProject = gitopsv1.GitOpsProject{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: "gitops.declcd.io/v1",
+					APIVersion: gitopsv1.GroupVersion.String(),
 					Kind:       "GitOpsProject",
 				},
 				ObjectMeta: metav1.ObjectMeta{
@@ -48,6 +48,8 @@ var _ = Describe("GitOpsProject controller", func() {
 					URL:                 env.TestProject,
 					PullIntervalSeconds: intervalInSeconds,
 					Suspend:             &suspend,
+					Branch:              "main",
+					Stage:               "dev",
 				},
 			}
 		})
