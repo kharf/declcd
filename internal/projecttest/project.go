@@ -57,6 +57,7 @@ func StartProjectEnv(t *testing.T) ProjectEnv {
 		Log:              log,
 		Client:           client,
 		InventoryManager: invManager,
+		HelmConfig:       env.HelmConfig,
 	}
 
 	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: env.TestRoot}, sugarredLogger)

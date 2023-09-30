@@ -30,8 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 
 	//+kubebuilder:scaffold:imports
@@ -62,25 +64,34 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(env.ControlPlane.Config, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+	client, err := kube.NewClient(env.ControlPlane.Config)
+	Expect(err).NotTo(HaveOccurred())
 
 	cueCtx := cuecontext.New()
 
 	chartReconciler := helm.ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: env.Log,
 	}
 
+	inventoryManager := inventory.Manager{
+		Log:  env.Log,
+		Path: filepath.Join(os.TempDir(), "inventory"),
+	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		CueContext:        cueCtx,
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
-		InventoryManager: inventory.Manager{
-			Log:  env.Log,
-			Path: filepath.Join(os.TempDir(), "inventory"),
+		InventoryManager:  inventoryManager,
+		Log:               env.Log,
+		GarbageCollector: garbage.Collector{
+			Log:              env.Log,
+			Client:           client,
+			InventoryManager: inventoryManager,
+			HelmConfig:       env.HelmConfig,
 		},
-		Log: env.Log,
 	}
 
 	err = (&GitOpsProjectReconciler{

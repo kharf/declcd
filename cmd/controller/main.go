@@ -151,6 +151,7 @@ func main() {
 				Log:              log,
 				Client:           client,
 				InventoryManager: inventoryManager,
+				HelmConfig:       helmCfg,
 			},
 		},
 	}).SetupWithManager(mgr); err != nil {

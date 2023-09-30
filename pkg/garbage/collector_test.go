@@ -6,6 +6,7 @@ import (
 
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/garbage"
+	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"gotest.tools/v3/assert"
@@ -56,20 +57,48 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	invMap := make(map[string]inventory.Manifest)
-	renderedManifests := make([]unstructured.Unstructured, 0, len(invMap))
+	renderedManifests := make([]unstructured.Unstructured, 0, len(invManifests))
 	converter := runtime.DefaultUnstructuredConverter
 	client, err := kube.NewClient(env.ControlPlane.Config)
 	assert.NilError(t, err)
 	for _, im := range invManifests {
-		invMap[im.AsKey()] = im
 		obj, err := converter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
 		err = client.Apply(ctx, &unstr)
 		assert.NilError(t, err)
 		renderedManifests = append(renderedManifests, unstr)
 		assert.NilError(t, err)
-		err = env.InventoryManager.Store(im)
+		err = env.InventoryManager.StoreManifest(im)
+		assert.NilError(t, err)
+	}
+
+	invHelmReleases := []inventory.HelmRelease{
+		{
+			Name:      "test",
+			Namespace: "test",
+		},
+	}
+
+	helmReconciler := helm.ChartReconciler{
+		Cfg: env.HelmConfig,
+		Log: env.Log,
+	}
+
+	releases := make([]helm.Release, 0, len(invHelmReleases))
+	for _, hr := range invHelmReleases {
+		chart := helm.Chart{
+			Name:    hr.Name,
+			RepoURL: env.HelmRepoServer.URL,
+			Version: "1.0.0",
+		}
+
+		_, err := helmReconciler.Reconcile(chart, helm.Namespace(hr.Namespace))
+		assert.NilError(t, err)
+		releases = append(releases, helm.Release{
+			Name:      hr.Name,
+			Namespace: hr.Namespace,
+		})
+		err = env.InventoryManager.StoreHelmRelease(hr)
 		assert.NilError(t, err)
 	}
 
@@ -77,9 +106,10 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 		Log:              env.Log,
 		Client:           client,
 		InventoryManager: env.InventoryManager,
+		HelmConfig:       env.HelmConfig,
 	}
 
-	err = collector.Collect(ctx, inventory.Storage{Manifests: invMap}, renderedManifests)
+	err = collector.Collect(ctx, renderedManifests, releases)
 	assert.NilError(t, err)
 
 	var deploymentA appsv1.Deployment
@@ -93,6 +123,12 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, deploymentB.Name, "b")
 	assert.Equal(t, deploymentB.Namespace, "b")
+
+	var hrDeployment appsv1.Deployment
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "test"}, &hrDeployment)
+	assert.NilError(t, err)
+	assert.Equal(t, hrDeployment.Name, "test")
+	assert.Equal(t, hrDeployment.Namespace, "test")
 }
 
 func TestCollector_Collect(t *testing.T) {
@@ -146,7 +182,7 @@ func TestCollector_Collect(t *testing.T) {
 		unstr := unstructured.Unstructured{Object: obj}
 		err = client.Apply(ctx, &unstr)
 		assert.NilError(t, err)
-		err = env.InventoryManager.Store(im)
+		err = env.InventoryManager.StoreManifest(im)
 		assert.NilError(t, err)
 	}
 
@@ -159,13 +195,39 @@ func TestCollector_Collect(t *testing.T) {
 		{Object: unstrDepA},
 	}
 
+	invHelmReleases := []inventory.HelmRelease{
+		{
+			Name:      "test",
+			Namespace: "test",
+		},
+	}
+
+	helmReconciler := helm.ChartReconciler{
+		Cfg: env.HelmConfig,
+		Log: env.Log,
+	}
+
+	for _, hr := range invHelmReleases {
+		chart := helm.Chart{
+			Name:    hr.Name,
+			RepoURL: env.HelmRepoServer.URL,
+			Version: "1.0.0",
+		}
+
+		_, err := helmReconciler.Reconcile(chart, helm.Namespace(hr.Namespace))
+		assert.NilError(t, err)
+		err = env.InventoryManager.StoreHelmRelease(hr)
+		assert.NilError(t, err)
+	}
+
 	collector := garbage.Collector{
 		Log:              env.Log,
 		Client:           client,
 		InventoryManager: env.InventoryManager,
+		HelmConfig:       env.HelmConfig,
 	}
 
-	err = collector.Collect(ctx, inventory.Storage{Manifests: invMap}, renderedManifests)
+	err = collector.Collect(ctx, renderedManifests, []helm.Release{})
 	assert.NilError(t, err)
 
 	var deploymentA appsv1.Deployment
@@ -177,6 +239,10 @@ func TestCollector_Collect(t *testing.T) {
 	var deploymentB appsv1.Deployment
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "b", Namespace: "b"}, &deploymentB)
 	assert.Error(t, err, "deployments.apps \"b\" not found")
+
+	var hrDeployment appsv1.Deployment
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "test"}, &hrDeployment)
+	assert.Error(t, err, "deployments.apps \"test\" not found")
 }
 
 func toObject(invManifest inventory.Manifest) client.Object {

@@ -35,12 +35,27 @@ func (manifest Manifest) AsKey() string {
 	return fmt.Sprintf("%s_%s_%s_%s_%s", manifest.Name, manifest.Namespace, manifest.Kind, group, version)
 }
 
-type Storage struct {
-	Manifests map[string]Manifest
+type HelmRelease struct {
+	Name      string
+	Namespace string
 }
 
-func (inv Storage) Has(manifest Manifest) bool {
+func (hr HelmRelease) AsKey() string {
+	return fmt.Sprintf("%s_%s_%s", hr.Name, hr.Namespace, "HelmRelease")
+}
+
+type Storage struct {
+	Manifests    map[string]Manifest
+	HelmReleases map[string]HelmRelease
+}
+
+func (inv Storage) HasManifest(manifest Manifest) bool {
 	_, exists := inv.Manifests[manifest.AsKey()]
+	return exists
+}
+
+func (inv Storage) HasRelease(release HelmRelease) bool {
+	_, exists := inv.HelmReleases[release.AsKey()]
 	return exists
 }
 
@@ -60,42 +75,63 @@ func (manager Manager) Load() (*Storage, error) {
 	}
 
 	manifests := make(map[string]Manifest)
+	releases := make(map[string]HelmRelease)
 	for _, file := range files {
 		key := file.Name()
 		identifier := strings.Split(key, "_")
-		if len(identifier) != 5 {
-			return nil, fmt.Errorf("%w: key does not contain 5 identifiers", ErrWrongInventoryKey)
-		}
+		if len(identifier) == 3 {
+			kind := identifier[2]
+			if kind != "HelmRelease" {
+				return nil, fmt.Errorf("%w: key with only 3 identifiers is expected to be a HelmRelease", ErrWrongInventoryKey)
+			}
 
-		group := identifier[3]
-		version := identifier[4]
-		apiVersion := ""
-		if group == "" {
-			apiVersion = version
+			releases[key] = HelmRelease{
+				Name:      identifier[0],
+				Namespace: identifier[1],
+			}
 		} else {
-			apiVersion = fmt.Sprintf("%s/%s", group, version)
-		}
+			if len(identifier) != 5 {
+				return nil, fmt.Errorf("%w: key does not contain 5 identifiers", ErrWrongInventoryKey)
+			}
 
-		manifest := Manifest{
-			TypeMeta: v1.TypeMeta{
-				Kind:       identifier[2],
-				APIVersion: apiVersion,
-			},
-			Name:      identifier[0],
-			Namespace: identifier[1],
+			group := identifier[3]
+			version := identifier[4]
+			apiVersion := ""
+			if group == "" {
+				apiVersion = version
+			} else {
+				apiVersion = fmt.Sprintf("%s/%s", group, version)
+			}
+
+			manifests[key] = Manifest{
+				TypeMeta: v1.TypeMeta{
+					Kind:       identifier[2],
+					APIVersion: apiVersion,
+				},
+				Name:      identifier[0],
+				Namespace: identifier[1],
+			}
 		}
-		manifests[key] = manifest
 	}
 
 	return &Storage{
-		Manifests: manifests,
+		Manifests:    manifests,
+		HelmReleases: releases,
 	}, nil
 }
 
-func (manager Manager) Store(inventoryManifest Manifest) error {
+func (manager Manager) StoreManifest(inventoryManifest Manifest) error {
 	return os.WriteFile(filepath.Join(manager.Path, inventoryManifest.AsKey()), []byte{}, 0700)
 }
 
-func (manager Manager) Delete(inventoryManifest Manifest) error {
+func (manager Manager) StoreHelmRelease(inventoryHelmRelease HelmRelease) error {
+	return os.WriteFile(filepath.Join(manager.Path, inventoryHelmRelease.AsKey()), []byte{}, 0700)
+}
+
+func (manager Manager) DeleteManifest(inventoryManifest Manifest) error {
 	return os.Remove(filepath.Join(manager.Path, inventoryManifest.AsKey()))
+}
+
+func (manager Manager) DeleteHelmRelease(inventoryHelmRelease HelmRelease) error {
+	return os.Remove(filepath.Join(manager.Path, inventoryHelmRelease.AsKey()))
 }

@@ -69,22 +69,20 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 
 func (reconciler Reconciler) reconcileComponents(ctx context.Context, mainComponents []MainDeclarativeComponent, repositoryDir string) error {
 	componentBuilder := NewComponentBuilder(reconciler.CueContext)
-	inventoryStorage, err := reconciler.InventoryManager.Load()
-	if err != nil {
-		return err
-	}
-	renderedManifest := make([]unstructured.Unstructured, 0, 30)
+	renderedManifests := make([]unstructured.Unstructured, 0, 30)
+	renderedHelmReleases := make([]helm.Release, 0, 10)
 	for _, mainComponent := range mainComponents {
 		for _, subComponent := range mainComponent.SubComponents {
 			component, err := componentBuilder.Build(WithProjectRoot(repositoryDir), WithComponentPath(subComponent.Path))
 			if err != nil {
 				return err
 			}
-			renderedManifest = append(renderedManifest, component.Manifests...)
+			renderedManifests = append(renderedManifests, component.Manifests...)
+			renderedHelmReleases = append(renderedHelmReleases, component.HelmReleases...)
 		}
 	}
 
-	if err := reconciler.GarbageCollector.Collect(ctx, *inventoryStorage, renderedManifest); err != nil {
+	if err := reconciler.GarbageCollector.Collect(ctx, renderedManifests, renderedHelmReleases); err != nil {
 		return err
 	}
 
@@ -133,7 +131,7 @@ func (reconciler Reconciler) reconcileManifests(ctx context.Context, manifests [
 			Name:      manifest.GetName(),
 			Namespace: manifest.GetNamespace(),
 		}
-		if err := reconciler.InventoryManager.Store(invManifest); err != nil {
+		if err := reconciler.InventoryManager.StoreManifest(invManifest); err != nil {
 			return err
 		}
 	}
@@ -148,6 +146,12 @@ func (reconciler Reconciler) reconcileHelmReleases(releases []helm.Release) erro
 			helm.ReleaseName(release.Name),
 			helm.Namespace(release.Namespace),
 		); err != nil {
+			return err
+		}
+		if err := reconciler.InventoryManager.StoreHelmRelease(inventory.HelmRelease{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+		}); err != nil {
 			return err
 		}
 	}

@@ -24,7 +24,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 	defer env.Stop()
 	cueCtx := cuecontext.New()
 	chartReconciler := helm.ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: env.Log,
 	}
 
@@ -65,14 +65,17 @@ func TestReconciler_Reconcile(t *testing.T) {
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &mysubcomponent)
 	assert.NilError(t, err)
 	assert.Equal(t, mysubcomponent.Name, "mysubcomponent")
+	assert.Equal(t, mysubcomponent.Namespace, "mynamespace")
 	var test appsv1.Deployment
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "mynamespace"}, &test)
 	assert.NilError(t, err)
 	assert.Equal(t, test.Name, "test")
+	assert.Equal(t, test.Namespace, "mynamespace")
 
 	inventoryStorage, err := reconciler.InventoryManager.Load()
 	assert.NilError(t, err)
 	assert.Assert(t, len(inventoryStorage.Manifests) == 2)
+	assert.Assert(t, len(inventoryStorage.HelmReleases) == 1)
 	subComponentDeploymentManifest := inventory.Manifest{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "Deployment",
@@ -81,7 +84,12 @@ func TestReconciler_Reconcile(t *testing.T) {
 		Name:      mysubcomponent.Name,
 		Namespace: mysubcomponent.Namespace,
 	}
-	assert.Assert(t, inventoryStorage.Has(subComponentDeploymentManifest))
+	assert.Assert(t, inventoryStorage.HasManifest(subComponentDeploymentManifest))
+	testHR := inventory.HelmRelease{
+		Name:      test.Name,
+		Namespace: test.Namespace,
+	}
+	assert.Assert(t, inventoryStorage.HasRelease(testHR))
 	mynamespace := inventory.Manifest{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "Namespace",
@@ -89,7 +97,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		},
 		Name: mysubcomponent.Namespace,
 	}
-	assert.Assert(t, inventoryStorage.Has(mynamespace))
+	assert.Assert(t, inventoryStorage.HasManifest(mynamespace))
 
 	err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"))
 	assert.NilError(t, err)
@@ -101,8 +109,28 @@ func TestReconciler_Reconcile(t *testing.T) {
 	inventoryStorage, err = reconciler.InventoryManager.Load()
 	assert.NilError(t, err)
 	assert.Assert(t, len(inventoryStorage.Manifests) == 1)
-	assert.Assert(t, !inventoryStorage.Has(subComponentDeploymentManifest))
-	assert.Assert(t, inventoryStorage.Has(mynamespace))
+	assert.Assert(t, len(inventoryStorage.HelmReleases) == 1)
+	assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
+	assert.Assert(t, inventoryStorage.HasManifest(mynamespace))
+	assert.Assert(t, inventoryStorage.HasRelease(testHR))
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &mysubcomponent)
+	assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
+
+	err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "component.cue"))
+	assert.NilError(t, err)
+	err = env.GitRepository.CommitFile("infra/prometheus/component.cue", "undeploy prometheus")
+	assert.NilError(t, err)
+	result, err = reconciler.Reconcile(env.Ctx, gProject)
+	assert.NilError(t, err)
+	inventoryStorage, err = reconciler.InventoryManager.Load()
+	assert.NilError(t, err)
+	assert.Assert(t, len(inventoryStorage.Manifests) == 0)
+	assert.Assert(t, len(inventoryStorage.HelmReleases) == 0)
+	assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
+	assert.Assert(t, !inventoryStorage.HasManifest(mynamespace))
+	assert.Assert(t, !inventoryStorage.HasRelease(testHR))
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "mynamespace"}, &test)
+	assert.Error(t, err, "deployments.apps \"test\" not found")
 }
 
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
@@ -110,7 +138,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	defer env.Stop()
 	cueCtx := cuecontext.New()
 	chartReconciler := helm.ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: env.Log,
 	}
 

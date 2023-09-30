@@ -38,7 +38,7 @@ import (
 type KubetestEnv struct {
 	ControlPlane      *envtest.Environment
 	ControllerManager manager.Manager
-	HelmConfig        *action.Configuration
+	HelmConfig        action.Configuration
 	HelmRepoServer    *httptest.Server
 	HelmChartServer   *httptest.Server
 	GitRepository     *gittest.LocalGitRepository
@@ -129,7 +129,7 @@ func StartKubetestEnv(t *testing.T) *KubetestEnv {
 	return &KubetestEnv{
 		ControlPlane:      testEnv,
 		ControllerManager: mgr,
-		HelmConfig:        &helmCfg,
+		HelmConfig:        helmCfg,
 		HelmRepoServer:    server,
 		HelmChartServer:   chartServer,
 		GitRepository:     repo,

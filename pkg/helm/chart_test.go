@@ -47,7 +47,7 @@ func TestChartReconciler_Reconcile_Default(t *testing.T) {
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: log,
 	}
 
@@ -65,7 +65,7 @@ func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: log,
 	}
 
@@ -84,7 +84,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: log,
 	}
 
@@ -145,7 +145,7 @@ func TestChartReconciler_Reconcile_Chart_Cache(t *testing.T) {
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: *env.HelmConfig,
+		Cfg: env.HelmConfig,
 		Log: log,
 	}
 
