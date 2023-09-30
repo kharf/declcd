@@ -2,7 +2,6 @@ package v1
 
 // Defines the CUE schema of decl's components.
 #Component: {
-	intervalSeconds: uint | *60
 	manifests: [...]
 	helmReleases: [...#HelmRelease]
 }

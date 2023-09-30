@@ -19,7 +19,6 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	projectRoot := path.Join(cwd, "test", "testdata", "simple")
 	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
 	assert.NilError(t, err)
-	assert.Equal(t, component.IntervalSeconds, 1)
 	componentManifests := component.Manifests
 	assert.Assert(t, len(componentManifests) == 1)
 	namespace := componentManifests[0].Object
@@ -43,7 +42,6 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 
 	subcomponent, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus/subcomponent"))
 	assert.NilError(t, err)
-	assert.Equal(t, subcomponent.IntervalSeconds, 1)
 	subcomponentManifests := component.Manifests
 	assert.Assert(t, len(subcomponentManifests) == 1)
 	deployment := subcomponent.Manifests[0]

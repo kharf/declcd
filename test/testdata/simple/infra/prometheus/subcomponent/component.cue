@@ -5,7 +5,6 @@ import (
 )
 
 subcomponent: v1.#Component & {
-	intervalSeconds: 1
 	manifests: [
 		_deployment,
 	]

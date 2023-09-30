@@ -27,9 +27,8 @@ const (
 
 // Component defines the component's manifests and its reconciliation interval.
 type Component struct {
-	IntervalSeconds int                         `json:"intervalSeconds"`
-	Manifests       []unstructured.Unstructured `json:"manifests"`
-	HelmReleases    []helm.Release              `json:"helmReleases"`
+	Manifests    []unstructured.Unstructured `json:"manifests"`
+	HelmReleases []helm.Release              `json:"helmReleases"`
 }
 
 // MainDeclarativeComponent is an expected entry point for the project, containing all the declarative components.

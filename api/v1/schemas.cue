@@ -1,7 +1,6 @@
 package v1
 
 #Component: {
-	intervalSeconds: uint | *60
 	manifests: [...]
 	helmReleases: [...#HelmRelease]
 }
