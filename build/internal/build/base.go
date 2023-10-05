@@ -57,9 +57,9 @@ func RunWith(steps ...step) error {
 				"internal",
 				"test",
 				"api",
-				"hack/boilerplate.go.txt",
 				"go.mod",
 				"go.sum",
+				"Dockerfile",
 				"build/cue.mod",
 				"build/gen_tool.cue",
 				"build/workflows.cue",
@@ -76,13 +76,15 @@ func RunWith(steps ...step) error {
 		if err != nil {
 			return err
 		}
-		output, err := stepResult.container.Stderr(ctx)
-		if err != nil {
-			return err
+		if stepResult.container != nil {
+			output, err := stepResult.container.Stderr(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Println(output)
+			latestContainer = stepResult.container
 		}
-		fmt.Println(output)
 		fmt.Println("\033[32m", strings.ToUpper(step.name())+" passed!")
-		latestContainer = stepResult.container
 	}
 
 	return nil

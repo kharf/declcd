@@ -56,8 +56,7 @@ func (env KubetestEnv) Stop() {
 
 func StartKubetestEnv(t *testing.T) *KubetestEnv {
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+		ErrorIfCRDPathMissing: false,
 	}
 
 	var err error
@@ -71,8 +70,6 @@ func StartKubetestEnv(t *testing.T) *KubetestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	//+kubebuilder:scaffold:scheme
 
 	k8sClient, err := kube.NewClient(cfg)
 	if err != nil {

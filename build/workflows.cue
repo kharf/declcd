@@ -101,7 +101,7 @@ workflows: [
 					#setupGo,
 					#pipeline & {
 						name: "Build Pipeline"
-						run:  "go run cmd/build/main.go"
+						run:  "go run cmd/publish/main.go"
 					},
 				]
 			}

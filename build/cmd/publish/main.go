@@ -8,9 +8,10 @@ import (
 )
 
 func main() {
-	// Only build when tests pass
 	if err := build.RunWith(
-		build.ControllerGen,
+		build.TestAll,
+		build.Build,
+		build.Publish,
 	); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

@@ -64,7 +64,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 	for _, im := range invManifests {
 		obj, err := converter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
-		err = client.Apply(ctx, &unstr)
+		err = client.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
 		renderedManifests = append(renderedManifests, unstr)
 		assert.NilError(t, err)
@@ -180,7 +180,7 @@ func TestCollector_Collect(t *testing.T) {
 		invMap[im.AsKey()] = im
 		obj, err := converter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
-		err = client.Apply(ctx, &unstr)
+		err = client.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
 		err = env.InventoryManager.StoreManifest(im)
 		assert.NilError(t, err)

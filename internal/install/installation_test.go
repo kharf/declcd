@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/kube"
@@ -21,15 +22,22 @@ func TestAction_Install(t *testing.T) {
 	assert.NilError(t, err)
 	action := install.NewAction(kubeClient)
 	nsName := "declcd-system"
-	err = action.Install(ctx, install.Namespace(nsName), install.Image("image"))
+	err = action.Install(
+		ctx,
+		install.Namespace(nsName),
+		install.Branch("main"),
+		install.Interval(5),
+		install.Stage("dev"),
+		install.URL("url"),
+	)
 	assert.NilError(t, err)
 	var ns v1.Namespace
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: nsName}, &ns)
 	assert.NilError(t, err)
-	var pvc v1.PersistentVolumeClaim
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "declcd", Namespace: nsName}, &pvc)
+	var statefulSet appsv1.StatefulSet
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "gitops-controller", Namespace: nsName}, &statefulSet)
 	assert.NilError(t, err)
-	var dep appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "declcd-controller", Namespace: nsName}, &dep)
+	var project gitopsv1.GitOpsProject
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "dev", Namespace: nsName}, &project)
 	assert.NilError(t, err)
 }
