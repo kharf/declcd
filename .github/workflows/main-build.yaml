@@ -23,6 +23,6 @@ jobs:
           cache: true
           cache-dependency-path: build/go.sum
       - name: Build Pipeline
-        run: go run cmd/build/main.go
+        run: go run cmd/publish/main.go
         working-directory: ./build
 permissions: read-all
