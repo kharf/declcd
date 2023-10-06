@@ -59,9 +59,9 @@ var _ = Describe("GitOpsProject controller", func() {
 				ctx := context.Background()
 				gitOpsProject.Spec.PullIntervalSeconds = 0
 
-				err := k8sClient.Create(ctx, &gitOpsProject)
-				Expect(err).Should(HaveOccurred())
-				Expect(err.Error()).Should(Equal("GitOpsProject.gitops.declcd.io \"test\" " +
+				Eventually(func() error {
+					return k8sClient.Create(ctx, &gitOpsProject)
+				}, duration, assertionInterval).Should(Equal("GitOpsProject.gitops.declcd.io \"test\" " +
 					"is invalid: spec.pullIntervalSeconds: " +
 					"Invalid value: 0: spec.pullIntervalSeconds in body should be greater than or equal to 5",
 				))

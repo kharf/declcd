@@ -25,4 +25,6 @@ jobs:
       - name: Build Pipeline
         run: go run cmd/publish/main.go
         working-directory: ./build
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
 permissions: read-all
