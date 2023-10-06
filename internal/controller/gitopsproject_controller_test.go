@@ -60,8 +60,11 @@ var _ = Describe("GitOpsProject controller", func() {
 				ctx := context.Background()
 				gitOpsProject.Spec.PullIntervalSeconds = 0
 
-				Eventually(func() error {
-					return k8sClient.Create(ctx, &gitOpsProject)
+				Eventually(func() string {
+					if err := k8sClient.Create(ctx, &gitOpsProject); err != nil {
+						return err.Error()
+					}
+					return ""
 				}, projectCreationTimeout, projectCreationInterval).Should(Equal("GitOpsProject.gitops.declcd.io \"test\" " +
 					"is invalid: spec.pullIntervalSeconds: " +
 					"Invalid value: 0: spec.pullIntervalSeconds in body should be greater than or equal to 5",
