@@ -21,10 +21,11 @@ var _ = Describe("GitOpsProject controller", func() {
 		GitOpsProjectName      = "test"
 		GitOpsProjectNamespace = "default"
 
-		timeout           = time.Second * 15
-		duration          = time.Second * 15
-		intervalInSeconds = 5
-		assertionInterval = (intervalInSeconds + 1) * time.Second
+		duration                = time.Second * 15
+		intervalInSeconds       = 5
+		assertionInterval       = (intervalInSeconds + 1) * time.Second
+		projectCreationTimeout  = time.Second * 20
+		projectCreationInterval = 1
 	)
 
 	When("Creating GitOpsProject", func() {
@@ -61,7 +62,7 @@ var _ = Describe("GitOpsProject controller", func() {
 
 				Eventually(func() error {
 					return k8sClient.Create(ctx, &gitOpsProject)
-				}, duration, assertionInterval).Should(Equal("GitOpsProject.gitops.declcd.io \"test\" " +
+				}, projectCreationTimeout, projectCreationInterval).Should(Equal("GitOpsProject.gitops.declcd.io \"test\" " +
 					"is invalid: spec.pullIntervalSeconds: " +
 					"Invalid value: 0: spec.pullIntervalSeconds in body should be greater than or equal to 5",
 				))
@@ -81,7 +82,7 @@ var _ = Describe("GitOpsProject controller", func() {
 
 				Eventually(func() error {
 					return k8sClient.Create(ctx, &gitOpsProject)
-				}, duration, assertionInterval).Should(BeNil())
+				}, projectCreationTimeout, projectCreationInterval).Should(BeNil())
 				Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
 				Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
 				Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
