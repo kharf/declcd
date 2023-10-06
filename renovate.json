@@ -1,7 +1,7 @@
 {
   "labels": ["dependencies", "renovate"],
   "extends": [
-    "config:base"
+    "config:base", ":semanticCommitTypeAll(chore)"
   ],
   "platform": "github",
   "dependencyDashboard": true,
