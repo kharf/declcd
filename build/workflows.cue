@@ -102,6 +102,9 @@ workflows: [
 					#pipeline & {
 						name: "Build Pipeline"
 						run:  "go run cmd/publish/main.go"
+						env: {
+							GITHUB_TOKEN: "${{ secrets.PAT }}"
+						}
 					},
 				]
 			}
