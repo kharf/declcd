@@ -79,7 +79,9 @@ var _ = Describe("GitOpsProject controller", func() {
 			It("Should reconcile the declared cluster state with the current cluster state", func() {
 				ctx := context.Background()
 
-				Expect(k8sClient.Create(ctx, &gitOpsProject)).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Create(ctx, &gitOpsProject)
+				}, duration, assertionInterval).Should(BeNil())
 				Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
 				Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
 				Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
