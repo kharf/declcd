@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubectl/pkg/scheme"
 
+	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -59,7 +60,7 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	env = projecttest.StartProjectEnv(test)
+	env = projecttest.StartProjectEnv(test, kubetest.WithHelm(true, false))
 	logf.SetLogger(env.Log)
 	var err error
 
@@ -81,7 +82,7 @@ var _ = BeforeSuite(func() {
 	cueCtx := cuecontext.New()
 
 	chartReconciler := helm.ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
 
@@ -101,7 +102,7 @@ var _ = BeforeSuite(func() {
 			Log:              env.Log,
 			Client:           client,
 			InventoryManager: inventoryManager,
-			HelmConfig:       env.HelmConfig,
+			HelmConfig:       env.HelmEnv.HelmConfig,
 		},
 	}
 

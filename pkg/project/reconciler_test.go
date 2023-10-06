@@ -8,6 +8,7 @@ import (
 
 	"cuelang.org/go/cue/cuecontext"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
@@ -20,11 +21,11 @@ import (
 )
 
 func TestReconciler_Reconcile(t *testing.T) {
-	env := projecttest.StartProjectEnv(t)
+	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 	cueCtx := cuecontext.New()
 	chartReconciler := helm.ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
 
@@ -134,11 +135,11 @@ func TestReconciler_Reconcile(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
-	env := projecttest.StartProjectEnv(t)
+	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 	cueCtx := cuecontext.New()
 	chartReconciler := helm.ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
 
