@@ -67,12 +67,11 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 							},
 							Resources: v1.ResourceRequirements{
 								Limits: v1.ResourceList{
-									v1.ResourceCPU:    resource.MustParse("1000m"),
-									v1.ResourceMemory: resource.MustParse("1Gi"),
+									v1.ResourceMemory: resource.MustParse("1.5Gi"),
 								},
 								Requests: v1.ResourceList{
-									v1.ResourceCPU:    resource.MustParse("10m"),
-									v1.ResourceMemory: resource.MustParse("1Gi"),
+									v1.ResourceCPU:    resource.MustParse("500m"),
+									v1.ResourceMemory: resource.MustParse("1.5Gi"),
 								},
 							},
 							VolumeMounts: []v1.VolumeMount{
