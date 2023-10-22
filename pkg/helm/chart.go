@@ -11,10 +11,9 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/downloader"
-	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 )
 
@@ -116,18 +115,16 @@ func (c ChartReconciler) Reconcile(chartRequest Chart, opts ...option) (*release
 
 func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart.Chart, error) {
 	var err error
-	chartIdentifier := fmt.Sprintf("%s-%s", chartRequest.Name, chartRequest.Version)
-	chartPath := filepath.Join(os.TempDir(), chartIdentifier)
-	chartArchivePath := filepath.Join(chartPath, fmt.Sprintf("%s.tgz", chartIdentifier))
-	chart, err := loader.Load(chartArchivePath)
+	archivePath := newArchivePath(chartRequest)
+	chart, err := loader.Load(archivePath.fullPath)
 	if err != nil {
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
 			c.Log.Info("pulling chart", logArgs...)
-			if err := c.pull(chartRequest, chartPath); err != nil {
+			if err := c.pull(chartRequest, archivePath.dir); err != nil {
 				return nil, err
 			}
-			chart, err := loader.Load(chartArchivePath)
+			chart, err := loader.Load(archivePath.fullPath)
 			if err != nil {
 				return nil, err
 			}
@@ -139,60 +136,56 @@ func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart
 	return chart, nil
 }
 
-func (c ChartReconciler) pull(chartRequest Chart, chartPath string) error {
-	var err error
-
-	getters := []getter.Provider{
-		{
-			Schemes: []string{"http", "https"},
-			New:     getter.NewHTTPGetter,
-		},
+func (c ChartReconciler) pull(chartRequest Chart, chartDestPath string) error {
+	pull := action.NewPullWithOpts(action.WithConfig(&c.Cfg))
+	pull.DestDir = chartDestPath
+	var chartRef string
+	if registry.IsOCI(chartRequest.RepoURL) {
+		chartRef = fmt.Sprintf("%s/%s", chartRequest.RepoURL, chartRequest.Name)
+	} else {
+		pull.RepoURL = chartRequest.RepoURL
+		chartRef = chartRequest.Name
 	}
-	chartDownloader := downloader.ChartDownloader{
-		Out:     os.Stdout,
-		Getters: getters,
-	}
-	entry := &repo.Entry{
-		URL:  chartRequest.RepoURL,
-		Name: chartRequest.Name,
-	}
-	chartRepo, err := repo.NewChartRepository(entry, getters)
+	pull.Settings = cli.New()
+	pull.Version = chartRequest.Version
+	err := os.MkdirAll(chartDestPath, 0700)
 	if err != nil {
 		return err
 	}
-	path, err := chartRepo.DownloadIndexFile()
+	opts := []registry.ClientOption{
+		registry.ClientOptDebug(true),
+		registry.ClientOptEnableCache(true),
+		registry.ClientOptWriter(os.Stderr),
+	}
+	registryClient, err := registry.NewClient(opts...)
 	if err != nil {
 		return err
 	}
+	pull.SetRegistryClient(registryClient)
 
-	index, err := repo.LoadIndexFile(path)
+	_, err = pull.Run(chartRef)
 	if err != nil {
 		return err
-	}
-
-	chartVersion, err := index.Get(chartRequest.Name, chartRequest.Version)
-	if err != nil {
-		return fmt.Errorf("%w: version: %s not found: %w", ErrHelmChartVersion, chartRequest.Version, err)
-	}
-
-	if len(chartVersion.URLs) < 1 {
-		return ErrNoChartURLs
-	}
-
-	absoluteChartURL, err := repo.ResolveReferenceURL(chartRequest.RepoURL, chartVersion.URLs[0])
-	if err != nil {
-		return err
-	}
-
-	err = os.Mkdir(chartPath, 0700)
-	if err != nil {
-		return err
-	}
-
-	_, _, err = chartDownloader.DownloadTo(absoluteChartURL, chartRequest.Version, chartPath)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrPullFailed, err)
 	}
 
 	return nil
+}
+
+func remove(chart Chart) error {
+	return os.RemoveAll(newArchivePath(chart).fullPath)
+}
+
+type archivePath struct {
+	dir      string
+	fullPath string
+}
+
+func newArchivePath(chart Chart) archivePath {
+	chartIdentifier := fmt.Sprintf("%s-%s", chart.Name, chart.Version)
+	chartDestPath := filepath.Join(os.TempDir(), chart.Name)
+	fullPath := filepath.Join(chartDestPath, fmt.Sprintf("%s.tgz", chartIdentifier))
+	return archivePath{
+		dir:      chartDestPath,
+		fullPath: fullPath,
+	}
 }

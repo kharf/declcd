@@ -17,11 +17,14 @@ import (
 	"text/template"
 	"time"
 
+	"gotest.tools/v3/assert"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/google/go-containerregistry/pkg/registry"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/gittest"
+	helmRegistry "helm.sh/helm/v3/pkg/registry"
 	"sigs.k8s.io/yaml"
 
 	"github.com/kharf/declcd/pkg/kube"
@@ -29,6 +32,7 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
+	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -39,9 +43,7 @@ import (
 type KubetestEnv struct {
 	ControlPlane      *envtest.Environment
 	ControllerManager manager.Manager
-	HelmConfig        action.Configuration
-	HelmRepoServer    *httptest.Server
-	HelmChartServer   *httptest.Server
+	HelmEnv           helmEnv
 	GitRepository     *gittest.LocalGitRepository
 	TestRoot          string
 	TestProject       string
@@ -55,7 +57,43 @@ func (env KubetestEnv) Stop() {
 	env.clean()
 }
 
-func StartKubetestEnv(t *testing.T) *KubetestEnv {
+type helmOption struct {
+	enabled bool
+	oci     bool
+}
+
+var _ Option = (*helmOption)(nil)
+
+type options struct {
+	helm helmOption
+}
+
+type Option interface {
+	apply(*options)
+}
+
+func (opt helmOption) apply(opts *options) {
+	opts.helm = opt
+}
+
+func WithHelm(enabled bool, oci bool) helmOption {
+	return helmOption{
+		enabled: enabled,
+		oci:     oci,
+	}
+}
+
+func StartKubetestEnv(t *testing.T, opts ...Option) *KubetestEnv {
+	options := &options{
+		helm: helmOption{
+			enabled: false,
+			oci:     false,
+		},
+	}
+	for _, o := range opts {
+		o.apply(options)
+	}
+
 	testEnv := &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
@@ -72,20 +110,6 @@ func StartKubetestEnv(t *testing.T) *KubetestEnv {
 		t.Fatal(err)
 	}
 
-	k8sClient, err := kube.NewClient(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	helmCfg := action.Configuration{}
-	getter := kube.InMemoryRESTClientGetter{
-		Cfg:        cfg,
-		RestMapper: k8sClient.RestMapper,
-	}
-	err = helmCfg.Init(getter, "default", "secret", log.Printf)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Metrics: server.Options{
@@ -95,10 +119,6 @@ func StartKubetestEnv(t *testing.T) *KubetestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	helmEnv := setupHelm(t)
-	server := helmEnv.repoServer
-	chartServer := helmEnv.chartServer
 
 	testRoot := filepath.Join(os.TempDir(), "decl")
 	testProjectSource := filepath.Join(testRoot, "simple")
@@ -120,18 +140,17 @@ func StartKubetestEnv(t *testing.T) *KubetestEnv {
 		t.Fatal(err)
 	}
 
-	replaceTemplate(t, repo, testProject, server.URL)
-
 	testClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	helmEnv := setupHelm(t, cfg, repo, testProject, options.helm)
+
 	return &KubetestEnv{
 		ControlPlane:      testEnv,
 		ControllerManager: mgr,
-		HelmConfig:        helmCfg,
-		HelmRepoServer:    server,
-		HelmChartServer:   chartServer,
+		HelmEnv:           helmEnv,
 		GitRepository:     repo,
 		TestRoot:          testRoot,
 		TestProject:       testProject,
@@ -140,11 +159,7 @@ func StartKubetestEnv(t *testing.T) *KubetestEnv {
 		Ctx:               ctx,
 		clean: func() {
 			testEnv.Stop()
-			server.Close()
-			chartServer.Close()
-			for _, f := range helmEnv.chartArchives {
-				os.Remove(f.Name())
-			}
+			helmEnv.Close()
 			cancel()
 		},
 	}
@@ -188,31 +203,81 @@ func replaceTemplate(t *testing.T, repo *gittest.LocalGitRepository, testProject
 }
 
 type helmEnv struct {
-	chartServer   *httptest.Server
-	repoServer    *httptest.Server
-	chartArchives []*os.File
+	HelmConfig       action.Configuration
+	ChartServer      *httptest.Server
+	RepositoryServer *httptest.Server
+	chartArchives    []*os.File
 }
 
-func setupHelm(t *testing.T) helmEnv {
-	v1Archive := createChartArchive(t, "test", "1.0.0")
-	v2Archive := createChartArchive(t, "testv2", "2.0.0")
-	chartServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		archive := v1Archive
-		if strings.Contains(r.URL.Path, "2.0.0") {
-			archive = v2Archive
-		}
+func (env helmEnv) Close() {
+	if env.ChartServer != nil {
+		env.ChartServer.Close()
+	}
+	if env.RepositoryServer != nil {
+		env.RepositoryServer.Close()
+	}
+	for _, f := range env.chartArchives {
+		os.Remove(f.Name())
+	}
+}
 
-		w.Header().Set("Content-Type", "application/gzip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(archive.Name())))
-		file, err := os.Open(archive.Name())
+func setupHelm(t *testing.T, cfg *rest.Config, repo *gittest.LocalGitRepository, testProject string, option helmOption) helmEnv {
+	helmCfg := action.Configuration{}
+	var helmEnv helmEnv
+	if option.enabled {
+		k8sClient, err := kube.NewClient(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := io.Copy(w, file); err != nil {
+		getter := kube.InMemoryRESTClientGetter{
+			Cfg:        cfg,
+			RestMapper: k8sClient.RestMapper,
+		}
+		err = helmCfg.Init(getter, "default", "secret", log.Printf)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}))
+		helmEnv = startHelmServer(t, option.oci)
+		replaceTemplate(t, repo, testProject, helmEnv.RepositoryServer.URL)
+	}
+	// need to be always set, even though we dont test helm releases
+	helmEnv.HelmConfig = helmCfg
+	return helmEnv
+}
 
+func startHelmServer(t *testing.T, oci bool) helmEnv {
+	v1Archive := createChartArchive(t, "test", "1.0.0")
+	v2Archive := createChartArchive(t, "testv2", "2.0.0")
+	var chartServer *httptest.Server
+	if oci {
+		opts := []registry.Option{registry.WithReferrersSupport(true)}
+		chartServer = httptest.NewServer(registry.New(opts...))
+		helmRegistryClient, err := helmRegistry.NewClient()
+		assert.NilError(t, err)
+		v1Bytes, err := os.ReadFile(v1Archive.Name())
+		assert.NilError(t, err)
+		ociRepo, found := strings.CutPrefix(chartServer.URL, "http://")
+		assert.Assert(t, found)
+		_, err = helmRegistryClient.Push(v1Bytes, fmt.Sprintf("%s/%s:%s", ociRepo, "test", "1.0.0"))
+		assert.NilError(t, err)
+	} else {
+		chartServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			archive := v1Archive
+			if strings.Contains(r.URL.Path, "2.0.0") {
+				archive = v2Archive
+			}
+
+			w.Header().Set("Content-Type", "application/gzip")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(archive.Name())))
+			file, err := os.Open(archive.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := io.Copy(w, file); err != nil {
+				t.Fatal(err)
+			}
+		}))
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		index := &repo.IndexFile{
 			APIVersion: "v1",
@@ -246,9 +311,9 @@ func setupHelm(t *testing.T) helmEnv {
 	}))
 
 	return helmEnv{
-		chartServer:   chartServer,
-		repoServer:    server,
-		chartArchives: []*os.File{v1Archive, v2Archive},
+		ChartServer:      chartServer,
+		RepositoryServer: server,
+		chartArchives:    []*os.File{v1Archive, v2Archive},
 	}
 }
 

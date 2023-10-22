@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"text/template"
 
@@ -37,59 +38,98 @@ func TestMain(m *testing.M) {
 }
 
 func TestChartReconciler_Reconcile_Default(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t)
+	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 
 	chart := Chart{
 		Name:    "test",
-		RepoURL: env.HelmRepoServer.URL,
+		RepoURL: env.HelmEnv.RepositoryServer.URL,
 		Version: "1.0.0",
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: log,
 	}
 
-	testReconcile(t, reconciler, env, chart, "test", "test", "default", assertChartv1)
+	fixture{
+		env:        env,
+		reconciler: reconciler,
+		chart:      chart,
+		namespace:  "default",
+	}.testReconcile(t, "test", "test", true, assertChartv1)
+}
+
+func TestChartReconciler_Reconcile_Default_OCI(t *testing.T) {
+	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, true))
+	defer env.Stop()
+
+	repoURL := strings.Replace(env.HelmEnv.ChartServer.URL, "http", "oci", 1)
+	chart := Chart{
+		Name:    "test",
+		RepoURL: repoURL,
+		Version: "1.0.0",
+	}
+
+	reconciler := ChartReconciler{
+		Cfg: env.HelmEnv.HelmConfig,
+		Log: log,
+	}
+
+	fixture{
+		env:        env,
+		reconciler: reconciler,
+		chart:      chart,
+		namespace:  "default",
+	}.testReconcile(t, "test", "test", true, assertChartv1)
 }
 
 func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t)
+	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 
 	chart := Chart{
 		Name:    "test",
-		RepoURL: env.HelmRepoServer.URL,
+		RepoURL: env.HelmEnv.RepositoryServer.URL,
 		Version: "1.0.0",
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: log,
 	}
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	fixture{
+		env:        env,
+		reconciler: reconciler,
+		chart:      chart,
+		namespace:  "mynamespace",
+	}.testReconcile(t, "myhelmrelease", liveName, true, assertChartv1)
 }
 
 func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t)
+	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 
 	chart := Chart{
 		Name:    "test",
-		RepoURL: env.HelmRepoServer.URL,
+		RepoURL: env.HelmEnv.RepositoryServer.URL,
 		Version: "1.0.0",
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: log,
 	}
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	fixture{
+		env:        env,
+		reconciler: reconciler,
+		chart:      chart,
+		namespace:  "mynamespace",
+	}.testReconcile(t, "myhelmrelease", liveName, true, assertChartv1)
 
 	releasesFilePath := filepath.Join(env.TestProjectSource, "infra", "prometheus", "releases.cue")
 	releasesContent, err := os.ReadFile(releasesFilePath)
@@ -114,7 +154,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 		Version string
 	}{
 		Name:    "test",
-		RepoUrl: env.HelmRepoServer.URL,
+		RepoUrl: env.HelmEnv.RepositoryServer.URL,
 		Version: "2.0.0",
 	})
 	if err != nil {
@@ -127,32 +167,44 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 
 	chart = Chart{
 		Name:    "test",
-		RepoURL: env.HelmRepoServer.URL,
+		RepoURL: env.HelmEnv.RepositoryServer.URL,
 		Version: "2.0.0",
 	}
 
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv2)
+	fixture{
+		env:        env,
+		reconciler: reconciler,
+		chart:      chart,
+		namespace:  "mynamespace",
+	}.testReconcile(t, "myhelmrelease", liveName, true, assertChartv2)
 }
 
 func TestChartReconciler_Reconcile_Chart_Cache(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t)
+	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 
 	chart := Chart{
 		Name:    "test",
-		RepoURL: env.HelmRepoServer.URL,
+		RepoURL: env.HelmEnv.RepositoryServer.URL,
 		Version: "1.0.0",
 	}
 
 	reconciler := ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: log,
 	}
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
-	env.HelmChartServer.Close()
-	env.HelmRepoServer.Close()
+	fixture := fixture{
+		env:        env,
+		reconciler: reconciler,
+		chart:      chart,
+		namespace:  "mynamespace",
+	}
+	fixture.testReconcile(t, "myhelmrelease", liveName, false, assertChartv1)
+	defer remove(chart)
+	env.HelmEnv.ChartServer.Close()
+	env.HelmEnv.RepositoryServer.Close()
 	ctx := context.Background()
 	err := env.TestKubeClient.Delete(ctx, &appsv1.Deployment{
 		ObjectMeta: v1.ObjectMeta{
@@ -164,7 +216,7 @@ func TestChartReconciler_Reconcile_Chart_Cache(t *testing.T) {
 	var deployment appsv1.Deployment
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: "mynamespace"}, &deployment)
 	assert.Error(t, err, "deployments.apps \"myhelmrelease-test\" not found")
-	testReconcile(t, reconciler, env, chart, "myhelmrelease", liveName, "mynamespace", assertChartv1)
+	fixture.testReconcile(t, "myhelmrelease", liveName, true, assertChartv1)
 }
 
 func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
@@ -219,14 +271,18 @@ func assertChartv2(t *testing.T, env *kubetest.KubetestEnv, liveName string, nam
 	assert.Error(t, err, "serviceaccounts \"myhelmrelease-test\" not found")
 }
 
-func testReconcile(
+type fixture struct {
+	env        *kubetest.KubetestEnv
+	reconciler ChartReconciler
+	chart      Chart
+	namespace  string
+}
+
+func (f fixture) testReconcile(
 	t *testing.T,
-	reconciler ChartReconciler,
-	env *kubetest.KubetestEnv,
-	chart Chart,
 	releaseName string,
 	liveName string,
-	namespace string,
+	cleanChart bool,
 	assertion func(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string),
 ) {
 	vals := Values{
@@ -235,15 +291,19 @@ func testReconcile(
 		},
 	}
 
-	release, err := reconciler.Reconcile(
-		chart,
+	if cleanChart {
+		defer remove(f.chart)
+	}
+
+	release, err := f.reconciler.Reconcile(
+		f.chart,
 		ReleaseName(releaseName),
-		Namespace(namespace),
+		Namespace(f.namespace),
 		vals,
 	)
 
 	assert.NilError(t, err)
 	assert.Equal(t, release.Name, releaseName)
 
-	assertion(t, env, liveName, namespace)
+	assertion(t, f.env, liveName, f.namespace)
 }

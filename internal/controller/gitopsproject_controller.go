@@ -62,13 +62,13 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ct
 		LastTransitionTime: triggerTime,
 	}); err != nil {
 		log.Error(err, "unable to update GitOpsProject status condition to 'Running'")
-		return requeueResult, err
+		return requeueResult, nil
 	}
 
 	_, err := reconciler.Reconciler.Reconcile(ctx, gProject)
 	if err != nil {
-		log.Info("reconciliation failed")
-		return requeueResult, err
+		log.Error(err, "reconciliation failed")
+		return requeueResult, nil
 	}
 
 	reconciledTime := v1.Now()
@@ -80,7 +80,7 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ct
 		LastTransitionTime: reconciledTime,
 	}); err != nil {
 		log.Error(err, "unable to update GitOpsProject status")
-		return requeueResult, err
+		return requeueResult, nil
 	}
 
 	log.Info("reconciliation finished")

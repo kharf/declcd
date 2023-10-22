@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
@@ -21,7 +22,7 @@ import (
 )
 
 func TestCollector_Collect_NoChanges(t *testing.T) {
-	env := projecttest.StartProjectEnv(t)
+	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 	invManifests := []inventory.Manifest{
 		{
@@ -80,7 +81,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 	}
 
 	helmReconciler := helm.ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
 
@@ -88,7 +89,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 	for _, hr := range invHelmReleases {
 		chart := helm.Chart{
 			Name:    hr.Name,
-			RepoURL: env.HelmRepoServer.URL,
+			RepoURL: env.HelmEnv.RepositoryServer.URL,
 			Version: "1.0.0",
 		}
 
@@ -106,7 +107,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 		Log:              env.Log,
 		Client:           client,
 		InventoryManager: env.InventoryManager,
-		HelmConfig:       env.HelmConfig,
+		HelmConfig:       env.HelmEnv.HelmConfig,
 	}
 
 	err = collector.Collect(ctx, renderedManifests, releases)
@@ -132,7 +133,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 }
 
 func TestCollector_Collect(t *testing.T) {
-	env := projecttest.StartProjectEnv(t)
+	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
 	nsA := inventory.Manifest{
 		TypeMeta: metav1.TypeMeta{
@@ -203,14 +204,14 @@ func TestCollector_Collect(t *testing.T) {
 	}
 
 	helmReconciler := helm.ChartReconciler{
-		Cfg: env.HelmConfig,
+		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
 
 	for _, hr := range invHelmReleases {
 		chart := helm.Chart{
 			Name:    hr.Name,
-			RepoURL: env.HelmRepoServer.URL,
+			RepoURL: env.HelmEnv.RepositoryServer.URL,
 			Version: "1.0.0",
 		}
 
@@ -224,7 +225,7 @@ func TestCollector_Collect(t *testing.T) {
 		Log:              env.Log,
 		Client:           client,
 		InventoryManager: env.InventoryManager,
-		HelmConfig:       env.HelmConfig,
+		HelmConfig:       env.HelmEnv.HelmConfig,
 	}
 
 	err = collector.Collect(ctx, renderedManifests, []helm.Release{})
