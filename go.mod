@@ -17,7 +17,7 @@ require (
 )
 
 require (
-	github.com/google/go-containerregistry v0.14.0
+	github.com/google/go-containerregistry v0.16.1
 	github.com/spf13/viper v1.17.0
 	sigs.k8s.io/yaml v1.3.0
 )
