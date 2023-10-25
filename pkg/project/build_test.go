@@ -5,15 +5,13 @@ import (
 	"path"
 	"testing"
 
-	"cuelang.org/go/cue/cuecontext"
 	"github.com/kharf/declcd/pkg/helm"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"gotest.tools/v3/assert"
 )
 
 func TestManifestInstanceBuilder_Build(t *testing.T) {
-	ctx := cuecontext.New()
-	builder := NewComponentBuilder(ctx)
+	builder := NewComponentBuilder()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)
 	projectRoot := path.Join(cwd, "test", "testdata", "simple")

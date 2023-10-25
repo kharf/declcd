@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"cuelang.org/go/cue/cuecontext"
 	"helm.sh/helm/v3/pkg/action"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -101,7 +100,6 @@ func main() {
 
 	gitOpsRepositoryDir := filepath.Join(os.TempDir(), "decl")
 	fs := os.DirFS(gitOpsRepositoryDir)
-	ctx := cuecontext.New()
 	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, log)
 	helmCfg := action.Configuration{}
 	getter := kube.InMemoryRESTClientGetter{
@@ -131,7 +129,7 @@ func main() {
 		Reconciler: project.Reconciler{
 			Log:               log,
 			Client:            mgr.GetClient(),
-			CueContext:        ctx,
+			ComponentBuilder:  project.NewComponentBuilder(),
 			RepositoryManager: project.NewRepositoryManager(log),
 			ProjectManager:    projectManager,
 			ChartReconciler:   chartReconciler,

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
 )
 
@@ -16,14 +16,11 @@ var (
 
 // ComponentBuilder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
 type ComponentBuilder struct {
-	ctx *cue.Context
 }
 
 // NewComponentBuilder contructs a [ComponentBuilder] with given CUE context.
-func NewComponentBuilder(ctx *cue.Context) ComponentBuilder {
-	return ComponentBuilder{
-		ctx: ctx,
-	}
+func NewComponentBuilder() ComponentBuilder {
+	return ComponentBuilder{}
 }
 
 // ComponentBuildOptions defining what component is compiled and how it is done.
@@ -54,7 +51,7 @@ const (
 
 // Build accepts options defining which component is to be compiled and how it is done and compiles it to a k8s unstructured API object/struct.
 func (b ComponentBuilder) Build(opts ...componentBuildOptions) (*Component, error) {
-	ctx := b.ctx
+	ctx := cuecontext.New()
 	options := &ComponentBuildOptions{
 		componentPath: "",
 		projectRoot:   ProjectRootPath,

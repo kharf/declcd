@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cuelang.org/go/cue/cuecontext"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
@@ -23,7 +22,6 @@ import (
 func TestReconciler_Reconcile(t *testing.T) {
 	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
-	cueCtx := cuecontext.New()
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
@@ -31,7 +29,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
-		CueContext:        cueCtx,
+		ComponentBuilder:  project.NewComponentBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
@@ -137,7 +135,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
 	defer env.Stop()
-	cueCtx := cuecontext.New()
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
@@ -145,7 +142,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
-		CueContext:        cueCtx,
+		ComponentBuilder:  project.NewComponentBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,

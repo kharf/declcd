@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 
-	"cuelang.org/go/cue"
 	"github.com/go-logr/logr"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/pkg/garbage"
@@ -21,7 +20,7 @@ type Reconciler struct {
 	Client            client.Client
 	ProjectManager    ProjectManager
 	RepositoryManager RepositoryManager
-	CueContext        *cue.Context
+	ComponentBuilder  ComponentBuilder
 	ChartReconciler   helm.ChartReconciler
 	InventoryManager  inventory.Manager
 	GarbageCollector  garbage.Collector
@@ -68,7 +67,7 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 }
 
 func (reconciler Reconciler) reconcileComponents(ctx context.Context, mainComponents []MainDeclarativeComponent, repositoryDir string) error {
-	componentBuilder := NewComponentBuilder(reconciler.CueContext)
+	componentBuilder := reconciler.ComponentBuilder
 	renderedManifests := make([]unstructured.Unstructured, 0, 30)
 	renderedHelmReleases := make([]helm.Release, 0, 10)
 	for _, mainComponent := range mainComponents {

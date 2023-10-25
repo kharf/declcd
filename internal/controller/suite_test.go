@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cuelang.org/go/cue/cuecontext"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -79,8 +78,6 @@ var _ = BeforeSuite(func() {
 	err = declKubeClient.Apply(env.Ctx, unstr, "")
 	Expect(err).NotTo(HaveOccurred())
 
-	cueCtx := cuecontext.New()
-
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
@@ -92,7 +89,7 @@ var _ = BeforeSuite(func() {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
-		CueContext:        cueCtx,
+		ComponentBuilder:  project.NewComponentBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
