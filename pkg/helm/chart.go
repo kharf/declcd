@@ -153,7 +153,7 @@ func (c ChartReconciler) pull(chartRequest Chart, chartDestPath string) error {
 		return err
 	}
 	opts := []registry.ClientOption{
-		registry.ClientOptDebug(true),
+		registry.ClientOptDebug(false),
 		registry.ClientOptEnableCache(true),
 		registry.ClientOptWriter(os.Stderr),
 	}

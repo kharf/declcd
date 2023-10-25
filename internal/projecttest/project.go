@@ -32,12 +32,8 @@ func (env *ProjectEnv) Stop() {
 func StartProjectEnv(t *testing.T, kubeOpts ...kubetest.Option) ProjectEnv {
 	env := kubetest.StartKubetestEnv(t, kubeOpts...)
 	fs := os.DirFS(env.TestRoot)
-	// TODO: replace with logr
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.OutputPaths = []string{"stdout"}
-	logger, err := zapConfig.Build()
-	assert.NilError(t, err)
-	sugarredLogger := logger.Sugar()
 	logOpts := ctrlZap.Options{
 		Development: true,
 		Level:       zapcore.Level(-3),
@@ -60,7 +56,7 @@ func StartProjectEnv(t *testing.T, kubeOpts ...kubetest.Option) ProjectEnv {
 		HelmConfig:       env.HelmEnv.HelmConfig,
 	}
 
-	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: env.TestRoot}, sugarredLogger)
+	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: env.TestRoot}, log)
 	repositoryManger := project.NewRepositoryManager(log)
 	return ProjectEnv{
 		ProjectManager:    projectManager,

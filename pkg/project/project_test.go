@@ -5,24 +5,24 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
+	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-func initZap() (*zap.Logger, error) {
+func setUp(t *testing.T) logr.Logger {
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.OutputPaths = []string{"stdout"}
-	return zapConfig.Build()
-}
-
-func setUp(t *testing.T) *zap.SugaredLogger {
-	l, err := initZap()
-	if err != nil {
-		t.Error(err)
+	logOpts := ctrlZap.Options{
+		Development: true,
+		Level:       zapcore.Level(-3),
 	}
-	return l.Sugar()
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	return log
 }
 
 func TestProjectManager_Load_AppsDoesNotExist(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/helm"
-	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -63,12 +63,12 @@ func NewFileSystem(fs fs.FS, root string) FileSystem {
 
 // ProjectManager loads a declcd [Project] from given File System.
 type ProjectManager struct {
-	FS     FileSystem
-	logger *zap.SugaredLogger
+	FS  FileSystem
+	log logr.Logger
 }
 
-func NewProjectManager(fs FileSystem, logger *zap.SugaredLogger) ProjectManager {
-	return ProjectManager{FS: fs, logger: logger}
+func NewProjectManager(fs FileSystem, log logr.Logger) ProjectManager {
+	return ProjectManager{FS: fs, log: log}
 }
 
 // Load uses a given path to a project and loads it into a slice of [MainDeclarativeComponent]s.
@@ -100,10 +100,10 @@ func (p ProjectManager) Load(projectPath string) ([]MainDeclarativeComponent, er
 			if dirEntry.IsDir() {
 				componentFilePath := path + "/" + ComponentFileName
 				if _, err := fs.Stat(p.FS, componentFilePath); errors.Is(err, fs.ErrNotExist) {
-					p.logger.Infof("skipping directory %s, because no component.cue was found", dirEntry.Name())
+					p.log.Info("skipping directory, because no component.cue was found", "directory", dirEntry.Name())
 					return filepath.SkipDir
 				}
-				p.logger.Infof("found component %s", path)
+				p.log.Info("found component", "component", path)
 				relativePath, err := filepath.Rel(projectPath, path)
 				if err != nil {
 					return err

@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 
 	"cuelang.org/go/cue/cuecontext"
-	"go.uber.org/zap"
 	"helm.sh/helm/v3/pkg/action"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -103,16 +102,7 @@ func main() {
 	gitOpsRepositoryDir := filepath.Join(os.TempDir(), "decl")
 	fs := os.DirFS(gitOpsRepositoryDir)
 	ctx := cuecontext.New()
-	// TODO: replace with logr
-	ctrlZapConfig := zap.NewProductionConfig()
-	logger, err := ctrlZapConfig.Build()
-	if err != nil {
-		setupLog.Error(err, "unable to build logger")
-		os.Exit(1)
-	}
-	defer logger.Sync()
-	sugarredLogger := logger.Sugar()
-	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, sugarredLogger)
+	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, log)
 	helmCfg := action.Configuration{}
 	getter := kube.InMemoryRESTClientGetter{
 		Cfg:        cfg,
