@@ -23,7 +23,7 @@ jobs:
           cache: true
           cache-dependency-path: build/go.sum
       - name: Build Pipeline
-        run: go run cmd/publish/main.go
+        run: go run cmd/build/main.go
         working-directory: ./build
         env:
           GITHUB_TOKEN: ${{ secrets.PAT }}
