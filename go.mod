@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	cuelang.org/go v0.6.0
-	github.com/go-git/go-git/v5 v5.9.0
+	github.com/go-git/go-git/v5 v5.10.0
 	github.com/onsi/ginkgo/v2 v2.13.0
 	github.com/onsi/gomega v1.28.1
 	go.uber.org/zap v1.26.0
