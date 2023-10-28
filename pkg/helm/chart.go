@@ -76,7 +76,7 @@ func (c ChartReconciler) Reconcile(chartRequest Chart, opts ...option) (*release
 		namespace = reconcileOpts.namespace
 	}
 	logArgs := []interface{}{"name", chartRequest.Name, "url", chartRequest.RepoURL, "version", chartRequest.Version, "releasename", releaseName, "namespace", namespace}
-	c.Log.Info("loading chart", logArgs...)
+	c.Log.Info("Loading chart", logArgs...)
 	chrt, err := c.load(chartRequest, logArgs)
 	if err != nil {
 		return nil, err
@@ -90,26 +90,24 @@ func (c ChartReconciler) Reconcile(chartRequest Chart, opts ...option) (*release
 		client.ReleaseName = releaseName
 		client.CreateNamespace = true
 		client.Namespace = namespace
-		c.Log.Info("installing chart", logArgs...)
+		c.Log.Info("Installing chart", logArgs...)
 		release, err := client.Run(chrt, reconcileOpts.values)
 		if err != nil {
-			c.Log.Error(err, "installing chart failed", logArgs...)
+			c.Log.Error(err, "Installing chart failed", logArgs...)
 			return nil, err
 		}
-		c.Log.Info("installing chart finished", logArgs...)
 		return release, nil
 	}
 	upgrade := action.NewUpgrade(&c.Cfg)
 	upgrade.Wait = false
 	upgrade.Namespace = namespace
 	upgrade.MaxHistory = 5
-	c.Log.Info("upgrading chart", logArgs...)
+	c.Log.Info("Upgrading chart", logArgs...)
 	release, err := upgrade.Run(releaseName, chrt, reconcileOpts.values)
 	if err != nil {
-		c.Log.Error(err, "upgrading chart failed", logArgs...)
+		c.Log.Error(err, "Upgrading chart failed", logArgs...)
 		return nil, err
 	}
-	c.Log.Info("upgrading chart finished", logArgs...)
 	return release, nil
 }
 
@@ -120,7 +118,7 @@ func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart
 	if err != nil {
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
-			c.Log.Info("pulling chart", logArgs...)
+			c.Log.Info("Pulling chart", logArgs...)
 			if err := c.pull(chartRequest, archivePath.dir); err != nil {
 				return nil, err
 			}
@@ -171,7 +169,7 @@ func (c ChartReconciler) pull(chartRequest Chart, chartDestPath string) error {
 	return nil
 }
 
-func remove(chart Chart) error {
+func Remove(chart Chart) error {
 	return os.RemoveAll(newArchivePath(chart).fullPath)
 }
 

@@ -5,9 +5,15 @@ import (
 
 	v1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/secret"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	ControllerNamespace = "declcd-system"
+	ControllerName      = "gitops-controller"
 )
 
 type options struct {
@@ -63,46 +69,44 @@ func (interval Interval) Apply(opts *options) {
 }
 
 type Action struct {
-	kubeClient *kube.Client
+	kubeClient  *kube.DynamicClient
+	projectRoot string
 }
 
-func NewAction(kubeClient *kube.Client) Action {
+func NewAction(kubeClient *kube.DynamicClient, projectRoot string) Action {
 	return Action{
-		kubeClient: kubeClient,
+		kubeClient:  kubeClient,
+		projectRoot: projectRoot,
 	}
 }
 
 func (act Action) Install(ctx context.Context, opts ...option) error {
 	instOpts := options{
-		namespace: "default",
+		namespace: ControllerNamespace,
 	}
 	for _, o := range opts {
 		o.Apply(&instOpts)
 	}
-
-	controllerName := "gitops-controller"
 	labels := map[string]string{
-		"declcd/component": controllerName,
+		"declcd/component": ControllerName,
 	}
 	suspend := false
 	objects := []client.Object{
 		v1.CRD(labels),
 		v1.Namespace(instOpts.namespace, labels),
-		v1.ServiceAccount(controllerName, labels, instOpts.namespace),
+		v1.ServiceAccount(ControllerName, labels, instOpts.namespace),
 		v1.LeaderRole(instOpts.namespace, labels),
-		v1.LeaderRoleBinding(controllerName, labels, instOpts.namespace),
-		v1.ClusterRole(controllerName, labels),
-		v1.ClusterRoleBinding(controllerName, labels, instOpts.namespace),
-		v1.StatefulSet(controllerName, labels, instOpts.namespace),
+		v1.LeaderRoleBinding(ControllerName, labels, instOpts.namespace),
+		v1.ClusterRole(ControllerName, labels),
+		v1.ClusterRoleBinding(ControllerName, labels, instOpts.namespace),
+		v1.StatefulSet(ControllerName, labels, instOpts.namespace),
 	}
-
 	for _, o := range objects {
-		err := act.install(ctx, o, controllerName)
+		err := act.install(ctx, o, ControllerName)
 		if err != nil {
 			return err
 		}
 	}
-
 	project := v1.Project(instOpts.stage, labels, instOpts.namespace, v1.GitOpsProjectSpec{
 		URL:                 instOpts.url,
 		Branch:              instOpts.branch,
@@ -110,17 +114,16 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 		PullIntervalSeconds: instOpts.interval,
 		Suspend:             &suspend,
 	})
-
 	// clear cache because we just introduced a new crd
 	if err := act.kubeClient.Invalidate(); err != nil {
 		return err
 	}
-
-	err := act.install(ctx, project, controllerName)
-	if err != nil {
+	if err := act.install(ctx, project, ControllerName); err != nil {
 		return err
 	}
-
+	if err := secret.NewManager(instOpts.namespace, act.kubeClient).CreateKeyIfNotExists(ctx, act.projectRoot, ControllerName); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -69,15 +69,15 @@ func (manager RepositoryManager) Load(opts ...loadOption) (*Repository, error) {
 
 	targetPath := options.targetPath
 	logArgs := []interface{}{"remote url", options.url, "target path", targetPath}
-	manager.Log.Info("trying to open repository", logArgs...)
+	manager.Log.Info("Opening repository", logArgs...)
 	gitRepository, err := git.PlainOpen(targetPath)
 	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
 
 	if err == git.ErrRepositoryNotExists {
-		manager.Log.Info("repository does not exist", logArgs...)
-		manager.Log.Info("trying to clone repository", logArgs...)
+		manager.Log.Info("Repository does not exist", logArgs...)
+		manager.Log.Info("Cloning repository", logArgs...)
 		gitRepository, err = git.PlainClone(
 			targetPath, false,
 			&git.CloneOptions{URL: options.url, Progress: os.Stdout},

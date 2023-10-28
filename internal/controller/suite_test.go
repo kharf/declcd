@@ -59,30 +59,24 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	env = projecttest.StartProjectEnv(test, kubetest.WithHelm(true, false))
+	env = projecttest.StartProjectEnv(test, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
 	logf.SetLogger(env.Log)
 	var err error
-
 	k8sClient, err = client.New(env.ControlPlane.Config, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
-	client, err := kube.NewClient(env.ControlPlane.Config)
-	Expect(err).NotTo(HaveOccurred())
-
-	declKubeClient, err := kube.NewClient(env.ControlPlane.Config)
+	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
 	Expect(err).NotTo(HaveOccurred())
 	crd := gitopsv1.CRD(map[string]string{})
 	unstrObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(crd)
 	Expect(err).NotTo(HaveOccurred())
 	unstr := &unstructured.Unstructured{Object: unstrObj}
-	err = declKubeClient.Apply(env.Ctx, unstr, "")
+	err = client.Apply(env.Ctx, unstr, "")
 	Expect(err).NotTo(HaveOccurred())
-
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
-
 	inventoryManager := inventory.Manager{
 		Log:  env.Log,
 		Path: filepath.Join(os.TempDir(), "inventory"),
@@ -101,13 +95,12 @@ var _ = BeforeSuite(func() {
 			InventoryManager: inventoryManager,
 			HelmConfig:       env.HelmEnv.HelmConfig,
 		},
+		Decrypter: env.Decrypter,
 	}
-
 	err = (&GitOpsProjectReconciler{
 		Reconciler: reconciler,
 	}).SetupWithManager(env.ControllerManager)
 	Expect(err).ToNot(HaveOccurred())
-
 	go func() {
 		defer GinkgoRecover()
 		err = env.ControllerManager.Start(env.Ctx)

@@ -35,15 +35,7 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 		return nil, err
 	}
 
-	prepareTest := testBase.WithExec([]string{"mkdir", "-p", declTmp}).
-		WithExec([]string{"cp", "test/testdata/simple", "-r", declTmp}).
-		WithWorkdir(filepath.Join(declTmp, "simple")).
-		WithExec([]string{"git", "init", "."}).
-		WithExec([]string{"git", "config", "user.email", "test@test.com"}).
-		WithExec([]string{"git", "config", "user.name", "test"}).
-		WithExec([]string{"git", "add", "."}).
-		WithExec([]string{"git", "commit", "-m", "\"init\""}).
-		WithWorkdir(workDir).
+	prepareTest := testBase.WithWorkdir(workDir).
 		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath))
 
 	var test *dagger.Container

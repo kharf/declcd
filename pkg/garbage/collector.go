@@ -13,7 +13,7 @@ import (
 
 type Collector struct {
 	Log              logr.Logger
-	Client           *kube.Client
+	Client           *kube.DynamicClient
 	InventoryManager inventory.Manager
 	HelmConfig       action.Configuration
 }
@@ -34,7 +34,7 @@ func (c Collector) Collect(ctx context.Context, renderedManifests []unstructured
 		}
 
 		if collect {
-			c.Log.Info("collecting unreferenced manifest", "namespace", invManifest.Namespace, "name", invManifest.Name, "kind", invManifest.Kind)
+			c.Log.Info("Collecting unreferenced manifest", "namespace", invManifest.Namespace, "name", invManifest.Name, "kind", invManifest.Kind)
 			unstr := &unstructured.Unstructured{}
 			unstr.SetName(invManifest.Name)
 			unstr.SetNamespace(invManifest.Namespace)
@@ -59,7 +59,7 @@ func (c Collector) Collect(ctx context.Context, renderedManifests []unstructured
 		}
 
 		if collect {
-			c.Log.Info("collecting unreferenced helm release", "namespace", invHr.Namespace, "name", invHr.Name)
+			c.Log.Info("Collecting unreferenced helm release", "namespace", invHr.Namespace, "name", invHr.Name)
 			client := action.NewUninstall(&c.HelmConfig)
 			client.Wait = false
 			_, err := client.Run(invHr.Name)

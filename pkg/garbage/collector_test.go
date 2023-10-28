@@ -22,7 +22,7 @@ import (
 )
 
 func TestCollector_Collect_NoChanges(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
 	invManifests := []inventory.Manifest{
 		{
@@ -60,7 +60,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 	ctx := context.Background()
 	renderedManifests := make([]unstructured.Unstructured, 0, len(invManifests))
 	converter := runtime.DefaultUnstructuredConverter
-	client, err := kube.NewClient(env.ControlPlane.Config)
+	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
 	assert.NilError(t, err)
 	for _, im := range invManifests {
 		obj, err := converter.ToUnstructured(toObject(im))
@@ -103,13 +103,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 		assert.NilError(t, err)
 	}
 
-	collector := garbage.Collector{
-		Log:              env.Log,
-		Client:           client,
-		InventoryManager: env.InventoryManager,
-		HelmConfig:       env.HelmEnv.HelmConfig,
-	}
-
+	collector := env.GarbageCollector
 	err = collector.Collect(ctx, renderedManifests, releases)
 	assert.NilError(t, err)
 
@@ -133,7 +127,7 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 }
 
 func TestCollector_Collect(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
 	nsA := inventory.Manifest{
 		TypeMeta: metav1.TypeMeta{
@@ -175,7 +169,7 @@ func TestCollector_Collect(t *testing.T) {
 	ctx := context.Background()
 	converter := runtime.DefaultUnstructuredConverter
 	invMap := make(map[string]inventory.Manifest)
-	client, err := kube.NewClient(env.ControlPlane.Config)
+	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
 	assert.NilError(t, err)
 	for _, im := range invManifests {
 		invMap[im.AsKey()] = im

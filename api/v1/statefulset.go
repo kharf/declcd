@@ -51,6 +51,23 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 					SecurityContext: &v1.PodSecurityContext{
 						RunAsNonRoot: &nonRoot,
 					},
+					Volumes: []v1.Volume{
+						{
+							Name: "podinfo",
+							VolumeSource: v1.VolumeSource{
+								DownwardAPI: &v1.DownwardAPIVolumeSource{
+									Items: []v1.DownwardAPIVolumeFile{
+										{
+											Path: "namespace",
+											FieldRef: &v1.ObjectFieldSelector{
+												FieldPath: "metadata.namespace",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 					Containers: []v1.Container{
 						{
 							Name:    controllerName,
@@ -78,6 +95,10 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 								{
 									Name:      pvcName,
 									MountPath: "/inventory",
+								},
+								{
+									Name:      "podinfo",
+									MountPath: "/podinfo",
 								},
 							},
 						},

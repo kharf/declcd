@@ -18,17 +18,18 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
 	assert.NilError(t, err)
 	componentManifests := component.Manifests
-	assert.Assert(t, len(componentManifests) == 1)
+	assert.Assert(t, len(componentManifests) == 2)
 	namespace := componentManifests[0].Object
 	assert.Equal(t, namespace["apiVersion"], "v1")
 	assert.Equal(t, namespace["kind"], "Namespace")
 	nsMetadata := namespace["metadata"].(map[string]interface{})
-	assert.Equal(t, nsMetadata["name"], "mynamespace")
+	ns := "prometheus"
+	assert.Equal(t, nsMetadata["name"], ns)
 	releases := component.HelmReleases
 	assert.Assert(t, len(releases) == 1)
 	release := releases[0]
 	assert.Equal(t, release.Name, "{{.Name}}")
-	assert.Equal(t, release.Namespace, "mynamespace")
+	assert.Equal(t, release.Namespace, ns)
 	assert.Assert(t, len(release.Values) == 1)
 	expectedValues := helm.Values{
 		"autoscaling": map[string]interface{}{
@@ -38,9 +39,9 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 
 	assert.DeepEqual(t, release.Values, expectedValues)
 
-	subcomponent, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus/subcomponent"))
+	subcomponent, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("infra/prometheus/subcomponent"))
 	assert.NilError(t, err)
-	subcomponentManifests := component.Manifests
+	subcomponentManifests := subcomponent.Manifests
 	assert.Assert(t, len(subcomponentManifests) == 1)
 	deployment := subcomponent.Manifests[0]
 	assert.Equal(t, deployment.GetAPIVersion(), "apps/v1")

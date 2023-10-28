@@ -9,9 +9,11 @@ import (
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/declcd/pkg/secret"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -24,6 +26,7 @@ type Reconciler struct {
 	ChartReconciler   helm.ChartReconciler
 	InventoryManager  inventory.Manager
 	GarbageCollector  garbage.Collector
+	Decrypter         secret.Decrypter
 }
 
 type ReconcileResult struct {
@@ -35,34 +38,33 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 	if *gProject.Spec.Suspend {
 		return &ReconcileResult{Suspended: true}, nil
 	}
-
 	reconcileResult := &ReconcileResult{Suspended: false}
-
 	repositoryUID := string(gProject.GetUID())
 	repositoryDir := filepath.Join(reconciler.ProjectManager.FS.Root, repositoryUID)
 	repository, err := reconciler.RepositoryManager.Load(WithUrl(gProject.Spec.URL), WithTarget(repositoryDir))
 	if err != nil {
-		log.Error(err, "unable to load gitops project repository", "repository", gProject.Spec.URL)
+		log.Error(err, "Unable to load gitops project repository", "repository", gProject.Spec.URL)
 		return reconcileResult, err
 	}
-
 	if err := repository.Pull(); err != nil {
-		log.Error(err, "unable to pull gitops project repository")
+		log.Error(err, "Unable to pull gitops project repository", "repository", gProject.Spec.URL)
 		return reconcileResult, err
 	}
-
 	mainComponents, err := reconciler.ProjectManager.Load(repositoryUID)
 	if err != nil {
-		log.Error(err, "unable to load decl project")
+		log.Error(err, "Unable to load declcd project")
 		return reconcileResult, err
 	}
-
+	repositoryDir, err = reconciler.Decrypter.Decrypt(ctx, repositoryDir)
+	if err != nil {
+		log.Error(err, "Unable to decrypt secrets")
+		return reconcileResult, err
+	}
 	//TODO: needs refactoring - getting ugly
 	if err := reconciler.reconcileComponents(ctx, mainComponents, repositoryDir); err != nil {
-		log.Error(err, "unable to reconcile components")
+		log.Error(err, "Unable to reconcile components")
 		return reconcileResult, err
 	}
-
 	return reconcileResult, nil
 }
 
@@ -80,11 +82,9 @@ func (reconciler Reconciler) reconcileComponents(ctx context.Context, mainCompon
 			renderedHelmReleases = append(renderedHelmReleases, component.HelmReleases...)
 		}
 	}
-
 	if err := reconciler.GarbageCollector.Collect(ctx, renderedManifests, renderedHelmReleases); err != nil {
 		return err
 	}
-
 	for _, mainComponent := range mainComponents {
 		if err := reconciler.reconcileSubComponents(ctx, mainComponent.SubComponents, repositoryDir, componentBuilder); err != nil {
 			return err
@@ -158,9 +158,20 @@ func (reconciler Reconciler) reconcileHelmReleases(releases []helm.Release) erro
 }
 
 func (reconciler Reconciler) createOrUpdate(ctx context.Context, manifest *unstructured.Unstructured) error {
-	if err := reconciler.Client.Create(ctx, manifest); err != nil {
+	client := reconciler.Client
+	log := reconciler.Log
+	log.Info("Applying manifest", "namespace", manifest.GetNamespace(), "name", manifest.GetName(), "kind", manifest.GetKind())
+	if err := client.Create(ctx, manifest); err != nil {
 		if errors.IsAlreadyExists(err) {
-			return reconciler.Client.Update(ctx, manifest)
+			currentManifest := unstructured.Unstructured{Object: map[string]interface{}{
+				"kind":       manifest.GetKind(),
+				"apiVersion": manifest.GetAPIVersion(),
+			}}
+			if err := client.Get(ctx, types.NamespacedName{Namespace: manifest.GetNamespace(), Name: manifest.GetName()}, &currentManifest); err != nil {
+				return err
+			}
+			manifest.SetResourceVersion(currentManifest.GetResourceVersion())
+			return client.Update(ctx, manifest)
 		}
 		return err
 	}

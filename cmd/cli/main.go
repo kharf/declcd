@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/secret"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/rest"
@@ -39,6 +41,7 @@ func main() {
 
 type RootCommandBuilder struct {
 	installCommandBuilder InstallCommandBuilder
+	encryptCommandBuilder EncryptCommandBuilder
 }
 
 func (builder RootCommandBuilder) Build() *cobra.Command {
@@ -48,7 +51,9 @@ func (builder RootCommandBuilder) Build() *cobra.Command {
 	}
 
 	installCmd := builder.installCommandBuilder.Build()
+	encryptCmd := builder.encryptCommandBuilder.Build()
 	rootCmd.AddCommand(installCmd)
+	rootCmd.AddCommand(encryptCmd)
 
 	return &rootCmd
 }
@@ -69,7 +74,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			if err := builder.action.Install(ctx,
-				install.Namespace("declcd-system"),
+				install.Namespace(install.ControllerNamespace),
 				install.URL(url),
 				install.Branch(branch),
 				install.Stage(stage),
@@ -87,6 +92,25 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	return cmd
 }
 
+type EncryptCommandBuilder struct {
+	secretManager secret.Encrypter
+}
+
+func (builder EncryptCommandBuilder) Build() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "encrypt",
+		Short: "Encrypt Secrets inside the GitOps Repository",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			if err := builder.secretManager.EncryptComponent(args[0]); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+
 func initCliConfig() (*viper.Viper, error) {
 	config := viper.New()
 	config.SetEnvPrefix("decl")
@@ -100,14 +124,26 @@ func initCliConfig() (*viper.Viper, error) {
 }
 
 func initCli(cliConfig *viper.Viper, kubeConfig *rest.Config) (*RootCommandBuilder, error) {
-	client, err := kube.NewClient(kubeConfig)
+	client, err := kube.NewDynamicClient(kubeConfig)
+	if err != nil {
+		return nil, err
+	}
+	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
 	installCmd := InstallCommandBuilder{
-		action: install.NewAction(client),
+		action: install.NewAction(client, wd),
 	}
-	rootCmd := RootCommandBuilder{installCmd}
+	encryptCommand := EncryptCommandBuilder{
+		secretManager: secret.Encrypter{
+			ProjectRoot: wd,
+		},
+	}
+	rootCmd := RootCommandBuilder{
+		installCommandBuilder: installCmd,
+		encryptCommandBuilder: encryptCommand,
+	}
 
 	return &rootCmd, nil
 }

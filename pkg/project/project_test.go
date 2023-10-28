@@ -34,7 +34,7 @@ func TestProjectManager_Load_AppsDoesNotExist(t *testing.T) {
 	pm := project.NewProjectManager(project.FileSystem{FS: mapfs, Root: ""}, logger)
 	_, err := pm.Load("project/")
 	assert.ErrorIs(t, err, project.ErrMainComponentNotFound)
-	assert.Error(t, err, "main component not found: could not load project/apps")
+	assert.Error(t, err, "Main component not found: Could not load project/apps")
 }
 
 func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
@@ -46,7 +46,7 @@ func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
 	pm := project.NewProjectManager(project.FileSystem{FS: mapfs, Root: ""}, logger)
 	_, err := pm.Load("project/")
 	assert.ErrorIs(t, err, project.ErrMainComponentNotFound)
-	assert.Error(t, err, "main component not found: could not load project/infra")
+	assert.Error(t, err, "Main component not found: Could not load project/infra")
 }
 
 func TestProjectManager_Load(t *testing.T) {

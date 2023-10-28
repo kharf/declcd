@@ -66,6 +66,26 @@ func SetupGitRepository() (*LocalGitRepository, error) {
 	return localRepository, nil
 }
 
+func InitGitRepository(dir string) (*LocalGitRepository, error) {
+	r, err := git.PlainInit(dir, false)
+	if err != nil {
+		return nil, err
+	}
+	worktree, err := r.Worktree()
+	if err != nil {
+		return nil, err
+	}
+	localRepository := &LocalGitRepository{
+		Worktree:  worktree,
+		Directory: dir,
+	}
+	if err := localRepository.CommitFile(".", "first commit"); err != nil {
+		return nil, err
+	}
+
+	return localRepository, nil
+}
+
 func OpenGitRepository(dir string) (*LocalGitRepository, error) {
 	r, err := git.PlainOpen(dir)
 	if err != nil {

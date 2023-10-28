@@ -8,16 +8,15 @@ import (
 
 	"helm.sh/helm/v3/pkg/action"
 
-	appsv1 "k8s.io/api/apps/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
@@ -49,21 +48,24 @@ func (c InMemoryRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 }
 
-// Client connects to a Kubernetes cluster to create, read, update and delete unstructured manifests/objects.
-type Client struct {
+// Client connects to a Kubernetes cluster to create, read, update and delete manifests/objects.
+type Client[T any] interface {
+	Apply(ctx context.Context, obj *T, fieldManager string) error
+	Get(ctx context.Context, obj *T) (*unstructured.Unstructured, error)
+	Delete(ctx context.Context, obj *T) error
+}
+
+// DynamicClient connects to a Kubernetes cluster to create, read, update and delete unstructured manifests/objects.
+type DynamicClient struct {
 	dynamicClient *dynamic.DynamicClient
-	client        *kubernetes.Clientset
 	RestMapper    meta.RESTMapper
 	invalidate    func()
 }
 
-func NewClient(config *rest.Config) (*Client, error) {
-	dynClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
+var _ Client[unstructured.Unstructured] = (*DynamicClient)(nil)
 
-	client, err := kubernetes.NewForConfig(config)
+func NewDynamicClient(config *rest.Config) (*DynamicClient, error) {
+	dynClient, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -75,15 +77,14 @@ func NewClient(config *rest.Config) (*Client, error) {
 
 	cacheClient := memory.NewMemCacheClient(discoveryClient)
 	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cacheClient)
-	return &Client{
+	return &DynamicClient{
 		dynamicClient: dynClient,
-		client:        client,
 		RestMapper:    restMapper,
 		invalidate:    restMapper.Reset,
 	}, nil
 }
 
-func (client *Client) Invalidate() error {
+func (client *DynamicClient) Invalidate() error {
 	client.invalidate()
 	return nil
 }
@@ -91,8 +92,8 @@ func (client *Client) Invalidate() error {
 var ErrWaitingForResource = errors.New("error waiting for resource")
 
 // Apply applies changes to an object through a Server-Side Apply and takes the ownership of this object.
-func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string) error {
-	resourceInterface, err := client.resourceInterface(obj)
+func (client *DynamicClient) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string) error {
+	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
 	if err != nil {
 		return err
 	}
@@ -137,7 +138,7 @@ func (client *Client) Apply(ctx context.Context, obj *unstructured.Unstructured,
 	return nil
 }
 
-func (client *Client) wait(ctx context.Context, name string, typeMeta v1.TypeMeta, resourceInterface dynamic.ResourceInterface) (bool, error) {
+func (client *DynamicClient) wait(ctx context.Context, name string, typeMeta v1.TypeMeta, resourceInterface dynamic.ResourceInterface) (bool, error) {
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
@@ -206,8 +207,8 @@ func getConditions(obj *unstructured.Unstructured) []condition {
 	return conditions
 }
 
-func (client *Client) Delete(ctx context.Context, obj *unstructured.Unstructured) error {
-	resourceInterface, err := client.resourceInterface(obj)
+func (client *DynamicClient) Delete(ctx context.Context, obj *unstructured.Unstructured) error {
+	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
 	if err != nil {
 		return err
 	}
@@ -224,29 +225,35 @@ func (client *Client) Delete(ctx context.Context, obj *unstructured.Unstructured
 	return nil
 }
 
-func (client *Client) resourceInterface(obj *unstructured.Unstructured) (dynamic.ResourceInterface, error) {
+func (client *DynamicClient) Get(ctx context.Context, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
+	if err != nil {
+		return nil, err
+	}
+
+	foundObj, err := resourceInterface.Get(ctx, obj.GetName(), v1.GetOptions{
+		TypeMeta: v1.TypeMeta{
+			Kind:       obj.GetKind(),
+			APIVersion: obj.GetAPIVersion(),
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return foundObj, nil
+}
+
+func (client *DynamicClient) resourceInterface(gvk schema.GroupVersionKind, namespace string) (dynamic.ResourceInterface, error) {
 	restMapper := client.RestMapper
 	dynamicClient := client.dynamicClient
 
-	gvk := obj.GroupVersionKind()
 	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, err
 	}
 	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-		return dynamicClient.Resource(mapping.Resource).Namespace(obj.GetNamespace()), nil
+		return dynamicClient.Resource(mapping.Resource).Namespace(namespace), nil
 	}
 	return dynamicClient.Resource(mapping.Resource), nil
-}
-
-// WIP
-func (client *Client) List(ctx context.Context, opts v1.ListOptions) ([]appsv1.Deployment, error) {
-	deployments := client.client.AppsV1().Deployments("default")
-
-	list, err := deployments.List(ctx, v1.ListOptions{})
-	if err != nil {
-		return []appsv1.Deployment{}, err
-	}
-
-	return list.Items, nil
 }

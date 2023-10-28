@@ -82,7 +82,6 @@ var _ = Describe("GitOpsProject controller", func() {
 
 			It("Should reconcile the declared cluster state with the current cluster state", func() {
 				ctx := context.Background()
-
 				Eventually(func() error {
 					return k8sClient.Create(ctx, &gitOpsProject)
 				}, projectCreationTimeout, projectCreationInterval).Should(BeNil())
@@ -93,16 +92,15 @@ var _ = Describe("GitOpsProject controller", func() {
 				By("Cloning a decl gitops repository, building manifests and applying them onto the cluster")
 				Eventually(func() (string, error) {
 					var namespace corev1.Namespace
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mynamespace", Namespace: ""}, &namespace); err != nil {
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prometheus", Namespace: ""}, &namespace); err != nil {
 						return "", err
 					}
-
 					return namespace.GetName(), nil
-				}, duration, assertionInterval).Should(Equal("mynamespace"))
+				}, duration, assertionInterval).Should(Equal("prometheus"))
 
 				Eventually(func() (string, error) {
 					var deployment appsv1.Deployment
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &deployment); err != nil {
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment); err != nil {
 						return "", err
 					}
 

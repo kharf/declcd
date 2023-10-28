@@ -12,7 +12,7 @@ func Namespace(name string, labels map[string]string) *v1.Namespace {
 			Kind:       "Namespace",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "declcd-system",
+			Name:   name,
 			Labels: labels,
 		},
 	}

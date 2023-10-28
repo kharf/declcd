@@ -15,18 +15,18 @@ import (
 	_ "github.com/kharf/declcd/test/workingdir"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestReconciler_Reconcile(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
 	defer env.Stop()
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
-
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  project.NewComponentBuilder(),
@@ -36,8 +36,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		InventoryManager:  env.InventoryManager,
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
+		Decrypter:         env.Decrypter,
 	}
-
 	suspend := false
 	gProject := gitopsv1.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
@@ -58,22 +58,27 @@ func TestReconciler_Reconcile(t *testing.T) {
 	result, err := reconciler.Reconcile(env.Ctx, gProject)
 	assert.NilError(t, err)
 	assert.Equal(t, result.Suspended, false)
-
 	ctx := context.Background()
+	ns := "prometheus"
 	var mysubcomponent appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &mysubcomponent)
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
 	assert.NilError(t, err)
 	assert.Equal(t, mysubcomponent.Name, "mysubcomponent")
-	assert.Equal(t, mysubcomponent.Namespace, "mynamespace")
-	var test appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "mynamespace"}, &test)
+	assert.Equal(t, mysubcomponent.Namespace, ns)
+	var dep appsv1.Deployment
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
 	assert.NilError(t, err)
-	assert.Equal(t, test.Name, "test")
-	assert.Equal(t, test.Namespace, "mynamespace")
-
+	assert.Equal(t, dep.Name, "test")
+	assert.Equal(t, dep.Namespace, ns)
+	var sec corev1.Secret
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "secret", Namespace: ns}, &sec)
+	assert.NilError(t, err)
+	fooSecretValue, found := sec.Data["foo"]
+	assert.Assert(t, found)
+	assert.Equal(t, string(fooSecretValue), "bar")
 	inventoryStorage, err := reconciler.InventoryManager.Load()
 	assert.NilError(t, err)
-	assert.Assert(t, len(inventoryStorage.Manifests) == 2)
+	assert.Assert(t, len(inventoryStorage.Manifests) == 3)
 	assert.Assert(t, len(inventoryStorage.HelmReleases) == 1)
 	subComponentDeploymentManifest := inventory.Manifest{
 		TypeMeta: v1.TypeMeta{
@@ -85,36 +90,33 @@ func TestReconciler_Reconcile(t *testing.T) {
 	}
 	assert.Assert(t, inventoryStorage.HasManifest(subComponentDeploymentManifest))
 	testHR := inventory.HelmRelease{
-		Name:      test.Name,
-		Namespace: test.Namespace,
+		Name:      dep.Name,
+		Namespace: dep.Namespace,
 	}
 	assert.Assert(t, inventoryStorage.HasRelease(testHR))
-	mynamespace := inventory.Manifest{
+	invNs := inventory.Manifest{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "Namespace",
 			APIVersion: "v1",
 		},
 		Name: mysubcomponent.Namespace,
 	}
-	assert.Assert(t, inventoryStorage.HasManifest(mynamespace))
-
+	assert.Assert(t, inventoryStorage.HasManifest(invNs))
 	err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"))
 	assert.NilError(t, err)
 	err = env.GitRepository.CommitFile("infra/prometheus/subcomponent/component.cue", "undeploy subcomponent")
 	assert.NilError(t, err)
-
 	result, err = reconciler.Reconcile(env.Ctx, gProject)
 	assert.NilError(t, err)
 	inventoryStorage, err = reconciler.InventoryManager.Load()
 	assert.NilError(t, err)
-	assert.Assert(t, len(inventoryStorage.Manifests) == 1)
+	assert.Assert(t, len(inventoryStorage.Manifests) == 2)
 	assert.Assert(t, len(inventoryStorage.HelmReleases) == 1)
 	assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
-	assert.Assert(t, inventoryStorage.HasManifest(mynamespace))
+	assert.Assert(t, inventoryStorage.HasManifest(invNs))
 	assert.Assert(t, inventoryStorage.HasRelease(testHR))
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &mysubcomponent)
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
 	assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
-
 	err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "component.cue"))
 	assert.NilError(t, err)
 	err = env.GitRepository.CommitFile("infra/prometheus/component.cue", "undeploy prometheus")
@@ -126,20 +128,19 @@ func TestReconciler_Reconcile(t *testing.T) {
 	assert.Assert(t, len(inventoryStorage.Manifests) == 0)
 	assert.Assert(t, len(inventoryStorage.HelmReleases) == 0)
 	assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
-	assert.Assert(t, !inventoryStorage.HasManifest(mynamespace))
+	assert.Assert(t, !inventoryStorage.HasManifest(invNs))
 	assert.Assert(t, !inventoryStorage.HasRelease(testHR))
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "mynamespace"}, &test)
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
 	assert.Error(t, err, "deployments.apps \"test\" not found")
 }
 
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
 	defer env.Stop()
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
-
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  project.NewComponentBuilder(),
@@ -152,7 +153,6 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 		},
 		Log: env.Log,
 	}
-
 	suspend := true
 	result, err := reconciler.Reconcile(env.Ctx, gitopsv1.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
@@ -174,6 +174,6 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	assert.Equal(t, result.Suspended, true)
 	ctx := context.Background()
 	var deployment appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "mynamespace"}, &deployment)
+	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment)
 	assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
 }

@@ -1,0 +1,4 @@
+package secrets
+
+secrets: {
+}

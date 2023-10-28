@@ -1,4 +1,4 @@
-package helm
+package helm_test
 
 import (
 	"context"
@@ -21,6 +21,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/internal/projecttest"
+	. "github.com/kharf/declcd/pkg/helm"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
@@ -38,7 +40,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestChartReconciler_Reconcile_Default(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
 
 	chart := Chart{
@@ -53,7 +55,7 @@ func TestChartReconciler_Reconcile_Default(t *testing.T) {
 	}
 
 	fixture{
-		env:        env,
+		env:        env.KubetestEnv,
 		reconciler: reconciler,
 		chart:      chart,
 		namespace:  "default",
@@ -61,7 +63,7 @@ func TestChartReconciler_Reconcile_Default(t *testing.T) {
 }
 
 func TestChartReconciler_Reconcile_Default_OCI(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, true))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, true)))
 	defer env.Stop()
 
 	repoURL := strings.Replace(env.HelmEnv.ChartServer.URL, "http", "oci", 1)
@@ -77,7 +79,7 @@ func TestChartReconciler_Reconcile_Default_OCI(t *testing.T) {
 	}
 
 	fixture{
-		env:        env,
+		env:        env.KubetestEnv,
 		reconciler: reconciler,
 		chart:      chart,
 		namespace:  "default",
@@ -85,7 +87,7 @@ func TestChartReconciler_Reconcile_Default_OCI(t *testing.T) {
 }
 
 func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
 
 	chart := Chart{
@@ -101,7 +103,7 @@ func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
 	fixture{
-		env:        env,
+		env:        env.KubetestEnv,
 		reconciler: reconciler,
 		chart:      chart,
 		namespace:  "mynamespace",
@@ -109,7 +111,7 @@ func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
 }
 
 func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
 
 	chart := Chart{
@@ -125,13 +127,13 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
 	fixture{
-		env:        env,
+		env:        env.KubetestEnv,
 		reconciler: reconciler,
 		chart:      chart,
 		namespace:  "mynamespace",
 	}.testReconcile(t, "myhelmrelease", liveName, true, assertChartv1)
 
-	releasesFilePath := filepath.Join(env.TestProjectSource, "infra", "prometheus", "releases.cue")
+	releasesFilePath := filepath.Join(env.TestProject, "infra", "prometheus", "releases.cue")
 	releasesContent, err := os.ReadFile(releasesFilePath)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +174,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	}
 
 	fixture{
-		env:        env,
+		env:        env.KubetestEnv,
 		reconciler: reconciler,
 		chart:      chart,
 		namespace:  "mynamespace",
@@ -180,7 +182,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 }
 
 func TestChartReconciler_Reconcile_Chart_Cache(t *testing.T) {
-	env := kubetest.StartKubetestEnv(t, kubetest.WithHelm(true, false))
+	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
 
 	chart := Chart{
@@ -196,13 +198,13 @@ func TestChartReconciler_Reconcile_Chart_Cache(t *testing.T) {
 
 	liveName := fmt.Sprintf("%s-%s", "myhelmrelease", "test")
 	fixture := fixture{
-		env:        env,
+		env:        env.KubetestEnv,
 		reconciler: reconciler,
 		chart:      chart,
 		namespace:  "mynamespace",
 	}
 	fixture.testReconcile(t, "myhelmrelease", liveName, false, assertChartv1)
-	defer remove(chart)
+	defer Remove(chart)
 	env.HelmEnv.ChartServer.Close()
 	env.HelmEnv.RepositoryServer.Close()
 	ctx := context.Background()
@@ -292,7 +294,7 @@ func (f fixture) testReconcile(
 	}
 
 	if cleanChart {
-		defer remove(f.chart)
+		defer Remove(f.chart)
 	}
 
 	release, err := f.reconciler.Reconcile(
