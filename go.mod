@@ -9,7 +9,7 @@ require (
 	github.com/onsi/gomega v1.30.0
 	go.uber.org/zap v1.26.0
 	gotest.tools/v3 v3.5.1
-	helm.sh/helm/v3 v3.13.2
+	helm.sh/helm/v3 v3.13.3
 	k8s.io/api v0.28.4
 	k8s.io/apimachinery v0.28.4
 	k8s.io/client-go v0.28.4
