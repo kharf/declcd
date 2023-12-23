@@ -29,7 +29,7 @@ import "json.schemastore.org/github"
 
 #setupGo: {
 	name: "Setup Go"
-	uses: "actions/setup-go@v4.1.0"
+	uses: "actions/setup-go@v5"
 	with: {
 		"go-version-file":       "build/go.mod"
 		"check-latest":          true
