@@ -1,80 +1,56 @@
-# declcd
-// TODO(user): Add simple overview of use/purpose
+# declcd - A Declarative Continuous Delivery For Kubernetes
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+`declcd` is a GitOps toolkit designed for Kubernetes, utilizing the power of Cue instead of YAML for configuration. It allows you to define and maintain the desired state of your Kubernetes cluster in a concise and expressive manner using Cue's declarative syntax.
+
+## Table of Contents
+- [Introduction](#introduction)
+- [Features](#features)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Contributions](#contributions)
+- [License](#license)
+
+## Introduction
+
+Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. `declcd` leverages Cue, a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
+
+## Features
+
+- **Declarative Syntax:** Define the desired state of your Kubernetes cluster using Cue's declarative syntax, enhancing readability and maintainability.
+- **Kubernetes Integration:** Seamless integration with Kubernetes, allowing you to manage your applications and configurations effortlessly.
+- **Scalability:** Handle complex cluster state scenarios with ease, thanks to Cue's expressive and composable nature.
+- **Extensibility:** Easily extend and customize your desired cluster state definitions to fit your specific requirements.
 
 ## Getting Started
-You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
-**Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
 
-### Running on the cluster
-1. Install Instances of Custom Resources:
+Follow these steps to get started with `declcd`:
 
-```sh
-kubectl apply -f config/samples/
+1. **Installation:**
+
+2. **Initialize a GitOps Repository:**
+```bash
+    declcd init mygitops
+    cd mygitops
 ```
 
-2. Build and push your image to the location specified by `IMG`:
+3. **Define Desired Cluster State:**
+Edit the declcd.cue file to describe the desired state of your Kubernetes cluster using Cue syntax.
 
-```sh
-make docker-build docker-push IMG=<some-registry>/declcd:tag
+4. **Apply Changes:**
+```bash
+git add declcd.cue
 ```
+For more detailed instructions and examples, refer to the documentation.
 
-3. Deploy the controller to the cluster with the image specified by `IMG`:
+## Contributions
 
-```sh
-make deploy IMG=<some-registry>/declcd:tag
-```
+We welcome contributions! To contribute to declcd, follow these steps:
 
-### Uninstall CRDs
-To delete the CRDs from the cluster:
-
-```sh
-make uninstall
-```
-
-### Undeploy controller
-UnDeploy the controller from the cluster:
-
-```sh
-make undeploy
-```
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-### How it works
-This project aims to follow the Kubernetes [Operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/).
-
-It uses [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/),
-which provide a reconcile function responsible for synchronizing resources until the desired state is reached on the cluster.
-
-### Test It Out
-1. Install the CRDs into the cluster:
-
-```sh
-make install
-```
-
-2. Run your controller (this will run in the foreground, so switch to a new terminal if you want to leave it running):
-
-```sh
-make run
-```
-
-**NOTE:** You can also run this in one step by running: `make install run`
-
-### Modifying the API definitions
-If you are editing the API definitions, generate the manifests such as CRs or CRDs using:
-
-```sh
-make manifests
-```
-
-**NOTE:** Run `make --help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Make your changes and submit a pull request.
+4. Ensure that your code passes the CI/CD checks.
+For more information, see CONTRIBUTING.md.
 
 ## License
 
