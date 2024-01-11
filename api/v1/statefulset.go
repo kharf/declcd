@@ -72,7 +72,7 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 						{
 							Name:    controllerName,
 							Image:   "ghcr.io/kharf/declcd:latest",
-							Command: []string{"/manager"},
+							Command: []string{"/controller"},
 							Args:    []string{"--leader-elect"},
 							SecurityContext: &v1.SecurityContext{
 								AllowPrivilegeEscalation: &allowPriviligeEscalation,

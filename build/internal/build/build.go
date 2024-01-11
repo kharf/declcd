@@ -28,17 +28,18 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 	switch b {
 	case Build:
 		var err error
-		build, err = compile(ctx, "controller", request)
+		build, err = compile(ctx, "controller", request.container)
 		if err != nil {
 			return nil, err
 		}
-		build, err = compile(ctx, "cli", request)
+		build, err = compile(ctx, "cli", build)
 		if err != nil {
 			return nil, err
 		}
 	case Publish:
 		token := request.client.SetSecret("token", os.Getenv("GITHUB_TOKEN"))
-		ref, err := request.container.Directory(".").
+		ref, err := request.container.
+			Directory(".").
 			DockerBuild().
 			WithRegistryAuth("ghcr.io", "kharf", token).
 			WithLabel("org.opencontainers.image.title", "declcd").
@@ -54,31 +55,27 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 		mod := "go.mod"
 		build = request.container.
 			WithExec([]string{"go", "mod", "tidy"})
-
 		_, err := build.File(sum).Export(ctx, sum)
 		if err != nil {
 			return nil, err
 		}
-
 		_, err = build.File(mod).Export(ctx, mod)
 		if err != nil {
 			return nil, err
 		}
 	}
-
 	return &stepResult{
 		container: build,
 	}, nil
 }
 
-func compile(ctx context.Context, cmd string, request stepRequest) (*dagger.Container, error) {
+func compile(ctx context.Context, cmd string, container *dagger.Container) (*dagger.Container, error) {
 	binary := fmt.Sprintf("bin/%s", cmd)
-	build := request.container.
+	build := container.
 		WithEnvVariable("CGO_ENABLED", "0").
 		WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, fmt.Sprintf("cmd/%s/main.go", cmd)}).
 		WithExec([]string{"chmod", "+x", binary})
-
-	_, err := build.File(binary).Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: true})
+	_, err := build.File(binary).Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: false})
 	if err != nil {
 		return nil, err
 	}

@@ -12,12 +12,10 @@ import (
 
 var (
 	// tool binaries
-	localBin          = "bin"
-	controllerGenPath = filepath.Join(localBin, "controller-gen")
-	envTest           = filepath.Join(localBin, "setup-envtest")
-
-	workDir = "/declcd"
-	tmp     = "/tmp"
+	localBin = "bin"
+	envTest  = filepath.Join(localBin, "setup-envtest")
+	workDir  = "/declcd"
+	tmp      = "/tmp"
 )
 
 type step interface {
