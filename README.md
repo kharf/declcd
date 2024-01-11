@@ -1,4 +1,4 @@
-# declcd - A Declarative Continuous Delivery For Kubernetes
+# declcd - A Declarative Continuous Delivery Toolkit For Kubernetes
 
 `declcd` is a GitOps toolkit designed for Kubernetes, utilizing the power of Cue instead of YAML for configuration. It allows you to define and maintain the desired state of your Kubernetes cluster in a concise and expressive manner using Cue's declarative syntax.
 
