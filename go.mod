@@ -4,9 +4,13 @@ go 1.21
 
 require (
 	cuelang.org/go v0.7.0
+	filippo.io/age v1.1.1
 	github.com/go-git/go-git/v5 v5.11.0
+	github.com/google/go-containerregistry v0.17.0
 	github.com/onsi/ginkgo/v2 v2.13.2
 	github.com/onsi/gomega v1.30.0
+	github.com/otiai10/copy v1.14.0
+	github.com/spf13/viper v1.18.2
 	go.uber.org/zap v1.26.0
 	gotest.tools/v3 v3.5.1
 	helm.sh/helm/v3 v3.13.3
@@ -14,11 +18,6 @@ require (
 	k8s.io/apimachinery v0.28.4
 	k8s.io/client-go v0.28.4
 	sigs.k8s.io/controller-runtime v0.16.3
-)
-
-require (
-	github.com/google/go-containerregistry v0.17.0
-	github.com/spf13/viper v1.18.2
 	sigs.k8s.io/yaml v1.4.0
 )
 

@@ -20,18 +20,24 @@ import (
 	"gotest.tools/v3/assert"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/go-git/go-git/v5"
 	"github.com/google/go-containerregistry/pkg/registry"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/gittest"
 	helmRegistry "helm.sh/helm/v3/pkg/registry"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
+	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/pkg/garbage"
+	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/secret"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,16 +47,16 @@ import (
 )
 
 type KubetestEnv struct {
-	ControlPlane      *envtest.Environment
-	ControllerManager manager.Manager
-	HelmEnv           helmEnv
-	GitRepository     *gittest.LocalGitRepository
-	TestRoot          string
-	TestProject       string
-	TestProjectSource string
-	TestKubeClient    client.Client
-	Ctx               context.Context
-	clean             func()
+	ControlPlane          *envtest.Environment
+	ControllerManager     manager.Manager
+	HelmEnv               helmEnv
+	TestKubeClient        client.Client
+	DynamicTestKubeClient *kube.DynamicClient
+	GarbageCollector      garbage.Collector
+	InventoryManager      inventory.Manager
+	Decrypter             secret.Decrypter
+	Ctx                   context.Context
+	clean                 func()
 }
 
 func (env KubetestEnv) Stop() {
@@ -64,16 +70,51 @@ type helmOption struct {
 
 var _ Option = (*helmOption)(nil)
 
+func (opt helmOption) apply(opts *options) {
+	opts.helm = opt
+}
+
+type projectOption struct {
+	repo        *gittest.LocalGitRepository
+	testProject string
+	testRoot    string
+}
+
+var _ Option = (*projectOption)(nil)
+
+func (opt projectOption) apply(opts *options) {
+	opts.project = opt
+}
+
+type kubernetesDisabled bool
+
+var _ Option = (*kubernetesDisabled)(nil)
+
+func (opt kubernetesDisabled) apply(opts *options) {
+	opts.enabled = bool(opt)
+}
+
+type decryptionKeyCreated bool
+
+var _ Option = (*decryptionKeyCreated)(nil)
+
+func (opt decryptionKeyCreated) apply(opts *options) {
+	opts.decryptionKeyCreated = bool(opt)
+}
+
 type options struct {
-	helm helmOption
+	enabled              bool
+	helm                 helmOption
+	decryptionKeyCreated bool
+	project              projectOption
 }
 
 type Option interface {
 	apply(*options)
 }
 
-func (opt helmOption) apply(opts *options) {
-	opts.helm = opt
+func WithKubernetesDisabled() kubernetesDisabled {
+	return false
 }
 
 func WithHelm(enabled bool, oci bool) helmOption {
@@ -83,33 +124,47 @@ func WithHelm(enabled bool, oci bool) helmOption {
 	}
 }
 
-func StartKubetestEnv(t *testing.T, opts ...Option) *KubetestEnv {
+func WithDecryptionKeyCreated() decryptionKeyCreated {
+	return true
+}
+
+// Has no effect when provided to projecttest.StartProjectEnv
+func WithProject(repo *gittest.LocalGitRepository, testProject string, testRoot string) projectOption {
+	return projectOption{
+		repo:        repo,
+		testProject: testProject,
+		testRoot:    testRoot,
+	}
+}
+
+func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEnv {
 	options := &options{
 		helm: helmOption{
 			enabled: false,
 			oci:     false,
 		},
+		enabled:              true,
+		decryptionKeyCreated: false,
 	}
 	for _, o := range opts {
 		o.apply(options)
 	}
-
+	if !options.enabled {
+		return nil
+	}
 	testEnv := &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
-
 	var err error
 	// cfg is defined in this file globally.
 	cfg, err := testEnv.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	err = gitopsv1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Metrics: server.Options{
@@ -119,44 +174,67 @@ func StartKubetestEnv(t *testing.T, opts ...Option) *KubetestEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	testRoot := filepath.Join(os.TempDir(), "decl")
-	testProjectSource := filepath.Join(testRoot, "simple")
-	testProject, err := os.MkdirTemp(testRoot, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = git.PlainClone(
-		testProject, false,
-		&git.CloneOptions{URL: testProjectSource, Progress: os.Stdout},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithCancel(context.TODO())
-
-	repo, err := gittest.OpenGitRepository(testProject)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	testClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	helmEnv := setupHelm(t, cfg, repo, testProject, options.helm)
-
+	helmEnv := setupHelm(t, cfg, options)
+	client, err := kube.NewDynamicClient(testEnv.Config)
+	assert.NilError(t, err)
+	inventoryPath, err := os.MkdirTemp(options.project.testRoot, "inventory-*")
+	assert.NilError(t, err)
+	invManager := inventory.Manager{
+		Log:  log,
+		Path: inventoryPath,
+	}
+	gc := garbage.Collector{
+		Log:              log,
+		Client:           client,
+		InventoryManager: invManager,
+		HelmConfig:       helmEnv.HelmConfig,
+	}
+	nsStr := "test"
+	if options.decryptionKeyCreated {
+		privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
+		declNs := corev1.Namespace{
+			TypeMeta: v1.TypeMeta{
+				Kind:       "Namespace",
+				APIVersion: "v1",
+			},
+			ObjectMeta: v1.ObjectMeta{
+				Name: nsStr,
+			},
+		}
+		err = testClient.Create(ctx, &declNs)
+		assert.NilError(t, err)
+		decSec := corev1.Secret{
+			TypeMeta: v1.TypeMeta{
+				Kind:       "Secret",
+				APIVersion: "v1",
+			},
+			ObjectMeta: v1.ObjectMeta{
+				Name:      secret.K8sSecretName,
+				Namespace: nsStr,
+			},
+			Data: map[string][]byte{
+				secret.K8sSecretDataKey: []byte(privKey),
+			},
+		}
+		err = testClient.Create(ctx, &decSec)
+		assert.NilError(t, err)
+	}
+	decrypter := secret.NewDecrypter(secret.NewManager(nsStr, client))
 	return &KubetestEnv{
-		ControlPlane:      testEnv,
-		ControllerManager: mgr,
-		HelmEnv:           helmEnv,
-		GitRepository:     repo,
-		TestRoot:          testRoot,
-		TestProject:       testProject,
-		TestProjectSource: testProjectSource,
-		TestKubeClient:    testClient,
-		Ctx:               ctx,
+		ControlPlane:          testEnv,
+		ControllerManager:     mgr,
+		HelmEnv:               helmEnv,
+		TestKubeClient:        testClient,
+		DynamicTestKubeClient: client,
+		GarbageCollector:      gc,
+		InventoryManager:      invManager,
+		Decrypter:             decrypter,
+		Ctx:                   ctx,
 		clean: func() {
 			testEnv.Stop()
 			helmEnv.Close()
@@ -165,8 +243,8 @@ func StartKubetestEnv(t *testing.T, opts ...Option) *KubetestEnv {
 	}
 }
 
-func replaceTemplate(t *testing.T, repo *gittest.LocalGitRepository, testProject string, repoURL string) {
-	releasesFilePath := filepath.Join(testProject, "infra", "prometheus", "releases.cue")
+func replaceTemplate(t *testing.T, options *options, repoURL string) {
+	releasesFilePath := filepath.Join(options.project.testProject, "infra", "prometheus", "releases.cue")
 	releasesContent, err := os.ReadFile(releasesFilePath)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +274,7 @@ func replaceTemplate(t *testing.T, repo *gittest.LocalGitRepository, testProject
 		t.Fatal(err)
 	}
 
-	err = repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
+	err = options.project.repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,11 +299,11 @@ func (env helmEnv) Close() {
 	}
 }
 
-func setupHelm(t *testing.T, cfg *rest.Config, repo *gittest.LocalGitRepository, testProject string, option helmOption) helmEnv {
+func setupHelm(t *testing.T, cfg *rest.Config, options *options) helmEnv {
 	helmCfg := action.Configuration{}
 	var helmEnv helmEnv
-	if option.enabled {
-		k8sClient, err := kube.NewClient(cfg)
+	if options.helm.enabled {
+		k8sClient, err := kube.NewDynamicClient(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -237,8 +315,8 @@ func setupHelm(t *testing.T, cfg *rest.Config, repo *gittest.LocalGitRepository,
 		if err != nil {
 			t.Fatal(err)
 		}
-		helmEnv = startHelmServer(t, option.oci)
-		replaceTemplate(t, repo, testProject, helmEnv.RepositoryServer.URL)
+		helmEnv = startHelmServer(t, options.helm.oci)
+		replaceTemplate(t, options, helmEnv.RepositoryServer.URL)
 	}
 	// need to be always set, even though we dont test helm releases
 	helmEnv.HelmConfig = helmCfg
@@ -374,4 +452,22 @@ func createChartArchive(t *testing.T, chart string, version string) *os.File {
 	}
 
 	return archive
+}
+
+type FakeDynamicClient struct {
+	Err error
+}
+
+var _ kube.Client[unstructured.Unstructured] = (*FakeDynamicClient)(nil)
+
+func (client *FakeDynamicClient) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string) error {
+	return client.Err
+}
+
+func (client *FakeDynamicClient) Delete(ctx context.Context, obj *unstructured.Unstructured) error {
+	return client.Err
+}
+
+func (client *FakeDynamicClient) Get(ctx context.Context, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	return nil, client.Err
 }

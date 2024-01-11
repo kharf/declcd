@@ -42,6 +42,7 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
+	"github.com/kharf/declcd/pkg/secret"
 )
 
 var (
@@ -68,10 +69,8 @@ func main() {
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&opts))
 	ctrl.SetLogger(log)
-
 	cfg := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
@@ -94,10 +93,9 @@ func main() {
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
-
 	gitOpsRepositoryDir := filepath.Join(os.TempDir(), "decl")
 	fs := os.DirFS(gitOpsRepositoryDir)
 	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, log)
@@ -109,22 +107,23 @@ func main() {
 	voidLog := func(string, ...interface{}) {}
 	err = helmCfg.Init(getter, "default", "secret", voidLog)
 	if err != nil {
-		setupLog.Error(err, "unable to init helm")
+		setupLog.Error(err, "Unable to init helm")
 		os.Exit(1)
 	}
 	chartReconciler := helm.ChartReconciler{
 		Cfg: helmCfg,
 		Log: log,
 	}
-	client, err := kube.NewClient(cfg)
-	if err != nil {
-		setupLog.Error(err, "unable to init kubernetes client")
-		os.Exit(1)
-	}
 	inventoryManager := inventory.Manager{
 		Log:  log,
 		Path: "/inventory",
 	}
+	namespace, err := os.ReadFile("/podinfo/namespace")
+	if err != nil {
+		setupLog.Error(err, "Unable to read current namespace")
+		os.Exit(1)
+	}
+	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
 	if err = (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
 			Log:               log,
@@ -136,28 +135,26 @@ func main() {
 			InventoryManager:  inventoryManager,
 			GarbageCollector: garbage.Collector{
 				Log:              log,
-				Client:           client,
 				InventoryManager: inventoryManager,
 				HelmConfig:       helmCfg,
 			},
+			Decrypter: secret.NewDecrypter(secret.NewManager(string(namespace), kubeDynamicClient)),
 		},
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "GitOpsProject")
+		setupLog.Error(err, "Unable to create controller", "controller", "GitOpsProject")
 		os.Exit(1)
 	}
-
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		setupLog.Error(err, "Unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		setupLog.Error(err, "Unable to set up ready check")
 		os.Exit(1)
 	}
-
-	setupLog.Info("starting manager")
+	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+		setupLog.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
 }

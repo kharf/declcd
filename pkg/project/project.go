@@ -7,14 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"cuelang.org/go/cue"
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/helm"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var (
-	ErrMainComponentNotFound  = errors.New("main component not found")
-	ErrLoadProject            = errors.New("could not load project")
+	ErrMainComponentNotFound  = errors.New("Main component not found")
+	ErrLoadProject            = errors.New("Could not load project")
 	ProjectMainComponentPaths = []string{
 		"/infra",
 		"/apps",
@@ -29,6 +30,11 @@ const (
 type Component struct {
 	Manifests    []unstructured.Unstructured `json:"manifests"`
 	HelmReleases []helm.Release              `json:"helmReleases"`
+	cueValue     *cue.Value                  `json:"-"`
+}
+
+func (c Component) CueValue() *cue.Value {
+	return c.cueValue
 }
 
 // MainDeclarativeComponent is an expected entry point for the project, containing all the declarative components.
@@ -78,7 +84,7 @@ func (p ProjectManager) Load(projectPath string) ([]MainDeclarativeComponent, er
 	for _, mainComponentPath := range ProjectMainComponentPaths {
 		fullMainComponentPath := projectPath + mainComponentPath
 		if _, err := fs.Stat(p.FS, fullMainComponentPath); errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%w: could not load %s", ErrMainComponentNotFound, fullMainComponentPath)
+			return nil, fmt.Errorf("%w: Could not load %s", ErrMainComponentNotFound, fullMainComponentPath)
 		}
 
 		mainDeclarativeSubComponents := make([]*SubDeclarativeComponent, 0, 10)
@@ -100,10 +106,9 @@ func (p ProjectManager) Load(projectPath string) ([]MainDeclarativeComponent, er
 			if dirEntry.IsDir() {
 				componentFilePath := path + "/" + ComponentFileName
 				if _, err := fs.Stat(p.FS, componentFilePath); errors.Is(err, fs.ErrNotExist) {
-					p.log.Info("skipping directory, because no component.cue was found", "directory", dirEntry.Name())
+					p.log.Info("Skipping directory, because no component.cue was found", "directory", dirEntry.Name())
 					return filepath.SkipDir
 				}
-				p.log.Info("found component", "component", path)
 				relativePath, err := filepath.Rel(projectPath, path)
 				if err != nil {
 					return err

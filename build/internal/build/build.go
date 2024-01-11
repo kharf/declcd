@@ -25,16 +25,14 @@ func (b build) name() string {
 
 func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	var build *dagger.Container
-
 	switch b {
 	case Build:
-		binary := "bin/manager"
-		build = request.container.
-			WithEnvVariable("CGO_ENABLED", "0").
-			WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, "cmd/controller/main.go"}).
-			WithExec([]string{"chmod", "+x", binary})
-
-		_, err := build.File(binary).Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: true})
+		var err error
+		build, err = compile(ctx, "controller", request)
+		if err != nil {
+			return nil, err
+		}
+		build, err = compile(ctx, "cli", request)
 		if err != nil {
 			return nil, err
 		}
@@ -71,4 +69,18 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 	return &stepResult{
 		container: build,
 	}, nil
+}
+
+func compile(ctx context.Context, cmd string, request stepRequest) (*dagger.Container, error) {
+	binary := fmt.Sprintf("bin/%s", cmd)
+	build := request.container.
+		WithEnvVariable("CGO_ENABLED", "0").
+		WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, fmt.Sprintf("cmd/%s/main.go", cmd)}).
+		WithExec([]string{"chmod", "+x", binary})
+
+	_, err := build.File(binary).Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: true})
+	if err != nil {
+		return nil, err
+	}
+	return build, nil
 }

@@ -2,14 +2,15 @@ package projecttest
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/pkg/garbage"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
+	_ "github.com/kharf/declcd/test/workingdir"
+	"github.com/otiai10/copy"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
@@ -19,19 +20,62 @@ import (
 type ProjectEnv struct {
 	ProjectManager    project.ProjectManager
 	RepositoryManager project.RepositoryManager
-	InventoryManager  inventory.Manager
-	GarbageCollector  garbage.Collector
+	GitRepository     *gittest.LocalGitRepository
+	TestRoot          string
+	TestProject       string
 	Log               logr.Logger
 	*kubetest.KubetestEnv
 }
 
 func (env *ProjectEnv) Stop() {
-	env.KubetestEnv.Stop()
+	if env.KubetestEnv != nil {
+		env.KubetestEnv.Stop()
+	}
 }
 
-func StartProjectEnv(t *testing.T, kubeOpts ...kubetest.Option) ProjectEnv {
-	env := kubetest.StartKubetestEnv(t, kubeOpts...)
-	fs := os.DirFS(env.TestRoot)
+type Option interface {
+	Apply(opts *options)
+}
+
+type options struct {
+	projectSource string
+	kubeOpts      []kubetest.Option
+}
+
+type WithProjectSource string
+
+var _ Option = (*WithProjectSource)(nil)
+
+func (opt WithProjectSource) Apply(opts *options) {
+	opts.projectSource = string(opt)
+}
+
+type withKubernetes []kubetest.Option
+
+func WithKubernetes(opts ...kubetest.Option) withKubernetes {
+	return opts
+}
+
+var _ Option = (*WithProjectSource)(nil)
+
+func (opt withKubernetes) Apply(opts *options) {
+	opts.kubeOpts = opt
+}
+
+func StartProjectEnv(t *testing.T, opts ...Option) ProjectEnv {
+	options := options{
+		projectSource: "simple",
+	}
+	for _, o := range opts {
+		o.Apply(&options)
+	}
+	testRoot := filepath.Join(os.TempDir(), "decl")
+	err := os.MkdirAll(testRoot, 0700)
+	assert.NilError(t, err)
+	testProject, err := os.MkdirTemp(testRoot, "")
+	assert.NilError(t, err)
+	err = copy.Copy(filepath.Join("test/testdata", options.projectSource), testProject)
+	assert.NilError(t, err)
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.OutputPaths = []string{"stdout"}
 	logOpts := ctrlZap.Options{
@@ -39,31 +83,20 @@ func StartProjectEnv(t *testing.T, kubeOpts ...kubetest.Option) ProjectEnv {
 		Level:       zapcore.Level(-3),
 	}
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
-
-	client, err := kube.NewClient(env.ControlPlane.Config)
+	repo, err := gittest.InitGitRepository(testProject)
 	assert.NilError(t, err)
-	inventoryPath, err := os.MkdirTemp(env.TestRoot, "inventory-*")
-	assert.NilError(t, err)
-	invManager := inventory.Manager{
-		Log:  log,
-		Path: inventoryPath,
-	}
-
-	gc := garbage.Collector{
-		Log:              log,
-		Client:           client,
-		InventoryManager: invManager,
-		HelmConfig:       env.HelmEnv.HelmConfig,
-	}
-
-	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: env.TestRoot}, log)
+	fs := os.DirFS(testRoot)
+	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
+	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
+	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: testRoot}, log)
 	repositoryManger := project.NewRepositoryManager(log)
 	return ProjectEnv{
 		ProjectManager:    projectManager,
 		RepositoryManager: repositoryManger,
+		GitRepository:     repo,
+		TestRoot:          testRoot,
+		TestProject:       testProject,
 		KubetestEnv:       env,
-		InventoryManager:  invManager,
-		GarbageCollector:  gc,
 		Log:               log,
 	}
 }

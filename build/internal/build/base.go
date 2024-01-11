@@ -18,7 +18,6 @@ var (
 
 	workDir = "/declcd"
 	tmp     = "/tmp"
-	declTmp = filepath.Join(tmp, "decl")
 )
 
 type step interface {

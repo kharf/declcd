@@ -2,12 +2,8 @@ package project
 
 import (
 	"errors"
-	"fmt"
-	"path/filepath"
-	"strings"
 
-	"cuelang.org/go/cue/cuecontext"
-	"cuelang.org/go/cue/load"
+	"github.com/kharf/declcd/internal/cue"
 )
 
 var (
@@ -51,54 +47,21 @@ const (
 
 // Build accepts options defining which component is to be compiled and how it is done and compiles it to a k8s unstructured API object/struct.
 func (b ComponentBuilder) Build(opts ...componentBuildOptions) (*Component, error) {
-	ctx := cuecontext.New()
 	options := &ComponentBuildOptions{
 		componentPath: "",
 		projectRoot:   ProjectRootPath,
 	}
-
 	for _, opt := range opts {
 		opt(options)
 	}
-
-	cfg := &load.Config{
-		Package:    filepath.Base(options.componentPath),
-		ModuleRoot: options.projectRoot,
-		Dir:        options.projectRoot,
-	}
-
-	packagePath := options.componentPath
-	harmonizedPackagePath := packagePath
-	currentDirectoryPrefix := "./"
-	if !strings.HasPrefix(packagePath, currentDirectoryPrefix) {
-		harmonizedPackagePath = currentDirectoryPrefix + packagePath
-	}
-
-	instances := load.Instances([]string{harmonizedPackagePath}, cfg)
-	if len(instances) > 1 {
-		return nil, fmt.Errorf("%w: too many cue instances found. Make sure to only use a single cue package for your component.", ErrWrongComponentFormat)
-	}
-
-	instance := instances[0]
-	if instance.Err != nil {
-		return nil, instance.Err
-	}
-
-	value := ctx.BuildInstance(instance)
-	if value.Err() != nil {
-		return nil, value.Err()
-	}
-
-	err := value.Validate()
+	value, err := cue.BuildPackage(options.componentPath, options.projectRoot)
 	if err != nil {
 		return nil, err
 	}
-
 	iter, err := value.Fields()
 	if err != nil {
 		return nil, err
 	}
-
 	iter.Next()
 	componentValue := iter.Value()
 	var component Component
@@ -106,6 +69,6 @@ func (b ComponentBuilder) Build(opts ...componentBuildOptions) (*Component, erro
 	if err != nil {
 		return nil, err
 	}
-
+	component.cueValue = value
 	return &component, nil
 }

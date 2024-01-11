@@ -42,17 +42,14 @@ type GitOpsProjectReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.4/pkg/reconcile
 func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("reconciliation triggered")
+	log.Info("Reconciling")
 	triggerTime := v1.Now()
-
 	var gProject gitopsv1.GitOpsProject
 	if err := reconciler.Reconciler.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
-		log.Error(err, "unable to fetch the GitOpsProject resource from the cluster")
+		log.Error(err, "Unable to fetch GitOpsProject resource from cluster")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	requeueResult := ctrl.Result{RequeueAfter: time.Duration(gProject.Spec.PullIntervalSeconds) * time.Second}
-
 	gProject.Status.Conditions = make([]v1.Condition, 0, 2)
 	if err := reconciler.updateCondition(ctx, &gProject, v1.Condition{
 		Type:               "Running",
@@ -61,16 +58,14 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ct
 		Status:             "True",
 		LastTransitionTime: triggerTime,
 	}); err != nil {
-		log.Error(err, "unable to update GitOpsProject status condition to 'Running'")
+		log.Error(err, "Unable to update GitOpsProject status condition to 'Running'")
 		return requeueResult, nil
 	}
-
 	_, err := reconciler.Reconciler.Reconcile(ctx, gProject)
 	if err != nil {
-		log.Error(err, "reconciliation failed")
+		log.Error(err, "Reconciling failed")
 		return requeueResult, nil
 	}
-
 	reconciledTime := v1.Now()
 	if err := reconciler.updateCondition(ctx, &gProject, v1.Condition{
 		Type:               "Finished",
@@ -79,12 +74,10 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(ctx context.Context, req ct
 		Status:             "True",
 		LastTransitionTime: reconciledTime,
 	}); err != nil {
-		log.Error(err, "unable to update GitOpsProject status")
+		log.Error(err, "Unable to update GitOpsProject status")
 		return requeueResult, nil
 	}
-
-	log.Info("reconciliation finished")
-
+	log.Info("Reconciling finished")
 	return requeueResult, nil
 }
 
@@ -93,7 +86,6 @@ func (reconciler *GitOpsProjectReconciler) updateCondition(ctx context.Context, 
 	if err := reconciler.Reconciler.Client.Status().Update(ctx, gProject); err != nil {
 		return err
 	}
-
 	return nil
 }
 
