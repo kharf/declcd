@@ -300,8 +300,10 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 	assert.NilError(t, err)
 	err = secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient).CreateKeyIfNotExists(env.Ctx, "manager")
 	assert.NilError(t, err)
-	file := readRecipientFile(t, env.TestProject)
-	assert.Assert(t, file.Recipient != "")
+	recipientFile := readRecipientFile(t, env.TestProject)
+	assert.Assert(t, recipientFile.Recipient != "")
+	secretsFile := readSecretsFile(t, env.TestProject)
+	assert.Assert(t, len(secretsFile.Secrets) == 0)
 	var sec corev1.Secret
 	err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
 	assert.NilError(t, err)
