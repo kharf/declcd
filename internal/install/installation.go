@@ -118,10 +118,10 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	if err := act.kubeClient.Invalidate(); err != nil {
 		return err
 	}
-	if err := act.install(ctx, project, ControllerName); err != nil {
+	if err := secret.NewManager(act.projectRoot, instOpts.namespace, act.kubeClient).CreateKeyIfNotExists(ctx, ControllerName); err != nil {
 		return err
 	}
-	if err := secret.NewManager(instOpts.namespace, act.kubeClient).CreateKeyIfNotExists(ctx, act.projectRoot, ControllerName); err != nil {
+	if err := act.install(ctx, project, ControllerName); err != nil {
 		return err
 	}
 	return nil

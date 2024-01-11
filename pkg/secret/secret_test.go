@@ -177,7 +177,7 @@ func TestEncrypter_EncryptComponent(t *testing.T) {
 	privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
 	identity, err := age.ParseX25519Identity(privKey)
 	assert.NilError(t, err)
-	err = secret.Encrypter{env.TestProject}.EncryptComponent("infra/secrets")
+	err = secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
 	assert.NilError(t, err)
 	result, err := os.Open(filepath.Join(env.TestProject, "infra/secrets/secrets.cue"))
 	assert.NilError(t, err)
@@ -259,10 +259,10 @@ func TestDecrypter_Decrypt(t *testing.T) {
 	}
 	err = env.TestKubeClient.Create(env.Ctx, &sec)
 	assert.NilError(t, err)
-	err = secret.Encrypter{env.TestProject}.EncryptComponent("infra/secrets")
+	err = secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
 	assert.NilError(t, err)
 	newProjectRoot, err := secret.NewDecrypter(
-		secret.NewManager(nsStr, env.DynamicTestKubeClient),
+		nsStr, env.DynamicTestKubeClient,
 	).Decrypt(env.Ctx, env.TestProject)
 	assert.NilError(t, err)
 	result, err := os.Open(filepath.Join(newProjectRoot, "infra/secrets/secrets.cue"))
@@ -277,9 +277,9 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 	nsStr := "test"
 	t.Run("GetError", func(t *testing.T) {
 		expectedErr := errors.New("error")
-		err := secret.NewManager(nsStr, &kubetest.FakeDynamicClient{
+		err := secret.NewManager(env.TestProject, nsStr, &kubetest.FakeDynamicClient{
 			Err: expectedErr,
-		}).CreateKeyIfNotExists(env.Ctx, env.TestProject, "manager")
+		}).CreateKeyIfNotExists(env.Ctx, "manager")
 		assert.ErrorIs(t, err, expectedErr)
 		var sec corev1.Secret
 		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
@@ -298,7 +298,7 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 	}
 	err := env.TestKubeClient.Create(env.Ctx, &ns)
 	assert.NilError(t, err)
-	err = secret.NewManager(nsStr, env.DynamicTestKubeClient).CreateKeyIfNotExists(env.Ctx, env.TestProject, "manager")
+	err = secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient).CreateKeyIfNotExists(env.Ctx, "manager")
 	assert.NilError(t, err)
 	file := readRecipientFile(t, env.TestProject)
 	assert.Assert(t, file.Recipient != "")

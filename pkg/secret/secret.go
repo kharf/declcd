@@ -5,11 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/otiai10/copy"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/otiai10/copy"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
@@ -42,18 +43,20 @@ var (
 )
 
 type Manager struct {
-	kubeClient kube.Client[unstructured.Unstructured]
-	namespace  string
+	Encrypter
+	Decrypter
+	namespace string
 }
 
-func NewManager(namespace string, kubeClient kube.Client[unstructured.Unstructured]) Manager {
+func NewManager(projectRoot string, namespace string, kubeClient kube.Client[unstructured.Unstructured]) Manager {
 	return Manager{
-		kubeClient: kubeClient,
-		namespace:  namespace,
+		Encrypter: NewEncrypter(projectRoot),
+		Decrypter: NewDecrypter(namespace, kubeClient),
+		namespace: namespace,
 	}
 }
 
-func (manager Manager) CreateKeyIfNotExists(ctx context.Context, projectRoot string, fieldManager string) error {
+func (manager Manager) CreateKeyIfNotExists(ctx context.Context, fieldManager string) error {
 	_, err := manager.GetSecret(ctx)
 	if err != nil {
 		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
@@ -77,19 +80,13 @@ func (manager Manager) CreateKeyIfNotExists(ctx context.Context, projectRoot str
 	if err != nil {
 		return err
 	}
-	if err := manager.writeRecipientFile(identity.Recipient().String(), projectRoot); err != nil {
+	if err := manager.writeRecipientFile(identity.Recipient().String(), manager.projectRoot); err != nil {
+		return err
+	}
+	if err := manager.writeSecretsStateFile(make([]encryptedInstance, 0, 0)); err != nil {
 		return err
 	}
 	return nil
-}
-
-func (manager Manager) GetSecret(ctx context.Context) (*unstructured.Unstructured, error) {
-	unstr := &unstructured.Unstructured{}
-	unstr.SetName(K8sSecretName)
-	unstr.SetNamespace(manager.namespace)
-	unstr.SetKind("Secret")
-	unstr.SetAPIVersion("v1")
-	return manager.kubeClient.Get(ctx, unstr)
 }
 
 func (manager Manager) writeRecipientFile(recipient string, projectRoot string) error {
@@ -104,7 +101,7 @@ func (manager Manager) writeRecipientFile(recipient string, projectRoot string) 
 	if err := os.MkdirAll(secretsDir, 0700); err != nil {
 		return err
 	}
-	file, err := os.Create(filepath.Join(projectRoot, SecretsStatePackage, SecretsStateRecipientFileName))
+	file, err := os.Create(filepath.Join(secretsDir, SecretsStateRecipientFileName))
 	if err != nil {
 		return err
 	}
@@ -136,15 +133,21 @@ type RecipientFile struct {
 type file string
 
 type Encrypter struct {
-	ProjectRoot string
+	projectRoot string
+}
+
+func NewEncrypter(projectRoot string) Encrypter {
+	return Encrypter{
+		projectRoot: projectRoot,
+	}
 }
 
 func (enc Encrypter) EncryptComponent(component string) error {
-	componentValue, err := internalCue.BuildPackage(component, enc.ProjectRoot)
+	componentValue, err := internalCue.BuildPackage(component, enc.projectRoot)
 	if err != nil {
 		return err
 	}
-	state, err := lookupState(enc.ProjectRoot)
+	state, err := lookupState(enc.projectRoot)
 	if err != nil {
 		return err
 	}
@@ -157,6 +160,38 @@ func (enc Encrypter) EncryptComponent(component string) error {
 		return err
 	}
 	if err := enc.writeSecretsStateFile(encryptedInstances); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (enc Encrypter) writeSecretsStateFile(encryptedInstances []encryptedInstance) error {
+	secretsStateFile := SecretsStateFile{
+		Secrets: make(map[string]string, len(encryptedInstances)),
+	}
+	for _, encryptedInstance := range encryptedInstances {
+		path, _ := strings.CutPrefix(encryptedInstance.file, enc.projectRoot)
+		secretsStateFile.Secrets[path] = encryptedInstance.content
+	}
+	secretsStateFileCueValue := cuecontext.New().Encode(secretsStateFile)
+	if err := secretsStateFileCueValue.Err(); err != nil {
+		return err
+	}
+	secretsDir := filepath.Join(enc.projectRoot, SecretsStatePackage)
+	if err := os.MkdirAll(secretsDir, 0700); err != nil {
+		return err
+	}
+	file, err := os.Create(filepath.Join(secretsDir, SecretsStateFileName))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	secretsStateFileCueDef, err := format.Node(secretsStateFileCueValue.Syntax())
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString(fmt.Sprintf("%s %s\n\n%s", "package", SecretsStatePackage, string(secretsStateFileCueDef)))
+	if err != nil {
 		return err
 	}
 	return nil
@@ -187,34 +222,6 @@ func lookupState(projectRoot string) (*state, error) {
 		publicKey:   publicKey,
 		secretsFile: SecretsStateFile{Secrets: encryptedFilesMap},
 	}, nil
-}
-
-func (enc Encrypter) writeSecretsStateFile(encryptedInstances []encryptedInstance) error {
-	secretsStateFile := SecretsStateFile{
-		Secrets: make(map[string]string, len(encryptedInstances)),
-	}
-	for _, encryptedInstance := range encryptedInstances {
-		path, _ := strings.CutPrefix(encryptedInstance.file, enc.ProjectRoot)
-		secretsStateFile.Secrets[path] = encryptedInstance.content
-	}
-	secretsStateFileCueValue := cuecontext.New().Encode(secretsStateFile)
-	if err := secretsStateFileCueValue.Err(); err != nil {
-		return err
-	}
-	file, err := os.Create(filepath.Join(enc.ProjectRoot, SecretsStatePackage, SecretsStateFileName))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	secretsStateFileCueDef, err := format.Node(secretsStateFileCueValue.Syntax())
-	if err != nil {
-		return err
-	}
-	_, err = file.WriteString(fmt.Sprintf("%s %s\n\n%s", "package", SecretsStatePackage, string(secretsStateFileCueDef)))
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 type lineValueType int
@@ -496,12 +503,17 @@ func (w encryptWriter) Close() error {
 }
 
 type Decrypter struct {
-	manager Manager
+	namespace  string
+	kubeClient kube.Client[unstructured.Unstructured]
 }
 
-func NewDecrypter(manager Manager) Decrypter {
+func NewDecrypter(
+	namespace string,
+	kubeClient kube.Client[unstructured.Unstructured],
+) Decrypter {
 	return Decrypter{
-		manager: manager,
+		namespace:  namespace,
+		kubeClient: kubeClient,
 	}
 }
 
@@ -517,7 +529,7 @@ func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, e
 	if err != nil {
 		return "", err
 	}
-	unstrSec, err := dec.manager.GetSecret(ctx)
+	unstrSec, err := dec.GetSecret(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -540,4 +552,13 @@ func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, e
 		err = replaceFile(filepath.Join(decryptedProjectPath, fileName), ageReader)
 	}
 	return decryptedProjectPath, nil
+}
+
+func (dec Decrypter) GetSecret(ctx context.Context) (*unstructured.Unstructured, error) {
+	unstr := &unstructured.Unstructured{}
+	unstr.SetName(K8sSecretName)
+	unstr.SetNamespace(dec.namespace)
+	unstr.SetKind("Secret")
+	unstr.SetAPIVersion("v1")
+	return dec.kubeClient.Get(ctx, unstr)
 }

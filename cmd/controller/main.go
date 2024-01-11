@@ -138,7 +138,7 @@ func main() {
 				InventoryManager: inventoryManager,
 				HelmConfig:       helmCfg,
 			},
-			Decrypter: secret.NewDecrypter(secret.NewManager(string(namespace), kubeDynamicClient)),
+			Decrypter: secret.NewDecrypter(string(namespace), kubeDynamicClient),
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "GitOpsProject")

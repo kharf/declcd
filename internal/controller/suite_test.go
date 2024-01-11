@@ -95,7 +95,7 @@ var _ = BeforeSuite(func() {
 			InventoryManager: inventoryManager,
 			HelmConfig:       env.HelmEnv.HelmConfig,
 		},
-		Decrypter: env.Decrypter,
+		Decrypter: env.Manager.Decrypter,
 	}
 	err = (&GitOpsProjectReconciler{
 		Reconciler: reconciler,

@@ -54,7 +54,7 @@ type KubetestEnv struct {
 	DynamicTestKubeClient *kube.DynamicClient
 	GarbageCollector      garbage.Collector
 	InventoryManager      inventory.Manager
-	Decrypter             secret.Decrypter
+	Manager               secret.Manager
 	Ctx                   context.Context
 	clean                 func()
 }
@@ -224,7 +224,7 @@ func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEn
 		err = testClient.Create(ctx, &decSec)
 		assert.NilError(t, err)
 	}
-	decrypter := secret.NewDecrypter(secret.NewManager(nsStr, client))
+	manager := secret.NewManager(options.project.testProject, nsStr, client)
 	return &KubetestEnv{
 		ControlPlane:          testEnv,
 		ControllerManager:     mgr,
@@ -233,7 +233,7 @@ func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEn
 		DynamicTestKubeClient: client,
 		GarbageCollector:      gc,
 		InventoryManager:      invManager,
-		Decrypter:             decrypter,
+		Manager:               manager,
 		Ctx:                   ctx,
 		clean: func() {
 			testEnv.Stop()

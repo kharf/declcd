@@ -36,7 +36,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		InventoryManager:  env.InventoryManager,
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
-		Decrypter:         env.Decrypter,
+		Decrypter:         env.Manager.Decrypter,
 	}
 	suspend := false
 	gProject := gitopsv1.GitOpsProject{

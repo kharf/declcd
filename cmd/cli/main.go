@@ -93,7 +93,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 }
 
 type EncryptCommandBuilder struct {
-	secretManager secret.Encrypter
+	secretEncrypter secret.Encrypter
 }
 
 func (builder EncryptCommandBuilder) Build() *cobra.Command {
@@ -102,7 +102,7 @@ func (builder EncryptCommandBuilder) Build() *cobra.Command {
 		Short: "Encrypt Secrets inside the GitOps Repository",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			if err := builder.secretManager.EncryptComponent(args[0]); err != nil {
+			if err := builder.secretEncrypter.EncryptComponent(args[0]); err != nil {
 				return err
 			}
 			return nil
@@ -136,9 +136,7 @@ func initCli(cliConfig *viper.Viper, kubeConfig *rest.Config) (*RootCommandBuild
 		action: install.NewAction(client, wd),
 	}
 	encryptCommand := EncryptCommandBuilder{
-		secretManager: secret.Encrypter{
-			ProjectRoot: wd,
-		},
+		secretEncrypter: secret.NewEncrypter(wd),
 	}
 	rootCmd := RootCommandBuilder{
 		installCommandBuilder: installCmd,
