@@ -8,6 +8,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"github.com/otiai10/copy"
@@ -18,7 +19,7 @@ import (
 )
 
 type ProjectEnv struct {
-	ProjectManager    project.ProjectManager
+	ProjectManager    project.Manager
 	RepositoryManager project.RepositoryManager
 	GitRepository     *gittest.LocalGitRepository
 	TestRoot          string
@@ -69,7 +70,7 @@ func StartProjectEnv(t *testing.T, opts ...Option) ProjectEnv {
 	for _, o := range opts {
 		o.Apply(&options)
 	}
-	testRoot := filepath.Join(os.TempDir(), "decl")
+	testRoot := filepath.Join(os.TempDir(), "declcd")
 	err := os.MkdirAll(testRoot, 0700)
 	assert.NilError(t, err)
 	testProject, err := os.MkdirTemp(testRoot, "")
@@ -85,10 +86,9 @@ func StartProjectEnv(t *testing.T, opts ...Option) ProjectEnv {
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
 	repo, err := gittest.InitGitRepository(testProject)
 	assert.NilError(t, err)
-	fs := os.DirFS(testRoot)
 	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
 	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
-	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: testRoot}, log)
+	projectManager := project.NewManager(component.NewBuilder(), log)
 	repositoryManger := project.NewRepositoryManager(log)
 	return ProjectEnv{
 		ProjectManager:    projectManager,

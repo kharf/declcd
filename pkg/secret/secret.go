@@ -519,6 +519,9 @@ func NewDecrypter(
 
 func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, error) {
 	decryptedProjectPath := fmt.Sprintf("%s-%s", projectRoot, "dec")
+	if err := os.RemoveAll(decryptedProjectPath); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(decryptedProjectPath, 0700); err != nil {
 		return "", err
 	}

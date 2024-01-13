@@ -1,6 +1,8 @@
 package v1
 
-#Component: {
+#Component: [Name=_]: {
+	id: Name
+	dependencies: [...string]
 	manifests: [...]
 	helmReleases: [...#HelmRelease]
 }
