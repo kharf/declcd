@@ -3,7 +3,7 @@ package build
 import "json.schemastore.org/github"
 
 #workflow: {
-	_name:    string
+	_name: string
 	workflow: github.#Workflow & {
 		name:        _name
 		permissions: "read-all"
@@ -32,8 +32,6 @@ import "json.schemastore.org/github"
 	uses: "actions/setup-go@v5"
 	with: {
 		"go-version-file":       "build/go.mod"
-		"check-latest":          true
-		cache:                   true
 		"cache-dependency-path": "build/go.sum"
 	}
 }
@@ -49,7 +47,7 @@ import "json.schemastore.org/github"
 
 workflows: [
 	#workflow & {
-		_name:    "pr-verification"
+		_name: "pr-verification"
 		workflow: github.#Workflow & {
 			on: {
 				pull_request: {
@@ -82,7 +80,7 @@ workflows: [
 		}
 	},
 	#workflow & {
-		_name:    "main-build"
+		_name: "main-build"
 		workflow: github.#Workflow & {
 			on: {
 				push: {
@@ -111,7 +109,7 @@ workflows: [
 		}
 	},
 	#workflow & {
-		_name:    "update"
+		_name: "update"
 		workflow: github.#Workflow & {
 			on: {
 				workflow_dispatch: null
