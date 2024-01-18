@@ -6,9 +6,8 @@ import (
 
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
-	"github.com/kharf/declcd/pkg/garbage"
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -21,44 +20,52 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestCollector_Collect_NoChanges(t *testing.T) {
+func TestCollector_Collect(t *testing.T) {
 	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
 	defer env.Stop()
-	invManifests := []inventory.Manifest{
-		{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Namespace",
-				APIVersion: "v1",
-			},
-			Name: "a",
+	nsA := component.NewManifestMetadata(
+		metav1.TypeMeta{
+			Kind:       "Namespace",
+			APIVersion: "v1",
 		},
-		{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Deployment",
-				APIVersion: "apps/v1",
-			},
-			Name:      "a",
-			Namespace: "a",
+		"test",
+		"a",
+		"",
+	)
+	depA := component.NewManifestMetadata(
+		metav1.TypeMeta{
+			Kind:       "Deployment",
+			APIVersion: "apps/v1",
 		},
-		{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Namespace",
-				APIVersion: "v1",
-			},
-			Name: "b",
+		"test",
+		"a",
+		"a",
+	)
+	nsB := component.NewManifestMetadata(
+		metav1.TypeMeta{
+			Kind:       "Namespace",
+			APIVersion: "v1",
 		},
-		{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Deployment",
-				APIVersion: "apps/v1",
-			},
-			Name:      "b",
-			Namespace: "b",
+		"test",
+		"b",
+		"",
+	)
+	depB := component.NewManifestMetadata(
+		metav1.TypeMeta{
+			Kind:       "Deployment",
+			APIVersion: "apps/v1",
 		},
+		"test",
+		"b",
+		"b",
+	)
+	invManifests := []component.ManifestMetadata{
+		nsA,
+		depA,
+		nsB,
+		depB,
 	}
-
 	ctx := context.Background()
-	renderedManifests := make([]unstructured.Unstructured, 0, len(invManifests))
 	converter := runtime.DefaultUnstructuredConverter
 	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
 	assert.NilError(t, err)
@@ -67,180 +74,90 @@ func TestCollector_Collect_NoChanges(t *testing.T) {
 		unstr := unstructured.Unstructured{Object: obj}
 		err = client.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
-		renderedManifests = append(renderedManifests, unstr)
-		assert.NilError(t, err)
 		err = env.InventoryManager.StoreManifest(im)
 		assert.NilError(t, err)
 	}
 
-	invHelmReleases := []inventory.HelmRelease{
-		{
-			Name:      "test",
-			Namespace: "test",
-		},
+	hr := component.NewHelmReleaseMetadata(
+		"test", "test", "test",
+	)
+	invHelmReleases := []component.HelmReleaseMetadata{
+		hr,
 	}
-
 	helmReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
 		Log: env.Log,
 	}
-
 	releases := make([]helm.Release, 0, len(invHelmReleases))
 	for _, hr := range invHelmReleases {
 		chart := helm.Chart{
-			Name:    hr.Name,
+			Name:    hr.Name(),
 			RepoURL: env.HelmEnv.RepositoryServer.URL,
 			Version: "1.0.0",
 		}
 
-		_, err := helmReconciler.Reconcile(chart, helm.Namespace(hr.Namespace))
+		_, err := helmReconciler.Reconcile(chart, helm.Namespace(hr.Namespace()))
 		assert.NilError(t, err)
 		releases = append(releases, helm.Release{
-			Name:      hr.Name,
-			Namespace: hr.Namespace,
+			Name:      hr.Name(),
+			Namespace: hr.Namespace(),
 		})
 		err = env.InventoryManager.StoreHelmRelease(hr)
 		assert.NilError(t, err)
 	}
-
-	collector := env.GarbageCollector
-	err = collector.Collect(ctx, renderedManifests, releases)
+	storage, err := env.InventoryManager.Load()
 	assert.NilError(t, err)
-
+	assert.Assert(t, storage.HasManifest(nsA))
+	assert.Assert(t, storage.HasManifest(depA))
+	assert.Assert(t, storage.HasManifest(nsB))
+	assert.Assert(t, storage.HasManifest(depB))
+	assert.Assert(t, storage.HasRelease(hr))
+	collector := env.GarbageCollector
+	dag := component.NewDependencyGraph()
+	dag.Insert(component.NewNode("test", "", []string{}, invManifests, invHelmReleases))
+	err = collector.Collect(ctx, dag)
+	assert.NilError(t, err)
 	var deploymentA appsv1.Deployment
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "a", Namespace: "a"}, &deploymentA)
 	assert.NilError(t, err)
 	assert.Equal(t, deploymentA.Name, "a")
 	assert.Equal(t, deploymentA.Namespace, "a")
-
 	var deploymentB appsv1.Deployment
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "b", Namespace: "b"}, &deploymentB)
 	assert.NilError(t, err)
 	assert.Equal(t, deploymentB.Name, "b")
 	assert.Equal(t, deploymentB.Namespace, "b")
-
 	var hrDeployment appsv1.Deployment
 	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "test"}, &hrDeployment)
 	assert.NilError(t, err)
 	assert.Equal(t, hrDeployment.Name, "test")
 	assert.Equal(t, hrDeployment.Namespace, "test")
-}
 
-func TestCollector_Collect(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
-	defer env.Stop()
-	nsA := inventory.Manifest{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Namespace",
-			APIVersion: "v1",
-		},
-		Name: "a",
-	}
-	nsB := inventory.Manifest{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Namespace",
-			APIVersion: "v1",
-		},
-		Name: "b",
-	}
-	depA := inventory.Manifest{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Deployment",
-			APIVersion: "apps/v1",
-		},
-		Name:      "a",
-		Namespace: "a",
-	}
-	depB := inventory.Manifest{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Deployment",
-			APIVersion: "apps/v1",
-		},
-		Name:      "b",
-		Namespace: "b",
-	}
-	invManifests := []inventory.Manifest{
-		nsA,
-		nsB,
-		depA,
-		depB,
-	}
-
-	ctx := context.Background()
-	converter := runtime.DefaultUnstructuredConverter
-	invMap := make(map[string]inventory.Manifest)
-	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
-	assert.NilError(t, err)
-	for _, im := range invManifests {
-		invMap[im.AsKey()] = im
-		obj, err := converter.ToUnstructured(toObject(im))
-		unstr := unstructured.Unstructured{Object: obj}
-		err = client.Apply(ctx, &unstr, "test")
-		assert.NilError(t, err)
-		err = env.InventoryManager.StoreManifest(im)
-		assert.NilError(t, err)
-	}
-
-	unstrNsA, err := converter.ToUnstructured(toObject(nsA))
-	unstrNsB, err := converter.ToUnstructured(toObject(nsB))
-	unstrDepA, err := converter.ToUnstructured(toObject(depA))
-	renderedManifests := []unstructured.Unstructured{
-		{Object: unstrNsA},
-		{Object: unstrNsB},
-		{Object: unstrDepA},
-	}
-
-	invHelmReleases := []inventory.HelmRelease{
-		{
-			Name:      "test",
-			Namespace: "test",
-		},
-	}
-
-	helmReconciler := helm.ChartReconciler{
-		Cfg: env.HelmEnv.HelmConfig,
-		Log: env.Log,
-	}
-
-	for _, hr := range invHelmReleases {
-		chart := helm.Chart{
-			Name:    hr.Name,
-			RepoURL: env.HelmEnv.RepositoryServer.URL,
-			Version: "1.0.0",
+	t.Run("Changes", func(t *testing.T) {
+		renderedManifests := []component.ManifestMetadata{
+			nsA,
+			nsB,
+			depA,
 		}
-
-		_, err := helmReconciler.Reconcile(chart, helm.Namespace(hr.Namespace))
+		dag := component.NewDependencyGraph()
+		dag.Insert(component.NewNode("test", "", []string{}, renderedManifests, []component.HelmReleaseMetadata{}))
+		err = collector.Collect(ctx, dag)
 		assert.NilError(t, err)
-		err = env.InventoryManager.StoreHelmRelease(hr)
+		var deploymentA appsv1.Deployment
+		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "a", Namespace: "a"}, &deploymentA)
 		assert.NilError(t, err)
-	}
-
-	collector := garbage.Collector{
-		Log:              env.Log,
-		Client:           client,
-		InventoryManager: env.InventoryManager,
-		HelmConfig:       env.HelmEnv.HelmConfig,
-	}
-
-	err = collector.Collect(ctx, renderedManifests, []helm.Release{})
-	assert.NilError(t, err)
-
-	var deploymentA appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "a", Namespace: "a"}, &deploymentA)
-	assert.NilError(t, err)
-	assert.Equal(t, deploymentA.Name, "a")
-	assert.Equal(t, deploymentA.Namespace, "a")
-
-	var deploymentB appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "b", Namespace: "b"}, &deploymentB)
-	assert.Error(t, err, "deployments.apps \"b\" not found")
-
-	var hrDeployment appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "test"}, &hrDeployment)
-	assert.Error(t, err, "deployments.apps \"test\" not found")
+		assert.Equal(t, deploymentA.Name, "a")
+		assert.Equal(t, deploymentA.Namespace, "a")
+		var deploymentB appsv1.Deployment
+		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "b", Namespace: "b"}, &deploymentB)
+		assert.Error(t, err, "deployments.apps \"b\" not found")
+		var hrDeployment appsv1.Deployment
+		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "test"}, &hrDeployment)
+		assert.Error(t, err, "deployments.apps \"test\" not found")
+	})
 }
 
-func toObject(invManifest inventory.Manifest) client.Object {
+func toObject(invManifest component.ManifestMetadata) client.Object {
 	switch invManifest.Kind {
 	case "Deployment":
 		return deployment(invManifest)
@@ -251,22 +168,22 @@ func toObject(invManifest inventory.Manifest) client.Object {
 	return nil
 }
 
-func namespace(invManifest inventory.Manifest) client.Object {
+func namespace(invManifest component.ManifestMetadata) client.Object {
 	return &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: invManifest.Name,
+			Name: invManifest.Name(),
 		},
 	}
 }
 
-func deployment(invManifest inventory.Manifest) client.Object {
+func deployment(invManifest component.ManifestMetadata) client.Object {
 	replicas := int32(1)
 	labels := map[string]string{
-		"app": invManifest.Name,
+		"app": invManifest.Name(),
 	}
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -274,8 +191,8 @@ func deployment(invManifest inventory.Manifest) client.Object {
 			APIVersion: "apps/v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      invManifest.Name,
-			Namespace: invManifest.Namespace,
+			Name:      invManifest.Name(),
+			Namespace: invManifest.Namespace(),
 		},
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
@@ -289,7 +206,7 @@ func deployment(invManifest inventory.Manifest) client.Object {
 				Spec: v1.PodSpec{
 					Containers: []v1.Container{
 						{
-							Name:  invManifest.Name,
+							Name:  invManifest.Name(),
 							Image: "test",
 							Resources: v1.ResourceRequirements{
 								Limits: v1.ResourceList{

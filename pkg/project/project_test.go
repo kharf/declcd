@@ -2,10 +2,11 @@ package project_test
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
-	"testing/fstest"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"go.uber.org/zap"
@@ -25,46 +26,18 @@ func setUp(t *testing.T) logr.Logger {
 	return log
 }
 
-func TestProjectManager_Load_AppsDoesNotExist(t *testing.T) {
+func TestManager_Load(t *testing.T) {
 	logger := setUp(t)
-	mapfs := fstest.MapFS{
-		"project/infra": {},
-	}
-
-	pm := project.NewProjectManager(project.FileSystem{FS: mapfs, Root: ""}, logger)
-	_, err := pm.Load("project/")
-	assert.ErrorIs(t, err, project.ErrMainComponentNotFound)
-	assert.Error(t, err, "Main component not found: Could not load project/apps")
-}
-
-func TestProjectManager_Load_InfraDoesNotExist(t *testing.T) {
-	logger := setUp(t)
-	mapfs := fstest.MapFS{
-		"project/apps/": {},
-	}
-
-	pm := project.NewProjectManager(project.FileSystem{FS: mapfs, Root: ""}, logger)
-	_, err := pm.Load("project/")
-	assert.ErrorIs(t, err, project.ErrMainComponentNotFound)
-	assert.Error(t, err, "Main component not found: Could not load project/infra")
-}
-
-func TestProjectManager_Load(t *testing.T) {
-	logger := setUp(t)
-	root := "test/testdata"
-	fileSystem := os.DirFS(root)
-	pm := project.NewProjectManager(project.FileSystem{FS: fileSystem, Root: root}, logger)
-	mainComponents, err := pm.Load("simple")
+	cwd, err := os.Getwd()
 	assert.NilError(t, err)
-	assert.Assert(t, len(mainComponents) == 2)
-	apps := mainComponents[1]
-	assert.Assert(t, len(apps.SubComponents) == 0)
-	infra := mainComponents[0]
-	assert.Assert(t, len(infra.SubComponents) == 1)
-	prometheus := infra.SubComponents[0]
-	assert.Equal(t, prometheus.Path, "infra/prometheus")
-	assert.Assert(t, len(prometheus.SubComponents) == 1)
-	subcomponent := prometheus.SubComponents[0]
-	assert.Equal(t, subcomponent.Path, "infra/prometheus/subcomponent")
-	assert.Assert(t, len(subcomponent.SubComponents) == 0)
+	root := filepath.Join(cwd, "test", "testdata", "simple")
+	pm := project.NewManager(component.NewBuilder(), logger)
+	dag, err := pm.Load(root)
+	assert.NilError(t, err)
+	linkerd := dag.Get("linkerd")
+	assert.Equal(t, linkerd.Path(), "infra/linkerd")
+	prometheus := dag.Get("prometheus")
+	assert.Equal(t, prometheus.Path(), "infra/prometheus")
+	subcomponent := dag.Get("subcomponent")
+	assert.Equal(t, subcomponent.Path(), "infra/prometheus/subcomponent")
 }

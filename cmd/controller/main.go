@@ -19,7 +19,6 @@ package main
 import (
 	"flag"
 	"os"
-	"path/filepath"
 
 	"helm.sh/helm/v3/pkg/action"
 
@@ -37,6 +36,7 @@ import (
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/controller"
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
@@ -96,9 +96,8 @@ func main() {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
-	gitOpsRepositoryDir := filepath.Join(os.TempDir(), "decl")
-	fs := os.DirFS(gitOpsRepositoryDir)
-	projectManager := project.NewProjectManager(project.FileSystem{FS: fs, Root: gitOpsRepositoryDir}, log)
+	componentBuilder := component.NewBuilder()
+	projectManager := project.NewManager(componentBuilder, log)
 	helmCfg := action.Configuration{}
 	getter := kube.InMemoryRESTClientGetter{
 		Cfg:        cfg,
@@ -128,7 +127,7 @@ func main() {
 		Reconciler: project.Reconciler{
 			Log:               log,
 			Client:            mgr.GetClient(),
-			ComponentBuilder:  project.NewComponentBuilder(),
+			ComponentBuilder:  componentBuilder,
 			RepositoryManager: project.NewRepositoryManager(log),
 			ProjectManager:    projectManager,
 			ChartReconciler:   chartReconciler,

@@ -9,6 +9,7 @@ import (
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/project"
@@ -29,7 +30,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
-		ComponentBuilder:  project.NewComponentBuilder(),
+		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
@@ -78,60 +79,70 @@ func TestReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, string(fooSecretValue), "bar")
 	inventoryStorage, err := reconciler.InventoryManager.Load()
 	assert.NilError(t, err)
-	assert.Assert(t, len(inventoryStorage.Manifests) == 3)
-	assert.Assert(t, len(inventoryStorage.HelmReleases) == 1)
-	subComponentDeploymentManifest := inventory.Manifest{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Deployment",
-			APIVersion: "apps/v1",
-		},
-		Name:      mysubcomponent.Name,
-		Namespace: mysubcomponent.Namespace,
-	}
-	assert.Assert(t, inventoryStorage.HasManifest(subComponentDeploymentManifest))
-	testHR := inventory.HelmRelease{
-		Name:      dep.Name,
-		Namespace: dep.Namespace,
-	}
+	invComponents := inventoryStorage.Components()
+	assert.Assert(t, len(invComponents) == 3)
+	prometheus := invComponents["prometheus"]
+	assert.Assert(t, len(prometheus.Manifests()) == 2)
+	assert.Assert(t, len(prometheus.HelmReleases()) == 1)
+	testHR := component.NewHelmReleaseMetadata(
+		"prometheus",
+		dep.Name,
+		dep.Namespace,
+	)
 	assert.Assert(t, inventoryStorage.HasRelease(testHR))
-	invNs := inventory.Manifest{
-		TypeMeta: v1.TypeMeta{
+	invNs := component.NewManifestMetadata(
+		v1.TypeMeta{
 			Kind:       "Namespace",
 			APIVersion: "v1",
 		},
-		Name: mysubcomponent.Namespace,
-	}
+		"prometheus",
+		mysubcomponent.Namespace,
+		"",
+	)
 	assert.Assert(t, inventoryStorage.HasManifest(invNs))
-	err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"))
-	assert.NilError(t, err)
-	err = env.GitRepository.CommitFile("infra/prometheus/subcomponent/component.cue", "undeploy subcomponent")
-	assert.NilError(t, err)
-	result, err = reconciler.Reconcile(env.Ctx, gProject)
-	assert.NilError(t, err)
-	inventoryStorage, err = reconciler.InventoryManager.Load()
-	assert.NilError(t, err)
-	assert.Assert(t, len(inventoryStorage.Manifests) == 2)
-	assert.Assert(t, len(inventoryStorage.HelmReleases) == 1)
-	assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
-	assert.Assert(t, inventoryStorage.HasManifest(invNs))
-	assert.Assert(t, inventoryStorage.HasRelease(testHR))
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
-	assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
-	err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "component.cue"))
-	assert.NilError(t, err)
-	err = env.GitRepository.CommitFile("infra/prometheus/component.cue", "undeploy prometheus")
-	assert.NilError(t, err)
-	result, err = reconciler.Reconcile(env.Ctx, gProject)
-	assert.NilError(t, err)
-	inventoryStorage, err = reconciler.InventoryManager.Load()
-	assert.NilError(t, err)
-	assert.Assert(t, len(inventoryStorage.Manifests) == 0)
-	assert.Assert(t, len(inventoryStorage.HelmReleases) == 0)
-	assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
-	assert.Assert(t, !inventoryStorage.HasManifest(invNs))
-	assert.Assert(t, !inventoryStorage.HasRelease(testHR))
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
-	assert.Error(t, err, "deployments.apps \"test\" not found")
+	subComponentDeploymentManifest := component.NewManifestMetadata(
+		v1.TypeMeta{
+			Kind:       "Deployment",
+			APIVersion: "apps/v1",
+		},
+		"subcomponent",
+		mysubcomponent.Name,
+		mysubcomponent.Namespace,
+	)
+	assert.Assert(t, inventoryStorage.HasManifest(subComponentDeploymentManifest))
+	t.Run("RemoveSubcomponent", func(t *testing.T) {
+		err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"))
+		assert.NilError(t, err)
+		err = env.GitRepository.CommitFile("infra/prometheus/subcomponent/component.cue", "undeploy subcomponent")
+		assert.NilError(t, err)
+		result, err = reconciler.Reconcile(env.Ctx, gProject)
+		assert.NilError(t, err)
+		inventoryStorage, err := reconciler.InventoryManager.Load()
+		assert.NilError(t, err)
+		invComponents := inventoryStorage.Components()
+		assert.Assert(t, len(invComponents) == 2)
+		assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
+		assert.Assert(t, inventoryStorage.HasManifest(invNs))
+		assert.Assert(t, inventoryStorage.HasRelease(testHR))
+		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
+		assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
+	})
+	t.Run("RemovePrometheus", func(t *testing.T) {
+		err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "component.cue"))
+		assert.NilError(t, err)
+		err = env.GitRepository.CommitFile("infra/prometheus/component.cue", "undeploy prometheus")
+		assert.NilError(t, err)
+		result, err = reconciler.Reconcile(env.Ctx, gProject)
+		assert.NilError(t, err)
+		inventoryStorage, err = reconciler.InventoryManager.Load()
+		assert.NilError(t, err)
+		invComponents := inventoryStorage.Components()
+		assert.Assert(t, len(invComponents) == 1)
+		assert.Assert(t, !inventoryStorage.HasManifest(invNs))
+		assert.Assert(t, !inventoryStorage.HasRelease(testHR))
+		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
+		assert.Error(t, err, "deployments.apps \"test\" not found")
+	})
 }
 
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
@@ -143,7 +154,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
-		ComponentBuilder:  project.NewComponentBuilder(),
+		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,

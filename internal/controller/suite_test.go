@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
@@ -83,7 +84,7 @@ var _ = BeforeSuite(func() {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
-		ComponentBuilder:  project.NewComponentBuilder(),
+		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,

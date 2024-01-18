@@ -1,13 +1,21 @@
 package prometheus
 
-import "github.com/kharf/declcd/api/v1"
+import (
+	v1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/test/testdata/simple/infra/linkerd"
+)
 
-prometheus: v1.#Component & {
-	manifests: [
-		#namespace,
-		secret,
-	]
-	helmReleases: [
-		_release,
-	]
+v1.#Component & {
+	prometheus: {
+		dependencies: [
+			linkerd.linkerd.id,
+		]
+		manifests: [
+			#namespace,
+			_secret,
+		]
+		helmReleases: [
+			_release,
+		]
+	}
 }

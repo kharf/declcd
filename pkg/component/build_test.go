@@ -1,4 +1,4 @@
-package project
+package component
 
 import (
 	"os"
@@ -10,13 +10,15 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func TestManifestInstanceBuilder_Build(t *testing.T) {
-	builder := NewComponentBuilder()
+func TestBuilder_Build(t *testing.T) {
+	builder := NewBuilder()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)
 	projectRoot := path.Join(cwd, "test", "testdata", "simple")
 	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
 	assert.NilError(t, err)
+	componentID := component.ID
+	assert.Equal(t, componentID, "prometheus")
 	componentManifests := component.Manifests
 	assert.Assert(t, len(componentManifests) == 2)
 	namespace := componentManifests[0].Object
@@ -36,6 +38,10 @@ func TestManifestInstanceBuilder_Build(t *testing.T) {
 			"enabled": true,
 		},
 	}
+	componentDependencies := component.Dependencies
+	assert.Assert(t, len(componentDependencies) == 1)
+	linkerdID := componentDependencies[0]
+	assert.Equal(t, linkerdID, "linkerd")
 
 	assert.DeepEqual(t, release.Values, expectedValues)
 
