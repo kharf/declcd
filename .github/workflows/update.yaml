@@ -17,8 +17,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: build/go.mod
-          check-latest: true
-          cache: true
           cache-dependency-path: build/go.sum
       - name: Update Pipeline
         run: go run cmd/update/main.go
