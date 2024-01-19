@@ -39,9 +39,7 @@ func RunWith(steps ...step) error {
 		return err
 	}
 	defer client.Close()
-
 	goCache := client.CacheVolume("go")
-
 	base := client.Container().
 		From("golang:1.21").
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
@@ -66,7 +64,6 @@ func RunWith(steps ...step) error {
 		WithWorkdir(workDir).
 		WithEnvVariable("GOBIN", filepath.Join(workDir, localBin)).
 		WithEnvVariable("TMPDIR", tmp)
-
 	latestContainer := base
 	for _, step := range steps {
 		stepResult, err := step.run(ctx, stepRequest{client: client, container: latestContainer})
