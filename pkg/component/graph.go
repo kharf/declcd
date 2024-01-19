@@ -58,6 +58,7 @@ func (dag DependencyGraph) TopologicalSort() ([]Node, error) {
 		if _, found := visited[nodeID]; found {
 			return nil
 		}
+		inProcessing[nodeID] = struct{}{}
 		node := dag.set[nodeID]
 		for _, depNode := range node.dependencies {
 			if err := walk(depNode); err != nil {
