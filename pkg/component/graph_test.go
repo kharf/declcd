@@ -57,6 +57,17 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 			},
 			err: component.ErrCyclicDependency,
 		},
+		{
+			name: "DistantCycle",
+			nodes: []component.Node{
+				component.NewNode("prometheus", "", []string{"keda"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("linkerd", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("certmanager", "", []string{"emissaryingress"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("emissaryingress", "", []string{"keda"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("keda", "", []string{"prometheus"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+			},
+			err: component.ErrCyclicDependency,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,7 +80,7 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 			if tc.err != nil {
 				assert.ErrorIs(t, err, tc.err)
 			} else {
-				assert.Assert(t, len(result) == 5)
+				assert.Assert(t, len(result) == len(tc.nodes))
 				visited := make(map[string]struct{})
 				for _, n := range result {
 					for _, dep := range n.Dependencies() {

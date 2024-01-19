@@ -66,7 +66,6 @@ func (manager RepositoryManager) Load(opts ...loadOption) (*Repository, error) {
 	for _, opt := range opts {
 		opt(options)
 	}
-
 	targetPath := options.targetPath
 	logArgs := []interface{}{"remote url", options.url, "target path", targetPath}
 	manager.Log.Info("Opening repository", logArgs...)
@@ -74,13 +73,15 @@ func (manager RepositoryManager) Load(opts ...loadOption) (*Repository, error) {
 	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
-
 	if err == git.ErrRepositoryNotExists {
 		manager.Log.Info("Repository does not exist", logArgs...)
 		manager.Log.Info("Cloning repository", logArgs...)
 		gitRepository, err = git.PlainClone(
 			targetPath, false,
-			&git.CloneOptions{URL: options.url, Progress: os.Stdout},
+			&git.CloneOptions{
+				URL:      options.url,
+				Progress: os.Stdout,
+			},
 		)
 		if err != nil {
 			return nil, err
@@ -90,7 +91,6 @@ func (manager RepositoryManager) Load(opts ...loadOption) (*Repository, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	pullFunc := func() error {
 		err := worktree.Pull(&git.PullOptions{})
 		if err == git.NoErrAlreadyUpToDate {
@@ -98,7 +98,6 @@ func (manager RepositoryManager) Load(opts ...loadOption) (*Repository, error) {
 		}
 		return err
 	}
-
 	repository := NewRepository(targetPath, pullFunc)
 	return &repository, nil
 }
