@@ -8,7 +8,7 @@ require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/google/go-containerregistry v0.17.0
 	github.com/onsi/ginkgo/v2 v2.15.0
-	github.com/onsi/gomega v1.30.0
+	github.com/onsi/gomega v1.31.0
 	github.com/otiai10/copy v1.14.0
 	github.com/spf13/viper v1.18.2
 	go.uber.org/zap v1.26.0
