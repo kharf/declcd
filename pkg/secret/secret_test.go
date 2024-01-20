@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,7 +173,10 @@ import "k8s.io/api/core/v1"
 `
 
 func TestEncrypter_EncryptComponent(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("secret"), projecttest.WithKubernetes(kubetest.WithKubernetesDisabled()))
+	env := projecttest.StartProjectEnv(t,
+		projecttest.WithProjectSource("secret"),
+		projecttest.WithKubernetes(kubetest.WithKubernetesDisabled()),
+	)
 	defer env.Stop()
 	privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
 	identity, err := age.ParseX25519Identity(privKey)
@@ -229,40 +233,18 @@ func assertCue(t *testing.T, result *os.File, expectedResult string) {
 }
 
 func TestDecrypter_Decrypt(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("secret"))
+	env := projecttest.StartProjectEnv(t,
+		projecttest.WithProjectSource("secret"),
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(false, false),
+			kubetest.WithDecryptionKeyCreated(),
+		),
+	)
 	defer env.Stop()
-	privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
-	nsStr := "test"
-	ns := corev1.Namespace{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Namespace",
-			APIVersion: "v1",
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name: nsStr,
-		},
-	}
-	err := env.TestKubeClient.Create(env.Ctx, &ns)
-	assert.NilError(t, err)
-	sec := corev1.Secret{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Secret",
-			APIVersion: "v1",
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name:      secret.K8sSecretName,
-			Namespace: nsStr,
-		},
-		Data: map[string][]byte{
-			secret.K8sSecretDataKey: []byte(privKey),
-		},
-	}
-	err = env.TestKubeClient.Create(env.Ctx, &sec)
-	assert.NilError(t, err)
-	err = secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
+	err := secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
 	assert.NilError(t, err)
 	newProjectRoot, err := secret.NewDecrypter(
-		nsStr, env.DynamicTestKubeClient,
+		env.KubetestEnv.SecretManager.Namespace(), env.DynamicTestKubeClient,
 	).Decrypt(env.Ctx, env.TestProject)
 	assert.NilError(t, err)
 	result, err := os.Open(filepath.Join(newProjectRoot, "infra/secrets/secrets.cue"))
@@ -287,18 +269,35 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 		_, err = os.Open(filepath.Join(env.TestProject, "secrets/recipients.cue"))
 		assert.Assert(t, os.IsNotExist(err))
 	})
-	ns := corev1.Namespace{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Namespace",
-			APIVersion: "v1",
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name: nsStr,
-		},
-	}
-	err := env.TestKubeClient.Create(env.Ctx, &ns)
-	assert.NilError(t, err)
-	err = secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient).CreateKeyIfNotExists(env.Ctx, "manager")
+	t.Run("Existing", func(t *testing.T) {
+		manager := secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient)
+		err := manager.CreateKeyIfNotExists(env.Ctx, "manager")
+		assert.NilError(t, err)
+		recipientFile := readRecipientFile(t, env.TestProject)
+		assert.Assert(t, recipientFile.Recipient != "")
+		secretsFile := readSecretsFile(t, env.TestProject)
+		assert.Assert(t, len(secretsFile.Secrets) == 0)
+		var sec corev1.Secret
+		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
+		assert.NilError(t, err)
+		key, found := sec.Data[secret.K8sSecretDataKey]
+		assert.Assert(t, found)
+		assert.Assert(t, strings.HasPrefix(string(key), "AGE-SECRET-KEY-"))
+		err = manager.CreateKeyIfNotExists(env.Ctx, "manager")
+		assert.NilError(t, err)
+		recipientFile2 := readRecipientFile(t, env.TestProject)
+		assert.Assert(t, recipientFile.Recipient != "")
+		secretsFile2 := readSecretsFile(t, env.TestProject)
+		assert.Assert(t, len(secretsFile.Secrets) == 0)
+		var sec2 corev1.Secret
+		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec2)
+		assert.NilError(t, err)
+		key2, found := sec.Data[secret.K8sSecretDataKey]
+		assert.Equal(t, string(key2), string(key))
+		assert.Assert(t, maps.Equal(secretsFile2.Secrets, secretsFile.Secrets))
+		assert.Equal(t, recipientFile2.Recipient, recipientFile.Recipient)
+	})
+	err := secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient).CreateKeyIfNotExists(env.Ctx, "manager")
 	assert.NilError(t, err)
 	recipientFile := readRecipientFile(t, env.TestProject)
 	assert.Assert(t, recipientFile.Recipient != "")

@@ -26,7 +26,11 @@ require (
 	github.com/Microsoft/hcsshim v0.11.4 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
+	github.com/google/go-github/v58 v58.0.0 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
+	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
+	github.com/hashicorp/go-retryablehttp v0.7.2 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
@@ -38,6 +42,7 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
+	github.com/xanzy/go-gitlab v0.96.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.45.0 // indirect
 	go.opentelemetry.io/otel/metric v1.19.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect

@@ -19,12 +19,11 @@ import (
 )
 
 type ProjectEnv struct {
-	ProjectManager    project.Manager
-	RepositoryManager project.RepositoryManager
-	GitRepository     *gittest.LocalGitRepository
-	TestRoot          string
-	TestProject       string
-	Log               logr.Logger
+	ProjectManager project.Manager
+	GitRepository  *gittest.LocalGitRepository
+	TestRoot       string
+	TestProject    string
+	Log            logr.Logger
 	*kubetest.KubetestEnv
 }
 
@@ -89,14 +88,12 @@ func StartProjectEnv(t *testing.T, opts ...Option) ProjectEnv {
 	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
 	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
 	projectManager := project.NewManager(component.NewBuilder(), log)
-	repositoryManger := project.NewRepositoryManager(log)
 	return ProjectEnv{
-		ProjectManager:    projectManager,
-		RepositoryManager: repositoryManger,
-		GitRepository:     repo,
-		TestRoot:          testRoot,
-		TestProject:       testProject,
-		KubetestEnv:       env,
-		Log:               log,
+		ProjectManager: projectManager,
+		GitRepository:  repo,
+		TestRoot:       testRoot,
+		TestProject:    testProject,
+		KubetestEnv:    env,
+		Log:            log,
 	}
 }

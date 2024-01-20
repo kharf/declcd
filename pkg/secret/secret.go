@@ -56,12 +56,19 @@ func NewManager(projectRoot string, namespace string, kubeClient kube.Client[uns
 	}
 }
 
+func (manager Manager) Namespace() string {
+	return manager.namespace
+}
+
 func (manager Manager) CreateKeyIfNotExists(ctx context.Context, fieldManager string) error {
-	_, err := manager.GetSecret(ctx)
+	sec, err := manager.getSecret(ctx)
 	if err != nil {
 		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
 			return err
 		}
+	}
+	if sec != nil {
+		return nil
 	}
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -532,7 +539,7 @@ func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, e
 	if err != nil {
 		return "", err
 	}
-	unstrSec, err := dec.GetSecret(ctx)
+	unstrSec, err := dec.getSecret(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -557,7 +564,7 @@ func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, e
 	return decryptedProjectPath, nil
 }
 
-func (dec Decrypter) GetSecret(ctx context.Context) (*unstructured.Unstructured, error) {
+func (dec Decrypter) getSecret(ctx context.Context) (*unstructured.Unstructured, error) {
 	unstr := &unstructured.Unstructured{}
 	unstr.SetName(K8sSecretName)
 	unstr.SetNamespace(dec.namespace)

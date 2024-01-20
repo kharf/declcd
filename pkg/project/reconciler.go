@@ -12,6 +12,7 @@ import (
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/secret"
+	"github.com/kharf/declcd/pkg/vcs"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,7 +24,7 @@ type Reconciler struct {
 	Log               logr.Logger
 	Client            client.Client
 	ProjectManager    Manager
-	RepositoryManager RepositoryManager
+	RepositoryManager vcs.RepositoryManager
 	ComponentBuilder  component.Builder
 	ChartReconciler   helm.ChartReconciler
 	InventoryManager  inventory.Manager
@@ -43,7 +44,7 @@ func (reconciler Reconciler) Reconcile(ctx context.Context, gProject gitopsv1.Gi
 	reconcileResult := &ReconcileResult{Suspended: false}
 	repositoryUID := string(gProject.GetUID())
 	repositoryDir := filepath.Join(os.TempDir(), "declcd", repositoryUID)
-	repository, err := reconciler.RepositoryManager.Load(WithUrl(gProject.Spec.URL), WithTarget(repositoryDir))
+	repository, err := reconciler.RepositoryManager.Load(ctx, vcs.WithUrl(gProject.Spec.URL), vcs.WithTarget(repositoryDir))
 	if err != nil {
 		log.Error(err, "Unable to load gitops project repository", "project", gProject.GetName(), "repository", gProject.Spec.URL)
 		return reconcileResult, err

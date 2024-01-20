@@ -2,10 +2,12 @@ package install
 
 import (
 	"context"
+	"net/http"
 
 	v1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/secret"
+	"github.com/kharf/declcd/pkg/vcs"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,9 +20,10 @@ const (
 
 type options struct {
 	namespace string
-	url       string
 	branch    string
+	url       string
 	stage     string
+	token     string
 	interval  int
 }
 
@@ -60,6 +63,14 @@ func (stage Stage) Apply(opts *options) {
 	opts.stage = string(stage)
 }
 
+type Token string
+
+var _ option = (*Token)(nil)
+
+func (token Token) Apply(opts *options) {
+	opts.token = string(token)
+}
+
 type Interval int
 
 var _ option = (*Interval)(nil)
@@ -70,13 +81,20 @@ func (interval Interval) Apply(opts *options) {
 
 type Action struct {
 	kubeClient  *kube.DynamicClient
+	httpClient  *http.Client
 	projectRoot string
 }
 
-func NewAction(kubeClient *kube.DynamicClient, projectRoot string) Action {
+func NewAction(
+	kubeClient *kube.DynamicClient,
+	httpClient *http.Client,
+	projectRoot string,
+
+) Action {
 	return Action{
 		kubeClient:  kubeClient,
 		projectRoot: projectRoot,
+		httpClient:  httpClient,
 	}
 }
 
@@ -107,7 +125,8 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 			return err
 		}
 	}
-	project := v1.Project(instOpts.stage, labels, instOpts.namespace, v1.GitOpsProjectSpec{
+	annotations := map[string]string{}
+	project := v1.Project(instOpts.stage, labels, annotations, instOpts.namespace, v1.GitOpsProjectSpec{
 		URL:                 instOpts.url,
 		Branch:              instOpts.branch,
 		Stage:               instOpts.stage,
@@ -116,6 +135,19 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	})
 	// clear cache because we just introduced a new crd
 	if err := act.kubeClient.Invalidate(); err != nil {
+		return err
+	}
+	repoConfigurator, err := vcs.NewRepositoryConfigurator(
+		instOpts.namespace,
+		act.kubeClient,
+		act.httpClient,
+		instOpts.url,
+		instOpts.token,
+	)
+	if err != nil {
+		return err
+	}
+	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, ControllerName); err != nil {
 		return err
 	}
 	if err := secret.NewManager(act.projectRoot, instOpts.namespace, act.kubeClient).CreateKeyIfNotExists(ctx, ControllerName); err != nil {

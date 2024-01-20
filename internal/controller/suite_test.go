@@ -60,7 +60,13 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	env = projecttest.StartProjectEnv(test, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
+	env = projecttest.StartProjectEnv(test,
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(true, false),
+			kubetest.WithDecryptionKeyCreated(),
+			kubetest.WithVCSSSHKeyCreated(),
+		),
+	)
 	logf.SetLogger(env.Log)
 	var err error
 	k8sClient, err = client.New(env.ControlPlane.Config, client.Options{Scheme: scheme.Scheme})
@@ -96,7 +102,7 @@ var _ = BeforeSuite(func() {
 			InventoryManager: inventoryManager,
 			HelmConfig:       env.HelmEnv.HelmConfig,
 		},
-		Decrypter: env.Manager.Decrypter,
+		Decrypter: env.SecretManager.Decrypter,
 	}
 	err = (&GitOpsProjectReconciler{
 		Reconciler: reconciler,

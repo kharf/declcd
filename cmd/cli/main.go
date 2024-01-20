@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -67,6 +68,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	var branch string
 	var url string
 	var stage string
+	var token string
 	var interval int
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -79,15 +81,17 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 				install.Branch(branch),
 				install.Stage(stage),
 				install.Interval(interval),
+				install.Token(token),
 			); err != nil {
 				return err
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&branch, "branch", "b", "main", "The branch of the gitops repository holding the declcd configuration")
+	cmd.Flags().StringVarP(&branch, "branch", "b", "main", "The branch of the gitops repository containing the project configuration")
 	cmd.Flags().StringVarP(&url, "url", "u", "", "The url to the gitops repository")
 	cmd.Flags().StringVarP(&stage, "stage", "s", "", "The stage of the declcd configuration")
+	cmd.Flags().StringVarP(&token, "token", "t", "", "The access token used for authentication")
 	cmd.Flags().IntVarP(&interval, "interval", "i", 30, "This defines how often declcd will reconcile the cluster state. The value is defined in seconds")
 	return cmd
 }
@@ -115,11 +119,6 @@ func initCliConfig() (*viper.Viper, error) {
 	config := viper.New()
 	config.SetEnvPrefix("decl")
 	config.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
-	if err := config.BindEnv("github.token"); err != nil {
-		return nil, err
-	}
-
 	return config, nil
 }
 
@@ -132,8 +131,9 @@ func initCli(cliConfig *viper.Viper, kubeConfig *rest.Config) (*RootCommandBuild
 	if err != nil {
 		return nil, err
 	}
+	httpClient := http.DefaultClient
 	installCmd := InstallCommandBuilder{
-		action: install.NewAction(client, wd),
+		action: install.NewAction(client, httpClient, wd),
 	}
 	encryptCommand := EncryptCommandBuilder{
 		secretEncrypter: secret.NewEncrypter(wd),
@@ -142,6 +142,5 @@ func initCli(cliConfig *viper.Viper, kubeConfig *rest.Config) (*RootCommandBuild
 		installCommandBuilder: installCmd,
 		encryptCommandBuilder: encryptCommand,
 	}
-
 	return &rootCmd, nil
 }
