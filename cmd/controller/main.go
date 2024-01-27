@@ -43,6 +43,7 @@ import (
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
+	"github.com/kharf/declcd/pkg/vcs"
 )
 
 var (
@@ -128,7 +129,7 @@ func main() {
 			Log:               log,
 			Client:            mgr.GetClient(),
 			ComponentBuilder:  componentBuilder,
-			RepositoryManager: project.NewRepositoryManager(log),
+			RepositoryManager: vcs.NewRepositoryManager(string(namespace), kubeDynamicClient, log),
 			ProjectManager:    projectManager,
 			ChartReconciler:   chartReconciler,
 			InventoryManager:  inventoryManager,

@@ -33,6 +33,7 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/secret"
+	"github.com/kharf/declcd/pkg/vcs"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -54,7 +55,8 @@ type KubetestEnv struct {
 	DynamicTestKubeClient *kube.DynamicClient
 	GarbageCollector      garbage.Collector
 	InventoryManager      inventory.Manager
-	Manager               secret.Manager
+	RepositoryManager     vcs.RepositoryManager
+	SecretManager         secret.Manager
 	Ctx                   context.Context
 	clean                 func()
 }
@@ -102,10 +104,19 @@ func (opt decryptionKeyCreated) apply(opts *options) {
 	opts.decryptionKeyCreated = bool(opt)
 }
 
+type vcsSSHKeyCreated bool
+
+var _ Option = (*vcsSSHKeyCreated)(nil)
+
+func (opt vcsSSHKeyCreated) apply(opts *options) {
+	opts.vcsSSHKeyCreated = bool(opt)
+}
+
 type options struct {
 	enabled              bool
 	helm                 helmOption
 	decryptionKeyCreated bool
+	vcsSSHKeyCreated     bool
 	project              projectOption
 }
 
@@ -128,6 +139,10 @@ func WithDecryptionKeyCreated() decryptionKeyCreated {
 	return true
 }
 
+func WithVCSSSHKeyCreated() vcsSSHKeyCreated {
+	return true
+}
+
 // Has no effect when provided to projecttest.StartProjectEnv
 func WithProject(repo *gittest.LocalGitRepository, testProject string, testRoot string) projectOption {
 	return projectOption{
@@ -145,6 +160,7 @@ func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEn
 		},
 		enabled:              true,
 		decryptionKeyCreated: false,
+		vcsSSHKeyCreated:     false,
 	}
 	for _, o := range opts {
 		o.apply(options)
@@ -195,19 +211,19 @@ func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEn
 		HelmConfig:       helmEnv.HelmConfig,
 	}
 	nsStr := "test"
+	declNs := corev1.Namespace{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "Namespace",
+			APIVersion: "v1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name: nsStr,
+		},
+	}
+	err = testClient.Create(ctx, &declNs)
+	assert.NilError(t, err)
 	if options.decryptionKeyCreated {
 		privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
-		declNs := corev1.Namespace{
-			TypeMeta: v1.TypeMeta{
-				Kind:       "Namespace",
-				APIVersion: "v1",
-			},
-			ObjectMeta: v1.ObjectMeta{
-				Name: nsStr,
-			},
-		}
-		err = testClient.Create(ctx, &declNs)
-		assert.NilError(t, err)
 		decSec := corev1.Secret{
 			TypeMeta: v1.TypeMeta{
 				Kind:       "Secret",
@@ -224,7 +240,34 @@ func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEn
 		err = testClient.Create(ctx, &decSec)
 		assert.NilError(t, err)
 	}
+	if options.vcsSSHKeyCreated {
+		sec := corev1.Secret{
+			TypeMeta: v1.TypeMeta{
+				Kind:       "Secret",
+				APIVersion: "v1",
+			},
+			ObjectMeta: v1.ObjectMeta{
+				Name:      vcs.K8sSecretName,
+				Namespace: nsStr,
+			},
+			Data: map[string][]byte{
+				vcs.K8sSecretDataAuthType: []byte(vcs.K8sSecretDataAuthTypeSSH),
+				vcs.SSHKey: []byte(`-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
+c2gtZWQyNTUxOQAAACDrGFnmApwnObDTPK8nepGtlPKhhrA1u6Ox2hD5LAq5+gAA
+AIh1qzZ4das2eAAAAAtzc2gtZWQyNTUxOQAAACDrGFnmApwnObDTPK8nepGtlPKh
+hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
+9OsYWeYCnCc5sNM8ryd6ka2U8qGGsDW7o7HaEPksCrn6AAAAAAECAwQF
+-----END OPENSSH PRIVATE KEY-----`),
+				vcs.SSHKnownHosts: []byte(vcs.GitHubSSHKey),
+				vcs.SSHPubKey:     []byte("ssh-ed25519 AAAA"),
+			},
+		}
+		err = testClient.Create(ctx, &sec)
+		assert.NilError(t, err)
+	}
 	manager := secret.NewManager(options.project.testProject, nsStr, client)
+	repositoryManger := vcs.NewRepositoryManager("test", client, log)
 	return &KubetestEnv{
 		ControlPlane:          testEnv,
 		ControllerManager:     mgr,
@@ -233,7 +276,8 @@ func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEn
 		DynamicTestKubeClient: client,
 		GarbageCollector:      gc,
 		InventoryManager:      invManager,
-		Manager:               manager,
+		RepositoryManager:     repositoryManger,
+		SecretManager:         manager,
 		Ctx:                   ctx,
 		clean: func() {
 			testEnv.Stop()

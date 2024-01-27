@@ -22,7 +22,13 @@ import (
 )
 
 func TestReconciler_Reconcile(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
+	env := projecttest.StartProjectEnv(t,
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(true, false),
+			kubetest.WithDecryptionKeyCreated(),
+			kubetest.WithVCSSSHKeyCreated(),
+		),
+	)
 	defer env.Stop()
 	chartReconciler := helm.ChartReconciler{
 		Cfg: env.HelmEnv.HelmConfig,
@@ -37,7 +43,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		InventoryManager:  env.InventoryManager,
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
-		Decrypter:         env.Manager.Decrypter,
+		Decrypter:         env.SecretManager.Decrypter,
 	}
 	suspend := false
 	gProject := gitopsv1.GitOpsProject{
