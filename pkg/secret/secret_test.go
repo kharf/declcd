@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -267,7 +268,7 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
 		assert.Assert(t, k8sErrors.ReasonForError(err) == v1.StatusReasonNotFound)
 		_, err = os.Open(filepath.Join(env.TestProject, "secrets/recipients.cue"))
-		assert.Assert(t, os.IsNotExist(err))
+		assert.Assert(t, errors.Is(err, fs.ErrNotExist))
 	})
 	t.Run("Existing", func(t *testing.T) {
 		manager := secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient)

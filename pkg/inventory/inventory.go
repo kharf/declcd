@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -10,64 +11,170 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/component"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
+	// ErrWrongInventoryKey occurs when a stored object has been read,
+	// which doesn't follow the expected format.
+	// This can only happen through an incompatible change, like editing the inventory directly.
 	ErrWrongInventoryKey = errors.New("Inventory key is incorrect")
 )
 
+// Component represents a stored Declcd component with its id and items.
+// It is a component which is part of the current cluster state.
 type Component struct {
-	id           string
-	manifests    map[string]component.ManifestMetadata
-	helmReleases map[string]component.HelmReleaseMetadata
+	id    string
+	items map[string]item
 }
 
-func (component Component) Manifests() map[string]component.ManifestMetadata {
-	return component.manifests
+// Items returns the metadata to all stored objects of this component.
+func (component Component) Items() map[string]item {
+	return component.items
 }
 
-func (component Component) HelmReleases() map[string]component.HelmReleaseMetadata {
-	return component.helmReleases
+// Item is a small representation of a stored object.
+type item interface {
+	TypeMeta() *v1.TypeMeta
+	ComponentID() string
+	Name() string
+	Namespace() string
+	AsKey() string
 }
 
-type Storage struct {
+// HelmReleaseItem is a small inventory representation of a Release.
+// Release is a running instance of a Chart.
+// When a chart is installed, the ChartReconciler creates a release to track that installation.
+type HelmReleaseItem struct {
+	componentID string
+	name        string
+	namespace   string
+}
+
+var _ item = (*HelmReleaseItem)(nil)
+
+// NewHelmReleaseItem constructs a ReleaseMetadata,
+// which is a small representation of a Release.
+func NewHelmReleaseItem(componentID string, name string, namespace string) HelmReleaseItem {
+	return HelmReleaseItem{
+		componentID: componentID,
+		name:        name,
+		namespace:   namespace,
+	}
+}
+
+// Nil for a helm release.
+func (hr HelmReleaseItem) TypeMeta() *v1.TypeMeta {
+	return nil
+}
+
+// Name of the helm release.
+func (hr HelmReleaseItem) Name() string {
+	return hr.name
+}
+
+// Namespace of the helm release.
+func (hr HelmReleaseItem) Namespace() string {
+	return hr.namespace
+}
+
+// ComponentID is a link to the component this release belongs to.
+func (hr HelmReleaseItem) ComponentID() string {
+	return hr.componentID
+}
+
+// AsKey returns the string representation of the release.
+// This is used as an identifier in the inventory.
+func (hr HelmReleaseItem) AsKey() string {
+	return fmt.Sprintf("%s_%s_%s_%s", hr.componentID, hr.name, hr.namespace, "HelmRelease")
+}
+
+// Manifest a small inventory representation of a Manifest.
+// Manifest is a Kubernetes object.
+type Manifest struct {
+	typeMeta    v1.TypeMeta
+	componentID string
+	name        string
+	namespace   string
+}
+
+var _ item = (*Manifest)(nil)
+
+// NewManifest constructs a manifest,
+// which is a small representation of a Manifest.
+func NewManifest(typeMeta v1.TypeMeta, componentID string, name string, namespace string) Manifest {
+	return Manifest{
+		typeMeta:    typeMeta,
+		componentID: componentID,
+		name:        name,
+		namespace:   namespace,
+	}
+}
+
+// TypeMeta describes an individual object.
+func (manifest Manifest) TypeMeta() *v1.TypeMeta {
+	return &manifest.typeMeta
+}
+
+// Name of the manifest.
+func (manifest Manifest) Name() string {
+	return manifest.name
+}
+
+// Namespace of the manifest.
+func (manifest Manifest) Namespace() string {
+	return manifest.namespace
+}
+
+// ComponentID is a link to the component this manifest belongs to.
+func (manifest Manifest) ComponentID() string {
+	return manifest.componentID
+}
+
+// AsKey returns the string representation of the manifest.
+// This is used as an identifier in the inventory.
+func (manifest Manifest) AsKey() string {
+	group := ""
+	version := ""
+	groupVersion := strings.Split(manifest.typeMeta.APIVersion, "/")
+	if len(groupVersion) == 1 {
+		version = groupVersion[0]
+	} else {
+		group = groupVersion[0]
+		version = groupVersion[1]
+	}
+	return fmt.Sprintf("%s_%s_%s_%s_%s_%s", manifest.componentID, manifest.name, manifest.namespace, manifest.typeMeta.Kind, group, version)
+}
+
+// Inventory represents all stored Declcd components.
+// It is effectively the current cluster state.
+type storage struct {
 	components map[string]Component
 }
 
-func NewStorage(components map[string]Component) Storage {
-	return Storage{
-		components: components,
-	}
-}
-
-func (inv Storage) Components() map[string]Component {
+// Components returns all stored Declcd components.
+func (inv storage) Components() map[string]Component {
 	return inv.components
 }
 
-func (inv Storage) HasManifest(manifest component.ManifestMetadata) bool {
+// HasItem evaluates whether an item is part of the current cluster state.
+func (inv storage) HasItem(item item) bool {
 	exists := false
-	if comp, found := inv.components[manifest.ComponentID()]; found {
-		_, exists = comp.manifests[manifest.AsKey()]
+	if comp, found := inv.components[item.ComponentID()]; found {
+		_, exists = comp.items[item.AsKey()]
 	}
 	return exists
 }
 
-func (inv Storage) HasRelease(release component.HelmReleaseMetadata) bool {
-	exists := false
-	if comp, found := inv.components[release.ComponentID()]; found {
-		_, exists = comp.helmReleases[release.AsKey()]
-	}
-	return exists
-}
-
+// Manager is responsible for maintaining the current cluster state.
+// It can store, delete and read items from the inventory.
 type Manager struct {
 	Log  logr.Logger
 	Path string
 }
 
-func (manager Manager) Load() (*Storage, error) {
+// Load reads the current inventory and returns all the stored components.
+func (manager Manager) Load() (*storage, error) {
 	if err := os.MkdirAll(manager.Path, 0700); err != nil {
 		return nil, err
 	}
@@ -83,9 +190,8 @@ func (manager Manager) Load() (*Storage, error) {
 			comp, found := components[componentID]
 			if !found {
 				comp = Component{
-					id:           componentID,
-					manifests:    make(map[string]component.ManifestMetadata),
-					helmReleases: make(map[string]component.HelmReleaseMetadata),
+					id:    componentID,
+					items: make(map[string]item),
 				}
 			}
 			if len(identifier) == 4 {
@@ -93,7 +199,7 @@ func (manager Manager) Load() (*Storage, error) {
 				if kind != "HelmRelease" {
 					return fmt.Errorf("%w: key with only 4 identifiers is expected to be a HelmRelease", ErrWrongInventoryKey)
 				}
-				comp.helmReleases[key] = component.NewHelmReleaseMetadata(
+				comp.items[key] = NewHelmReleaseItem(
 					componentID,
 					identifier[1],
 					identifier[2],
@@ -110,7 +216,7 @@ func (manager Manager) Load() (*Storage, error) {
 				} else {
 					apiVersion = fmt.Sprintf("%s/%s", group, version)
 				}
-				comp.manifests[key] = component.NewManifestMetadata(
+				comp.items[key] = NewManifest(
 					v1.TypeMeta{
 						Kind:       identifier[3],
 						APIVersion: apiVersion,
@@ -127,29 +233,55 @@ func (manager Manager) Load() (*Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Storage{
+	return &storage{
 		components: components,
 	}, nil
 }
 
-func (manager Manager) StoreManifest(inventoryManifest component.ManifestMetadata) error {
-	dir := filepath.Join(manager.Path, inventoryManifest.ComponentID())
+// GetItem opens the item file for reading.
+// If there is an error, it will be of type *PathError.
+func (manager Manager) GetItem(item item) (io.ReadCloser, error) {
+	itemFile, err := os.Open(filepath.Join(manager.Path, item.ComponentID(), item.AsKey()))
+	if err != nil {
+		return nil, err
+	}
+	return itemFile, nil
+}
+
+// StoreItem persists given item with optional content in the inventory.
+func (manager Manager) StoreItem(item item, contentReader io.Reader) error {
+	dir := filepath.Join(manager.Path, item.ComponentID())
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, inventoryManifest.AsKey()), []byte{}, 0700)
-}
-
-func (manager Manager) StoreHelmRelease(inventoryHelmRelease component.HelmReleaseMetadata) error {
-	dir := filepath.Join(manager.Path, inventoryHelmRelease.ComponentID())
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	file, err := os.Create(filepath.Join(dir, item.AsKey()))
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, inventoryHelmRelease.AsKey()), []byte{}, 0700)
+	defer file.Close()
+	if contentReader != nil {
+		bufferedReadWriter := bufio.NewReadWriter(bufio.NewReader(contentReader), bufio.NewWriter(file))
+		for {
+			line, err := bufferedReadWriter.ReadString('\n')
+			if err == io.EOF {
+				break
+			}
+			_, err = bufferedReadWriter.WriteString(line)
+			if err != nil {
+				return err
+			}
+		}
+		if err = bufferedReadWriter.Flush(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (manager Manager) DeleteManifest(inventoryManifest component.ManifestMetadata) error {
-	dir := filepath.Join(manager.Path, inventoryManifest.ComponentID())
+// DeleteItem removes the item from the inventory.
+// Declcd will not be tracking its current state anymore.
+func (manager Manager) DeleteItem(item item) error {
+	dir := filepath.Join(manager.Path, item.ComponentID())
 	dirFile, err := os.Open(dir)
 	if err != nil {
 		return err
@@ -164,24 +296,5 @@ func (manager Manager) DeleteManifest(inventoryManifest component.ManifestMetada
 	if err != nil {
 		return err
 	}
-	return os.Remove(filepath.Join(dir, inventoryManifest.AsKey()))
-}
-
-func (manager Manager) DeleteHelmRelease(inventoryHelmRelease component.HelmReleaseMetadata) error {
-	dir := filepath.Join(manager.Path, inventoryHelmRelease.ComponentID())
-	dirFile, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer dirFile.Close()
-	_, err = dirFile.Readdirnames(1)
-	if err == io.EOF {
-		if err := os.Remove(dir); err != nil {
-			return err
-		}
-	}
-	if err != nil {
-		return err
-	}
-	return os.Remove(filepath.Join(dir, inventoryHelmRelease.AsKey()))
+	return os.Remove(filepath.Join(dir, item.AsKey()))
 }

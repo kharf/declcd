@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/kube"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -55,9 +57,9 @@ func (p Manager) Load(projectPath string) (*component.DependencyGraph, error) {
 			if err != nil {
 				return err
 			}
-			manifests := make([]component.ManifestMetadata, 0, len(instance.Manifests))
+			manifests := make([]kube.ManifestMetadata, 0, len(instance.Manifests))
 			for _, unstructured := range instance.Manifests {
-				manifests = append(manifests, component.NewManifestMetadata(
+				manifests = append(manifests, kube.NewManifestMetadata(
 					v1.TypeMeta{
 						Kind:       unstructured.GetKind(),
 						APIVersion: unstructured.GetAPIVersion(),
@@ -67,9 +69,9 @@ func (p Manager) Load(projectPath string) (*component.DependencyGraph, error) {
 					unstructured.GetNamespace(),
 				))
 			}
-			releases := make([]component.HelmReleaseMetadata, 0, len(instance.HelmReleases))
+			releases := make([]helm.ReleaseMetadata, 0, len(instance.HelmReleases))
 			for _, hr := range instance.HelmReleases {
-				releases = append(releases, component.NewHelmReleaseMetadata(
+				releases = append(releases, helm.NewReleaseMetadata(
 					instance.ID,
 					hr.Name,
 					hr.Namespace,

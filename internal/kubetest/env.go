@@ -19,10 +19,13 @@ import (
 
 	"gotest.tools/v3/assert"
 	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/google/go-containerregistry/pkg/registry"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/gittest"
+	"github.com/kharf/declcd/internal/install"
+	helmKube "helm.sh/helm/v3/pkg/kube"
 	helmRegistry "helm.sh/helm/v3/pkg/registry"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -153,6 +156,7 @@ func WithProject(repo *gittest.LocalGitRepository, testProject string, testRoot 
 }
 
 func StartKubetestEnv(t *testing.T, log logr.Logger, opts ...Option) *KubetestEnv {
+	logf.SetLogger(log)
 	options := &options{
 		helm: helmOption{
 			enabled: false,
@@ -347,6 +351,7 @@ func setupHelm(t *testing.T, cfg *rest.Config, options *options) helmEnv {
 	helmCfg := action.Configuration{}
 	var helmEnv helmEnv
 	if options.helm.enabled {
+		helmKube.ManagedFieldsManager = install.ControllerName
 		k8sClient, err := kube.NewDynamicClient(cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -358,6 +363,11 @@ func setupHelm(t *testing.T, cfg *rest.Config, options *options) helmEnv {
 		err = helmCfg.Init(getter, "default", "secret", log.Printf)
 		if err != nil {
 			t.Fatal(err)
+		}
+		helmCfg.KubeClient = &kube.HelmClient{
+			Client:        helmCfg.KubeClient.(*helmKube.Client),
+			DynamicClient: *k8sClient,
+			FieldManager:  "controller",
 		}
 		helmEnv = startHelmServer(t, options.helm.oci)
 		replaceTemplate(t, options, helmEnv.RepositoryServer.URL)
@@ -504,7 +514,11 @@ type FakeDynamicClient struct {
 
 var _ kube.Client[unstructured.Unstructured] = (*FakeDynamicClient)(nil)
 
-func (client *FakeDynamicClient) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string) error {
+func (client *FakeDynamicClient) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string, opts ...kube.ApplyOption) error {
+	return client.Err
+}
+
+func (client *FakeDynamicClient) Update(ctx context.Context, obj *unstructured.Unstructured, fieldManager string, opts ...kube.ApplyOption) error {
 	return client.Err
 }
 

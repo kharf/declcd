@@ -20,7 +20,9 @@ import (
 	"flag"
 	"os"
 
+	"go.uber.org/zap/zapcore"
 	"helm.sh/helm/v3/pkg/action"
+	helmKube "helm.sh/helm/v3/pkg/kube"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -36,6 +38,7 @@ import (
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/controller"
+	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
@@ -60,13 +63,16 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var logLevel int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.IntVar(&logLevel, "log-level", 0, "The verbosity level. Higher means chattier.")
 	opts := ctrlZap.Options{
 		Development: false,
+		Level:       zapcore.Level(logLevel * -1),
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -110,21 +116,25 @@ func main() {
 		setupLog.Error(err, "Unable to init helm")
 		os.Exit(1)
 	}
-	chartReconciler := helm.ChartReconciler{
-		Cfg: helmCfg,
-		Log: log,
+	//TODO: downward api read controller from file
+	helmKube.ManagedFieldsManager = install.ControllerName
+	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
+	helmCfg.KubeClient = &kube.HelmClient{
+		Client:        helmCfg.KubeClient.(*helmKube.Client),
+		DynamicClient: *kubeDynamicClient,
+		FieldManager:  install.ControllerName,
 	}
 	inventoryManager := inventory.Manager{
 		Log:  log,
 		Path: "/inventory",
 	}
+	chartReconciler := helm.NewChartReconciler(helmCfg, kubeDynamicClient, install.ControllerName, inventoryManager, log)
 	namespace, err := os.ReadFile("/podinfo/namespace")
 	if err != nil {
 		setupLog.Error(err, "Unable to read current namespace")
 		os.Exit(1)
 	}
-	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
-	if err = (&controller.GitOpsProjectReconciler{
+	if err := (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
 			Log:               log,
 			Client:            mgr.GetClient(),
