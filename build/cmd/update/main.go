@@ -25,7 +25,7 @@ func run() error {
 	defer client.Close()
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
 	updateContainer := client.Container().
-		From("renovate/renovate:37.153-full").
+		From("renovate/renovate:37.158-full").
 		WithDefaultArgs([]string{"kharf/declcd"}).
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
