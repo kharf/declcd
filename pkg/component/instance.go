@@ -1,11 +1,8 @@
 package component
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/kharf/declcd/pkg/helm"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/kharf/declcd/pkg/kube"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -19,10 +16,10 @@ type Instance struct {
 	ID           string                      `json:"id"`
 	Dependencies []string                    `json:"dependencies"`
 	Manifests    []unstructured.Unstructured `json:"manifests"`
-	HelmReleases []helm.Release              `json:"helmReleases"`
+	HelmReleases []helm.ReleaseDeclaration   `json:"helmReleases"`
 }
 
-func New(id string, dependencies []string, manifests []unstructured.Unstructured, helmReleases []helm.Release) Instance {
+func New(id string, dependencies []string, manifests []unstructured.Unstructured, helmReleases []helm.ReleaseDeclaration) Instance {
 	return Instance{
 		ID:           id,
 		Dependencies: dependencies,
@@ -37,11 +34,11 @@ type Node struct {
 	id           string
 	path         string
 	dependencies []string
-	manifests    []ManifestMetadata
-	helmReleases []HelmReleaseMetadata
+	manifests    []kube.ManifestMetadata
+	helmReleases []helm.ReleaseMetadata
 }
 
-func NewNode(id string, path string, dependencies []string, manifests []ManifestMetadata, helmReleases []HelmReleaseMetadata) Node {
+func NewNode(id string, path string, dependencies []string, manifests []kube.ManifestMetadata, helmReleases []helm.ReleaseMetadata) Node {
 	return Node{
 		id:           id,
 		path:         path,
@@ -63,81 +60,10 @@ func (node Node) Dependencies() []string {
 	return node.dependencies
 }
 
-func (node Node) Manifests() []ManifestMetadata {
+func (node Node) Manifests() []kube.ManifestMetadata {
 	return node.manifests
 }
 
-func (node Node) HelmReleases() []HelmReleaseMetadata {
+func (node Node) HelmReleases() []helm.ReleaseMetadata {
 	return node.helmReleases
-}
-
-type ManifestMetadata struct {
-	v1.TypeMeta
-	componentID string
-	name        string
-	namespace   string
-}
-
-func NewManifestMetadata(typeMeta v1.TypeMeta, componentID string, name string, namespace string) ManifestMetadata {
-	return ManifestMetadata{
-		TypeMeta:    typeMeta,
-		componentID: componentID,
-		name:        name,
-		namespace:   namespace,
-	}
-}
-
-func (manifest ManifestMetadata) Name() string {
-	return manifest.name
-}
-
-func (manifest ManifestMetadata) Namespace() string {
-	return manifest.namespace
-}
-
-func (manifest ManifestMetadata) ComponentID() string {
-	return manifest.componentID
-}
-
-func (manifest ManifestMetadata) AsKey() string {
-	group := ""
-	version := ""
-	groupVersion := strings.Split(manifest.APIVersion, "/")
-	if len(groupVersion) == 1 {
-		version = groupVersion[0]
-	} else {
-		group = groupVersion[0]
-		version = groupVersion[1]
-	}
-	return fmt.Sprintf("%s_%s_%s_%s_%s_%s", manifest.componentID, manifest.name, manifest.namespace, manifest.Kind, group, version)
-}
-
-type HelmReleaseMetadata struct {
-	componentID string
-	name        string
-	namespace   string
-}
-
-func NewHelmReleaseMetadata(componentID string, name string, namespace string) HelmReleaseMetadata {
-	return HelmReleaseMetadata{
-		componentID: componentID,
-		name:        name,
-		namespace:   namespace,
-	}
-}
-
-func (hr HelmReleaseMetadata) Name() string {
-	return hr.name
-}
-
-func (hr HelmReleaseMetadata) Namespace() string {
-	return hr.namespace
-}
-
-func (hr HelmReleaseMetadata) ComponentID() string {
-	return hr.componentID
-}
-
-func (hr HelmReleaseMetadata) AsKey() string {
-	return fmt.Sprintf("%s_%s_%s_%s", hr.componentID, hr.name, hr.namespace, "HelmRelease")
 }

@@ -85,10 +85,11 @@ func (reconciler Reconciler) reconcileComponents(ctx context.Context, componentN
 		if err != nil {
 			return err
 		}
-		if err := reconciler.reconcileManifests(ctx, *componentInstance); err != nil {
+		component := *componentInstance
+		if err := reconciler.reconcileManifests(ctx, component); err != nil {
 			return err
 		}
-		if err := reconciler.reconcileHelmReleases(*componentInstance); err != nil {
+		if err := reconciler.reconcileHelmReleases(ctx, component); err != nil {
 			return err
 		}
 	}
@@ -100,7 +101,7 @@ func (reconciler Reconciler) reconcileManifests(ctx context.Context, componentIn
 		if err := reconciler.createOrUpdate(ctx, &manifest); err != nil {
 			return err
 		}
-		invManifest := component.NewManifestMetadata(
+		invManifest := inventory.NewManifest(
 			v1.TypeMeta{
 				Kind:       manifest.GetKind(),
 				APIVersion: manifest.GetAPIVersion(),
@@ -109,28 +110,20 @@ func (reconciler Reconciler) reconcileManifests(ctx context.Context, componentIn
 			manifest.GetName(),
 			manifest.GetNamespace(),
 		)
-		if err := reconciler.InventoryManager.StoreManifest(invManifest); err != nil {
+		if err := reconciler.InventoryManager.StoreItem(invManifest, nil); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (reconciler Reconciler) reconcileHelmReleases(componentInstance component.Instance) error {
+func (reconciler Reconciler) reconcileHelmReleases(ctx context.Context, componentInstance component.Instance) error {
 	for _, release := range componentInstance.HelmReleases {
 		if _, err := reconciler.ChartReconciler.Reconcile(
-			release.Chart,
-			release.Values,
-			helm.ReleaseName(release.Name),
-			helm.Namespace(release.Namespace),
-		); err != nil {
-			return err
-		}
-		if err := reconciler.InventoryManager.StoreHelmRelease(component.NewHelmReleaseMetadata(
+			ctx,
 			componentInstance.ID,
-			release.Name,
-			release.Namespace,
-		)); err != nil {
+			release,
+		); err != nil {
 			return err
 		}
 	}

@@ -78,12 +78,15 @@ var _ = BeforeSuite(func() {
 	unstrObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(crd)
 	Expect(err).NotTo(HaveOccurred())
 	unstr := &unstructured.Unstructured{Object: unstrObj}
-	err = client.Apply(env.Ctx, unstr, "")
+	err = client.Apply(env.Ctx, unstr, "controller")
 	Expect(err).NotTo(HaveOccurred())
-	chartReconciler := helm.ChartReconciler{
-		Cfg: env.HelmEnv.HelmConfig,
-		Log: env.Log,
-	}
+	chartReconciler := helm.NewChartReconciler(
+		env.HelmEnv.HelmConfig,
+		env.DynamicTestKubeClient,
+		"",
+		env.InventoryManager,
+		env.Log,
+	)
 	inventoryManager := inventory.Manager{
 		Log:  env.Log,
 		Path: filepath.Join(os.TempDir(), "inventory"),

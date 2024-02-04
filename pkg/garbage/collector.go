@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"helm.sh/helm/v3/pkg/action"
@@ -19,49 +20,52 @@ type Collector struct {
 }
 
 func (c Collector) Collect(ctx context.Context, dag component.DependencyGraph) error {
-	inventory, err := c.InventoryManager.Load()
+	storage, err := c.InventoryManager.Load()
 	if err != nil {
 		return err
 	}
-	for componentID, invComponent := range inventory.Components() {
+	for componentID, invComponent := range storage.Components() {
 		if node := dag.Get(componentID); node != nil {
-			for _, invManifest := range invComponent.Manifests() {
+			for _, item := range invComponent.Items() {
 				collect := true
-				for _, targetManifest := range node.Manifests() {
-					if compareManifest(invManifest, targetManifest) {
-						collect = false
-						break
+				switch item.(type) {
+				case inventory.HelmReleaseItem:
+					for _, hr := range node.HelmReleases() {
+						if compareHelmRelease(item.(inventory.HelmReleaseItem), hr) {
+							collect = false
+							break
+						}
 					}
-				}
-				if collect {
-					if err := c.collectManifest(ctx, invManifest); err != nil {
-						return err
+					if collect {
+						if err := c.collectHelmRelease(item.(inventory.HelmReleaseItem)); err != nil {
+							return err
+						}
 					}
-				}
-			}
-			for _, invHr := range invComponent.HelmReleases() {
-				collect := true
-				for _, hr := range node.HelmReleases() {
-					if compareHelmRelease(invHr, hr) {
-						collect = false
-						break
+				case inventory.Manifest:
+					for _, manifest := range node.Manifests() {
+						if compareManifest(item.(inventory.Manifest), manifest) {
+							collect = false
+							break
+						}
 					}
-				}
-				if collect {
-					if err := c.collectHelmRelease(invHr); err != nil {
-						return err
+					if collect {
+						if err := c.collectManifest(ctx, item.(inventory.Manifest)); err != nil {
+							return err
+						}
 					}
 				}
 			}
 		} else {
-			for _, invManifest := range invComponent.Manifests() {
-				if err := c.collectManifest(ctx, invManifest); err != nil {
-					return err
-				}
-			}
-			for _, invHr := range invComponent.HelmReleases() {
-				if err := c.collectHelmRelease(invHr); err != nil {
-					return err
+			for _, item := range invComponent.Items() {
+				switch item.(type) {
+				case inventory.HelmReleaseItem:
+					if err := c.collectHelmRelease(item.(inventory.HelmReleaseItem)); err != nil {
+						return err
+					}
+				case inventory.Manifest:
+					if err := c.collectManifest(ctx, item.(inventory.Manifest)); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -69,7 +73,7 @@ func (c Collector) Collect(ctx context.Context, dag component.DependencyGraph) e
 	return nil
 }
 
-func (c Collector) collectHelmRelease(invHr component.HelmReleaseMetadata) error {
+func (c Collector) collectHelmRelease(invHr inventory.HelmReleaseItem) error {
 	c.Log.Info("Collecting unreferenced helm release", "component", invHr.ComponentID(), "namespace", invHr.Namespace(), "name", invHr.Name())
 	client := action.NewUninstall(&c.HelmConfig)
 	client.Wait = false
@@ -77,37 +81,37 @@ func (c Collector) collectHelmRelease(invHr component.HelmReleaseMetadata) error
 	if err != nil {
 		return err
 	}
-	if err := c.InventoryManager.DeleteHelmRelease(invHr); err != nil {
+	if err := c.InventoryManager.DeleteItem(invHr); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c Collector) collectManifest(ctx context.Context, invManifest component.ManifestMetadata) error {
-	c.Log.Info("Collecting unreferenced manifest", "component", invManifest.ComponentID(), "namespace", invManifest.Namespace(), "name", invManifest.Name(), "kind", invManifest.Kind)
+func (c Collector) collectManifest(ctx context.Context, invManifest inventory.Manifest) error {
+	c.Log.Info("Collecting unreferenced manifest", "component", invManifest.ComponentID(), "namespace", invManifest.Namespace(), "name", invManifest.Name(), "kind", invManifest.TypeMeta().Kind)
 	unstr := &unstructured.Unstructured{}
 	unstr.SetName(invManifest.Name())
 	unstr.SetNamespace(invManifest.Namespace())
-	unstr.SetKind(invManifest.Kind)
-	unstr.SetAPIVersion(invManifest.APIVersion)
+	unstr.SetKind(invManifest.TypeMeta().Kind)
+	unstr.SetAPIVersion(invManifest.TypeMeta().APIVersion)
 	if err := c.Client.Delete(ctx, unstr); err != nil {
 		return err
 	}
-	if err := c.InventoryManager.DeleteManifest(invManifest); err != nil {
+	if err := c.InventoryManager.DeleteItem(invManifest); err != nil {
 		return err
 	}
 	return nil
 }
 
-func compareManifest(inventoryManifest component.ManifestMetadata, manifest component.ManifestMetadata) bool {
+func compareManifest(inventoryManifest inventory.Manifest, manifest kube.ManifestMetadata) bool {
 	return inventoryManifest.ComponentID() == manifest.ComponentID() &&
-		inventoryManifest.Kind == manifest.Kind &&
-		inventoryManifest.APIVersion == manifest.APIVersion &&
+		inventoryManifest.TypeMeta().Kind == manifest.Kind &&
+		inventoryManifest.TypeMeta().APIVersion == manifest.APIVersion &&
 		inventoryManifest.Namespace() == manifest.Namespace() &&
 		inventoryManifest.Name() == manifest.Name()
 }
 
-func compareHelmRelease(inventoryRelease component.HelmReleaseMetadata, release component.HelmReleaseMetadata) bool {
+func compareHelmRelease(inventoryRelease inventory.HelmReleaseItem, release helm.ReleaseMetadata) bool {
 	return inventoryRelease.ComponentID() == release.ComponentID() &&
 		inventoryRelease.Name() == release.Name() &&
 		inventoryRelease.Namespace() == release.Namespace()

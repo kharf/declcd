@@ -4,15 +4,17 @@ import (
 	"testing"
 
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/kube"
 	"gotest.tools/v3/assert"
 )
 
 func TestDependencyGraph_Insert(t *testing.T) {
 	graph := component.NewDependencyGraph()
 	err := graph.Insert(
-		component.NewNode("prometheus", "", []string{}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-		component.NewNode("linkerd", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-		component.NewNode("prometheus", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+		component.NewNode("prometheus", "", []string{}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+		component.NewNode("linkerd", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+		component.NewNode("prometheus", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
 	)
 	assert.ErrorIs(t, err, component.ErrDuplicateComponentID)
 }
@@ -20,8 +22,8 @@ func TestDependencyGraph_Insert(t *testing.T) {
 func TestDependencyGraph_Delete(t *testing.T) {
 	graph := component.NewDependencyGraph()
 	err := graph.Insert(
-		component.NewNode("prometheus", "", []string{}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-		component.NewNode("linkerd", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+		component.NewNode("prometheus", "", []string{}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+		component.NewNode("linkerd", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
 	)
 	assert.NilError(t, err)
 	graph.Delete("prometheus")
@@ -38,33 +40,33 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 		{
 			name: "Positive",
 			nodes: []component.Node{
-				component.NewNode("prometheus", "", []string{}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("linkerd", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("certmanager", "", []string{}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("emissaryingress", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("keda", "", []string{"prometheus"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("prometheus", "", []string{}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("linkerd", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("certmanager", "", []string{}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("emissaryingress", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("keda", "", []string{"prometheus"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
 			},
 			err: nil,
 		},
 		{
 			name: "Cycle",
 			nodes: []component.Node{
-				component.NewNode("prometheus", "", []string{}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("linkerd", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("certmanager", "", []string{"linkerd"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("emissaryingress", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("keda", "", []string{"prometheus"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("prometheus", "", []string{}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("linkerd", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("certmanager", "", []string{"linkerd"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("emissaryingress", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("keda", "", []string{"prometheus"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
 			},
 			err: component.ErrCyclicDependency,
 		},
 		{
 			name: "DistantCycle",
 			nodes: []component.Node{
-				component.NewNode("prometheus", "", []string{"keda"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("linkerd", "", []string{"certmanager"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("certmanager", "", []string{"emissaryingress"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("emissaryingress", "", []string{"keda"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
-				component.NewNode("keda", "", []string{"prometheus"}, []component.ManifestMetadata{}, []component.HelmReleaseMetadata{}),
+				component.NewNode("prometheus", "", []string{"keda"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("linkerd", "", []string{"certmanager"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("certmanager", "", []string{"emissaryingress"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("emissaryingress", "", []string{"keda"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
+				component.NewNode("keda", "", []string{"prometheus"}, []kube.ManifestMetadata{}, []helm.ReleaseMetadata{}),
 			},
 			err: component.ErrCyclicDependency,
 		},

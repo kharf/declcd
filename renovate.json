@@ -1,9 +1,6 @@
 {
   "labels": ["dependencies", "renovate"],
-  "extends": [
-    "config:base", ":semanticCommitTypeAll(chore)"
-  ],
-  "platform": "github",
+  "extends": ["config:best-practices"],
   "dependencyDashboard": true,
   "semanticCommits": "enabled",
   "rebaseWhen": "auto",

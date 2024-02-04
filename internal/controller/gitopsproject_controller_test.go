@@ -15,7 +15,6 @@ import (
 )
 
 var _ = Describe("GitOpsProject controller", func() {
-
 	// Define utility constants for object names and testing timeouts/durations and intervals.
 	const (
 		GitOpsProjectName      = "test"
@@ -59,7 +58,6 @@ var _ = Describe("GitOpsProject controller", func() {
 			It("Should not allow a pull interval less than 5 seconds", func() {
 				ctx := context.Background()
 				gitOpsProject.Spec.PullIntervalSeconds = 0
-
 				Eventually(func() string {
 					if err := k8sClient.Create(ctx, &gitOpsProject); err != nil {
 						return err.Error()
@@ -88,7 +86,6 @@ var _ = Describe("GitOpsProject controller", func() {
 				Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
 				Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
 				Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
-
 				By("Cloning a decl gitops repository, building manifests and applying them onto the cluster")
 				Eventually(func() (string, error) {
 					var namespace corev1.Namespace
@@ -103,7 +100,6 @@ var _ = Describe("GitOpsProject controller", func() {
 					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment); err != nil {
 						return "", err
 					}
-
 					return deployment.GetName(), nil
 				}, duration, assertionInterval).Should(Equal("mysubcomponent"))
 
@@ -112,7 +108,6 @@ var _ = Describe("GitOpsProject controller", func() {
 					if err := k8sClient.Get(ctx, types.NamespacedName{Name: GitOpsProjectName, Namespace: GitOpsProjectNamespace}, &updatedGitOpsProject); err != nil {
 						return 0, err
 					}
-
 					return len(updatedGitOpsProject.Status.Conditions), nil
 				}, duration, assertionInterval).Should(Equal(2))
 			})

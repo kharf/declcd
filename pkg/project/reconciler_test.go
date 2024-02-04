@@ -30,10 +30,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 		),
 	)
 	defer env.Stop()
-	chartReconciler := helm.ChartReconciler{
-		Cfg: env.HelmEnv.HelmConfig,
-		Log: env.Log,
-	}
+	chartReconciler := helm.NewChartReconciler(
+		env.HelmEnv.HelmConfig,
+		env.DynamicTestKubeClient,
+		"",
+		env.InventoryManager,
+		env.Log,
+	)
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  component.NewBuilder(),
@@ -88,15 +91,14 @@ func TestReconciler_Reconcile(t *testing.T) {
 	invComponents := inventoryStorage.Components()
 	assert.Assert(t, len(invComponents) == 3)
 	prometheus := invComponents["prometheus"]
-	assert.Assert(t, len(prometheus.Manifests()) == 2)
-	assert.Assert(t, len(prometheus.HelmReleases()) == 1)
-	testHR := component.NewHelmReleaseMetadata(
+	assert.Assert(t, len(prometheus.Items()) == 3)
+	testHR := inventory.NewHelmReleaseItem(
 		"prometheus",
 		dep.Name,
 		dep.Namespace,
 	)
-	assert.Assert(t, inventoryStorage.HasRelease(testHR))
-	invNs := component.NewManifestMetadata(
+	assert.Assert(t, inventoryStorage.HasItem(testHR))
+	invNs := inventory.NewManifest(
 		v1.TypeMeta{
 			Kind:       "Namespace",
 			APIVersion: "v1",
@@ -105,8 +107,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		mysubcomponent.Namespace,
 		"",
 	)
-	assert.Assert(t, inventoryStorage.HasManifest(invNs))
-	subComponentDeploymentManifest := component.NewManifestMetadata(
+	assert.Assert(t, inventoryStorage.HasItem(invNs))
+	subComponentDeploymentManifest := inventory.NewManifest(
 		v1.TypeMeta{
 			Kind:       "Deployment",
 			APIVersion: "apps/v1",
@@ -115,7 +117,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		mysubcomponent.Name,
 		mysubcomponent.Namespace,
 	)
-	assert.Assert(t, inventoryStorage.HasManifest(subComponentDeploymentManifest))
+	assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
 	t.Run("RemoveSubcomponent", func(t *testing.T) {
 		err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"))
 		assert.NilError(t, err)
@@ -127,9 +129,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 		assert.NilError(t, err)
 		invComponents := inventoryStorage.Components()
 		assert.Assert(t, len(invComponents) == 2)
-		assert.Assert(t, !inventoryStorage.HasManifest(subComponentDeploymentManifest))
-		assert.Assert(t, inventoryStorage.HasManifest(invNs))
-		assert.Assert(t, inventoryStorage.HasRelease(testHR))
+		assert.Assert(t, !inventoryStorage.HasItem(subComponentDeploymentManifest))
+		assert.Assert(t, inventoryStorage.HasItem(invNs))
+		assert.Assert(t, inventoryStorage.HasItem(testHR))
 		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
 		assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
 	})
@@ -144,8 +146,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		assert.NilError(t, err)
 		invComponents := inventoryStorage.Components()
 		assert.Assert(t, len(invComponents) == 1)
-		assert.Assert(t, !inventoryStorage.HasManifest(invNs))
-		assert.Assert(t, !inventoryStorage.HasRelease(testHR))
+		assert.Assert(t, !inventoryStorage.HasItem(invNs))
+		assert.Assert(t, !inventoryStorage.HasItem(testHR))
 		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
 		assert.Error(t, err, "deployments.apps \"test\" not found")
 	})
@@ -154,10 +156,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
 	defer env.Stop()
-	chartReconciler := helm.ChartReconciler{
-		Cfg: env.HelmEnv.HelmConfig,
-		Log: env.Log,
-	}
+	chartReconciler := helm.NewChartReconciler(
+		env.HelmEnv.HelmConfig,
+		env.DynamicTestKubeClient,
+		"",
+		env.InventoryManager,
+		env.Log,
+	)
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  component.NewBuilder(),

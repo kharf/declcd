@@ -1,13 +1,21 @@
 package helm
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/go-logr/logr"
+	"github.com/google/go-cmp/cmp"
+	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/declcd/pkg/kube"
+	"gopkg.in/yaml.v3"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -15,9 +23,13 @@ import (
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// A Helm package that contains information sufficient for installing a set of Kubernetes resources into a Kubernetes cluster.
+// A Helm package that contains information
+// sufficient for installing a set of Kubernetes resources into a Kubernetes cluster.
 type Chart struct {
 	Name string `json:"name"`
 	// URL of the repository where the Helm chart is hosted.
@@ -25,130 +37,228 @@ type Chart struct {
 	Version string `json:"version"`
 }
 
-// ChartReconciler reads Helm Packages with their desired state and applies them on a Kubernetes cluster.
+// ChartReconciler reads Helm Packages with their desired state
+// and applies them on a Kubernetes cluster.
+// It stores releases in the inventory, but never collects it.
 type ChartReconciler struct {
 	// Configuration used for Helm operations
-	Cfg action.Configuration
-	Log logr.Logger
+	cfg              action.Configuration
+	client           kube.Client[unstructured.Unstructured]
+	fieldManager     string
+	inventoryManager inventory.Manager
+	log              logr.Logger
 }
 
-type options struct {
-	releaseName string
-	namespace   string
-	values      map[string]interface{}
+// NewChartReconciler constructs a ChartReconciler,
+// which reads Helm Packages with their desired state and applies them on a Kubernetes cluster.
+func NewChartReconciler(cfg action.Configuration, client kube.Client[unstructured.Unstructured], fieldManager string, inventoryManager inventory.Manager, log logr.Logger) ChartReconciler {
+	return ChartReconciler{
+		cfg:              cfg,
+		client:           client,
+		fieldManager:     fieldManager,
+		inventoryManager: inventoryManager,
+		log:              log,
+	}
 }
 
-// Option is a specific configuration used for reconciling Helm Charts.
-type option interface {
-	Apply(opts *options)
-}
-
-// ReleaseName influences the name of the installed objects of a Helm Chart.
-// When set, the installed objects are suffixed with the chart name.
-// Defaults to the chart name.
-type ReleaseName string
-
-func (r ReleaseName) Apply(opts *options) {
-	opts.releaseName = string(r)
-}
-
-// Namespaces specifies the Kubernetes namespace to which the Helm Chart is installed to.
-// Defaults to default.
-type Namespace string
-
-func (n Namespace) Apply(opts *options) {
-	opts.namespace = string(n)
-}
-
-// Values provide a way to override Helm Chart template defaults with your own information.
-type Values map[string]interface{}
-
-func (v Values) Apply(opts *options) {
-	opts.values = v
-}
-
-// Reconcile reads a declared Helm Chart with its desired state and applies it on a Kubernetes cluster.
+// Reconcile reads a declared Helm Release with its desired state and applies it on a Kubernetes cluster.
 // It upgrades a Helm Chart based on whether it is already installed or not.
+// A successful run stores the release in the inventory, but never collects it.
 // In case an upgrade or installation is interrupted and left in a dangling state, the dangling release secret will be removed and a new upgrade/installation will be run.
-func (c ChartReconciler) Reconcile(chartRequest Chart, opts ...option) (*release.Release, error) {
-	reconcileOpts := &options{}
-	for _, opt := range opts {
-		opt.Apply(reconcileOpts)
+func (c ChartReconciler) Reconcile(ctx context.Context, componentID string, desiredRelease ReleaseDeclaration) (*Release, error) {
+	if desiredRelease.Name == "" {
+		desiredRelease.Name = desiredRelease.Chart.Name
 	}
-	releaseName := chartRequest.Name
-	if reconcileOpts.releaseName != "" {
-		releaseName = reconcileOpts.releaseName
+	if desiredRelease.Namespace == "" {
+		desiredRelease.Namespace = "default"
 	}
-	namespace := "default"
-	if reconcileOpts.namespace != "" {
-		namespace = reconcileOpts.namespace
-	}
-	logArgs := []interface{}{"name", chartRequest.Name, "url", chartRequest.RepoURL, "version", chartRequest.Version, "releasename", releaseName, "namespace", namespace}
-	c.Log.Info("Loading chart", logArgs...)
-	chrt, err := c.load(chartRequest, logArgs)
+	installedRelease, err := c.doReconcile(ctx, componentID, desiredRelease)
 	if err != nil {
 		return nil, err
 	}
-	histClient := action.NewHistory(&c.Cfg)
-	histClient.Max = 1
-	releases, err := histClient.Run(releaseName)
+	invRelease := inventory.NewHelmReleaseItem(
+		componentID,
+		installedRelease.Name,
+		installedRelease.Namespace,
+	)
+	buf := &bytes.Buffer{}
+	if err := json.NewEncoder(buf).Encode(installedRelease); err != nil {
+		return nil, err
+	}
+	if err := c.inventoryManager.StoreItem(invRelease, buf); err != nil {
+		return nil, err
+	}
+	return installedRelease, nil
+}
+
+func (c ChartReconciler) doReconcile(ctx context.Context, componentID string, desiredRelease ReleaseDeclaration) (*Release, error) {
+	logArgs := []interface{}{"name", desiredRelease.Chart.Name, "url", desiredRelease.Chart.RepoURL, "version", desiredRelease.Chart.Version, "releasename", desiredRelease.Name, "namespace", desiredRelease.Namespace}
+	c.log.Info("Loading chart", logArgs...)
+	chrt, err := c.load(desiredRelease.Chart, logArgs)
+	if err != nil {
+		return nil, err
+	}
+	histClient := action.NewHistory(&c.cfg)
+	histClient.Max = 2
+	releases, err := histClient.Run(desiredRelease.Name)
 	if err != nil {
 		if err != driver.ErrReleaseNotFound {
 			return nil, err
 		}
-		return c.install(releaseName, namespace, logArgs, chrt, reconcileOpts)
+		return c.install(desiredRelease, chrt, logArgs)
 	}
 	if len(releases) == 1 {
 		if releases[0].Info.Status == release.StatusPendingInstall {
 			if err := c.reset(releases[0], logArgs); err != nil {
 				return nil, err
 			}
-			return c.install(releaseName, namespace, logArgs, chrt, reconcileOpts)
+			return c.install(desiredRelease, chrt, logArgs)
 		}
 	}
-	upgrade := action.NewUpgrade(&c.Cfg)
-	upgrade.Wait = false
-	upgrade.Namespace = namespace
-	upgrade.MaxHistory = 5
-	runUpgrade := func() (*release.Release, error) {
-		c.Log.Info("Upgrading release", logArgs...)
-		return upgrade.Run(releaseName, chrt, reconcileOpts.values)
-	}
-	release, err := runUpgrade()
+	driftType, err := c.diff(ctx, componentID, desiredRelease, chrt, logArgs)
 	if err != nil {
 		release := releases[len(releases)-1]
-		if release.Info.Status.IsPending() {
-			if err := c.reset(release, logArgs); err != nil {
-				return nil, err
-			}
-			return runUpgrade()
-		} else {
+		if !release.Info.Status.IsPending() {
 			return nil, err
 		}
+		if err := c.reset(release, logArgs); err != nil {
+			return nil, err
+		}
+		driftType = driftTypeUpdate
 	}
-	return release, nil
-}
-
-func (c ChartReconciler) install(releaseName string, namespace string, logArgs []interface{}, chrt *chart.Chart, reconcileOpts *options) (*release.Release, error) {
-	install := action.NewInstall(&c.Cfg)
-	install.Wait = false
-	install.ReleaseName = releaseName
-	install.CreateNamespace = true
-	install.Namespace = namespace
-	c.Log.Info("Installing chart", logArgs...)
-	release, err := install.Run(chrt, reconcileOpts.values)
+	if driftType == driftTypeNone {
+		c.log.Info("No changes", logArgs...)
+		latestInternalRelease := releases[len(releases)-1]
+		return &Release{
+			Name:      latestInternalRelease.Name,
+			Namespace: latestInternalRelease.Namespace,
+			Chart:     desiredRelease.Chart,
+			Values:    desiredRelease.Values,
+			Version:   latestInternalRelease.Version,
+		}, nil
+	}
+	upgrade := action.NewUpgrade(&c.cfg)
+	upgrade.Wait = false
+	upgrade.Namespace = desiredRelease.Namespace
+	upgrade.MaxHistory = 5
+	if driftType == driftTypeConflict {
+		upgrade.Force = true
+	}
+	c.log.Info("Upgrading release", logArgs...)
+	release, err := upgrade.Run(desiredRelease.Name, chrt, desiredRelease.Values)
 	if err != nil {
-		c.Log.Error(err, "Installing chart failed", logArgs...)
 		return nil, err
 	}
-	return release, nil
+	return &Release{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		Chart:     desiredRelease.Chart,
+		Values:    desiredRelease.Values,
+		Version:   release.Version,
+	}, nil
+}
+
+type driftType string
+
+const (
+	driftTypeConflict driftType = "conflict"
+	driftTypeDeleted            = "deleted"
+	driftTypeUpdate             = "update"
+	driftTypeNone               = "none"
+)
+
+func (c ChartReconciler) diff(ctx context.Context, componentID string, desiredRelease ReleaseDeclaration, loadedChart *chart.Chart, logArgs []interface{}) (driftType, error) {
+	upgrade := action.NewUpgrade(&c.cfg)
+	upgrade.Wait = false
+	upgrade.Namespace = desiredRelease.Namespace
+	upgrade.DryRun = true
+	release, err := upgrade.Run(desiredRelease.Name, loadedChart, desiredRelease.Values)
+	if err != nil {
+		return "", err
+	}
+	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
+	for {
+		var unstr map[string]interface{}
+		if err = decoder.Decode(&unstr); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", err
+		}
+		if len(unstr) == 0 {
+			continue
+		}
+		newManifest := &unstructured.Unstructured{Object: unstr}
+		obj, err := c.client.Get(ctx, newManifest)
+		if err != nil {
+			switch k8sErrors.ReasonForError(err) {
+			case v1.StatusReasonNotFound:
+				return driftTypeDeleted, nil
+			}
+			return "", err
+		}
+		if obj == nil {
+			return driftTypeDeleted, nil
+		}
+		if err := c.client.Apply(ctx, newManifest, c.fieldManager, kube.DryRun(true)); err != nil {
+			switch k8sErrors.ReasonForError(err) {
+			case v1.StatusReasonUnknown:
+				return "", err
+			}
+			logArgs = append(logArgs, "manifest", newManifest.GetName(), "kind", newManifest.GetKind(), "apiVersion", newManifest.GetAPIVersion(), "err", err)
+			c.log.V(1).Info("Drift detected", logArgs...)
+			return driftTypeConflict, nil
+		}
+	}
+	contentReader, err := c.inventoryManager.GetItem(inventory.NewHelmReleaseItem(componentID, desiredRelease.Name, desiredRelease.Namespace))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return driftTypeDeleted, nil
+		}
+		return "", err
+	}
+	defer contentReader.Close()
+	storedRelease := Release{}
+	if err := json.NewDecoder(contentReader).Decode(&storedRelease); err != nil {
+		return "", err
+	}
+	if isEqual := cmp.Equal(desiredRelease, ReleaseDeclaration{
+		Name:      storedRelease.Name,
+		Namespace: storedRelease.Namespace,
+		Chart:     storedRelease.Chart,
+		Values:    storedRelease.Values,
+	}); isEqual {
+		return driftTypeNone, nil
+	}
+	return driftTypeUpdate, nil
+}
+
+func (c ChartReconciler) install(desiredRelease ReleaseDeclaration, loadedChart *chart.Chart, logArgs []interface{}) (*Release, error) {
+	install := action.NewInstall(&c.cfg)
+	install.Wait = false
+	install.ReleaseName = desiredRelease.Name
+	install.CreateNamespace = true
+	install.Namespace = desiredRelease.Namespace
+	c.log.Info("Installing chart", logArgs...)
+	release, err := install.Run(loadedChart, desiredRelease.Values)
+	if err != nil {
+		c.log.Error(err, "Installing chart failed", logArgs...)
+		return nil, err
+	}
+	return &Release{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		Chart:     desiredRelease.Chart,
+		Values:    desiredRelease.Values,
+		Version:   release.Version,
+	}, nil
 }
 
 func (c ChartReconciler) reset(release *release.Release, logArgs []interface{}) error {
-	c.Log.Info("Resetting dangling release", logArgs...)
-	_, err := c.Cfg.Releases.Delete(release.Name, release.Version)
+	c.log.Info("Resetting dangling release", logArgs...)
+	_, err := c.cfg.Releases.Delete(release.Name, release.Version)
 	if err != nil {
-		c.Log.Error(err, "Resetting dangling release failed", logArgs...)
+		c.log.Error(err, "Resetting dangling release failed", logArgs...)
 		return err
 	}
 	return nil
@@ -161,7 +271,7 @@ func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart
 	if err != nil {
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
-			c.Log.Info("Pulling chart", logArgs...)
+			c.log.Info("Pulling chart", logArgs...)
 			if err := c.pull(chartRequest, archivePath.dir); err != nil {
 				return nil, err
 			}
@@ -177,7 +287,7 @@ func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart
 }
 
 func (c ChartReconciler) pull(chartRequest Chart, chartDestPath string) error {
-	pull := action.NewPullWithOpts(action.WithConfig(&c.Cfg))
+	pull := action.NewPullWithOpts(action.WithConfig(&c.cfg))
 	pull.DestDir = chartDestPath
 	var chartRef string
 	if registry.IsOCI(chartRequest.RepoURL) {
@@ -227,4 +337,38 @@ func newArchivePath(chart Chart) archivePath {
 		dir:      chartDestPath,
 		fullPath: fullPath,
 	}
+}
+
+// ReleaseMetadata is a small representation of a Release.
+// Release is a running instance of a Chart.
+// When a chart is installed, the ChartReconciler creates a release to track that installation.
+type ReleaseMetadata struct {
+	componentID string
+	name        string
+	namespace   string
+}
+
+// NewReleaseMetadata constructs a ReleaseMetadata,
+// which is a small representation of a Release.
+func NewReleaseMetadata(componentID string, name string, namespace string) ReleaseMetadata {
+	return ReleaseMetadata{
+		componentID: componentID,
+		name:        name,
+		namespace:   namespace,
+	}
+}
+
+// Name of the helm release.
+func (hr ReleaseMetadata) Name() string {
+	return hr.name
+}
+
+// Namespace of the helm release.
+func (hr ReleaseMetadata) Namespace() string {
+	return hr.namespace
+}
+
+// ComponentID is a link to the component this release belongs to.
+func (hr ReleaseMetadata) ComponentID() string {
+	return hr.componentID
 }
