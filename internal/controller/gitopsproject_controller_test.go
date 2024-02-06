@@ -20,7 +20,7 @@ var _ = Describe("GitOpsProject controller", func() {
 		GitOpsProjectName      = "test"
 		GitOpsProjectNamespace = "default"
 
-		duration                = time.Second * 15
+		duration                = time.Second * 30
 		intervalInSeconds       = 5
 		assertionInterval       = (intervalInSeconds + 1) * time.Second
 		projectCreationTimeout  = time.Second * 20
@@ -72,45 +72,58 @@ var _ = Describe("GitOpsProject controller", func() {
 
 		When("The pull interval is greater than or equal to 5 seconds", func() {
 			AfterEach(func() {
-				err := k8sClient.DeleteAllOf(env.Ctx, &gitopsv1.GitOpsProject{}, client.InNamespace(GitOpsProjectNamespace))
+				err := k8sClient.DeleteAllOf(
+					env.Ctx,
+					&gitopsv1.GitOpsProject{},
+					client.InNamespace(GitOpsProjectNamespace),
+				)
 				Expect(err).NotTo(HaveOccurred())
-				err = k8sClient.DeleteAllOf(env.Ctx, &appsv1.Deployment{}, client.InNamespace("podinfo"))
+				err = k8sClient.DeleteAllOf(
+					env.Ctx,
+					&appsv1.Deployment{},
+					client.InNamespace("podinfo"),
+				)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
-			It("Should reconcile the declared cluster state with the current cluster state", func() {
-				ctx := context.Background()
-				Eventually(func() error {
-					return k8sClient.Create(ctx, &gitOpsProject)
-				}, projectCreationTimeout, projectCreationInterval).Should(BeNil())
-				Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
-				Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
-				Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
-				By("Cloning a decl gitops repository, building manifests and applying them onto the cluster")
-				Eventually(func() (string, error) {
-					var namespace corev1.Namespace
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prometheus", Namespace: ""}, &namespace); err != nil {
-						return "", err
-					}
-					return namespace.GetName(), nil
-				}, duration, assertionInterval).Should(Equal("prometheus"))
+			It(
+				"Should reconcile the declared cluster state with the current cluster state",
+				func() {
+					ctx := context.Background()
+					Eventually(func() error {
+						return k8sClient.Create(ctx, &gitOpsProject)
+					}, projectCreationTimeout, projectCreationInterval).Should(BeNil())
+					Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
+					Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
+					Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
+					By(
+						"Cloning a decl gitops repository, building manifests and applying them onto the cluster",
+					)
+					Eventually(func() (string, error) {
+						var namespace corev1.Namespace
+						if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prometheus", Namespace: ""}, &namespace); err != nil {
+							return "", err
+						}
+						return namespace.GetName(), nil
+					}, duration, assertionInterval).Should(Equal("prometheus"))
 
-				Eventually(func() (string, error) {
-					var deployment appsv1.Deployment
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment); err != nil {
-						return "", err
-					}
-					return deployment.GetName(), nil
-				}, duration, assertionInterval).Should(Equal("mysubcomponent"))
+					Eventually(func() (string, error) {
+						var deployment appsv1.Deployment
+						if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment); err != nil {
+							return "", err
+						}
+						return deployment.GetName(), nil
+					}, duration, assertionInterval).Should(Equal("mysubcomponent"))
 
-				Eventually(func() (int, error) {
-					var updatedGitOpsProject gitopsv1.GitOpsProject
-					if err := k8sClient.Get(ctx, types.NamespacedName{Name: GitOpsProjectName, Namespace: GitOpsProjectNamespace}, &updatedGitOpsProject); err != nil {
-						return 0, err
-					}
-					return len(updatedGitOpsProject.Status.Conditions), nil
-				}, duration, assertionInterval).Should(Equal(2))
-			})
+					Eventually(func() (int, error) {
+						var updatedGitOpsProject gitopsv1.GitOpsProject
+						if err := k8sClient.Get(ctx, types.NamespacedName{Name: GitOpsProjectName, Namespace: GitOpsProjectNamespace}, &updatedGitOpsProject); err != nil {
+							return 0, err
+						}
+						return len(updatedGitOpsProject.Status.Conditions), nil
+					}, duration, assertionInterval).Should(Equal(2))
+				},
+			)
 		})
 
 	})

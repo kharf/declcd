@@ -13,12 +13,10 @@ func main() {
 	if len(args) > 0 {
 		testToRun = args[0]
 	}
-
 	var pkgs string
 	if len(args) > 1 {
 		pkgs = args[1]
 	}
-
 	if err := build.RunWith(
 		build.Test{ID: testToRun, Package: pkgs},
 	); err != nil {

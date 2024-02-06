@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/otiai10/copy"
+	"golang.org/x/sync/errgroup"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
@@ -42,24 +43,38 @@ var (
 	ErrKeyNotFound   = errors.New("decryption key not found")
 )
 
+// Manager is capable of encrypting and decrypting secrets for a declcd gitops project.
+// See [Decrypter] and [Encrpyter].
+// Its main purpose is to maintain the encryption/decryption keys.
 type Manager struct {
 	Encrypter
 	Decrypter
+	// Namespace of the decryption key secret.
 	namespace string
 }
 
-func NewManager(projectRoot string, namespace string, kubeClient kube.Client[unstructured.Unstructured]) Manager {
+func NewManager(
+	projectRoot string,
+	namespace string,
+	kubeClient kube.Client[unstructured.Unstructured],
+	workerPoolSize int,
+) Manager {
 	return Manager{
 		Encrypter: NewEncrypter(projectRoot),
-		Decrypter: NewDecrypter(namespace, kubeClient),
+		Decrypter: NewDecrypter(namespace, kubeClient, workerPoolSize),
 		namespace: namespace,
 	}
 }
 
+// Namespace of the decryption key secret.
 func (manager Manager) Namespace() string {
 	return manager.namespace
 }
 
+// CreateKeyIfNotExists creates the public/private key pair to encrypt and decrypt secrets of a declcd gitops project
+// if the corresponding Kubernetes secret is not found.
+// On creation it completely rewrites the secret/recipients.cue and secret/secrets.cue files
+// and applies the decryption key as a Kubernetes secret.
 func (manager Manager) CreateKeyIfNotExists(ctx context.Context, fieldManager string) error {
 	sec, err := manager.getSecret(ctx)
 	if err != nil {
@@ -90,7 +105,7 @@ func (manager Manager) CreateKeyIfNotExists(ctx context.Context, fieldManager st
 	if err := manager.writeRecipientFile(identity.Recipient().String(), manager.projectRoot); err != nil {
 		return err
 	}
-	if err := manager.writeSecretsStateFile(make([]encryptedInstance, 0, 0)); err != nil {
+	if err := manager.writeSecretsStateFile(make([]encryptedInstance, 0)); err != nil {
 		return err
 	}
 	return nil
@@ -117,7 +132,9 @@ func (manager Manager) writeRecipientFile(recipient string, projectRoot string) 
 	if err != nil {
 		return err
 	}
-	_, err = file.WriteString(fmt.Sprintf("%s %s\n\n%s", "package", SecretsStatePackage, string(recipientFileCueDef)))
+	_, err = file.WriteString(
+		fmt.Sprintf("%s %s\n\n%s", "package", SecretsStatePackage, string(recipientFileCueDef)),
+	)
 	if err != nil {
 		return err
 	}
@@ -139,6 +156,8 @@ type RecipientFile struct {
 
 type file string
 
+// Encrypter reads the public encryption key from the secret/recipients.cue file and uses it
+// to encrypt every secret found in the declcd gitops repository.
 type Encrypter struct {
 	projectRoot string
 }
@@ -149,6 +168,8 @@ func NewEncrypter(projectRoot string) Encrypter {
 	}
 }
 
+// EncryptComponent reads the public encryption key from the secret/recipients.cue file and uses it
+// to encrypt every secret found in the declcd gitops repository and stores the encrypted files in secret/secrets.cue.
 func (enc Encrypter) EncryptComponent(component string) error {
 	componentValue, err := internalCue.BuildPackage(component, enc.projectRoot)
 	if err != nil {
@@ -197,7 +218,9 @@ func (enc Encrypter) writeSecretsStateFile(encryptedInstances []encryptedInstanc
 	if err != nil {
 		return err
 	}
-	_, err = file.WriteString(fmt.Sprintf("%s %s\n\n%s", "package", SecretsStatePackage, string(secretsStateFileCueDef)))
+	_, err = file.WriteString(
+		fmt.Sprintf("%s %s\n\n%s", "package", SecretsStatePackage, string(secretsStateFileCueDef)),
+	)
 	if err != nil {
 		return err
 	}
@@ -299,9 +322,23 @@ func (instance instance) encrypt(recipient *age.X25519Recipient) (*encryptedInst
 		if value, exists := instance.positionValueMap[pos]; exists {
 			switch value.lineValueType {
 			case sensitiveString:
-				_, err = omitWriter.WriteString(strings.Replace(lineStr, value.content, fmt.Sprintf("\"%s\"", omittedValueText), 1))
+				_, err = omitWriter.WriteString(
+					strings.Replace(
+						lineStr,
+						value.content,
+						fmt.Sprintf("\"%s\"", omittedValueText),
+						1,
+					),
+				)
 			case sensitiveBytes:
-				_, err = omitWriter.WriteString(strings.Replace(lineStr, value.content, fmt.Sprintf("'%s'", omittedValueText), 1))
+				_, err = omitWriter.WriteString(
+					strings.Replace(
+						lineStr,
+						value.content,
+						fmt.Sprintf("'%s'", omittedValueText),
+						1,
+					),
+				)
 			case multiLineQuotesBegin, multiLineQuotesEnd:
 				_, err = omitWriter.WriteString(lineStr)
 			case multiLineSensitiveContent:
@@ -380,10 +417,10 @@ func locateSecrets(value cue.Value) ([]instance, error) {
 		if dataValue.Err() != nil && stringDataValue.Err() != nil {
 			return true
 		}
-		if err = gatherDataFromKubernetesSecret(dataValue, positionalSecretData); err != nil {
+		if err = dereferenceData(dataValue, positionalSecretData); err != nil {
 			return false
 		}
-		if err = gatherDataFromKubernetesSecret(stringDataValue, positionalSecretData); err != nil {
+		if err = dereferenceData(stringDataValue, positionalSecretData); err != nil {
 			return false
 		}
 		return true
@@ -392,7 +429,6 @@ func locateSecrets(value cue.Value) ([]instance, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	instances := make([]instance, 0, len(positionalSecretData))
 	for f, v := range positionalSecretData {
 		instances = append(instances, instance{
@@ -403,7 +439,7 @@ func locateSecrets(value cue.Value) ([]instance, error) {
 	return instances, nil
 }
 
-func gatherDataFromKubernetesSecret(dataValue cue.Value, dst positionalSecretData) error {
+func dereferenceData(dataValue cue.Value, dst positionalSecretData) error {
 	fIter, err := dataValue.Fields()
 	if err != nil {
 		return err
@@ -411,39 +447,58 @@ func gatherDataFromKubernetesSecret(dataValue cue.Value, dst positionalSecretDat
 	for fIter.Next() {
 		secretValue := fIter.Value()
 		secretFile := file(secretValue.Pos().Filename())
-		basicLit := secretValue.Syntax().(*ast.BasicLit)
 		pos := secretValue.Pos().Line()
-		var lines []string
-		if isCueMultiLineString(basicLit.Value) {
-			lines = strings.Split(basicLit.Value, "\n")
-			length := len(lines)
-			for i, v := range lines {
-				lineValueType := multiLineSensitiveContent
-				if i == 0 {
-					lineValueType = multiLineQuotesBegin
-				} else if i == length-1 {
-					lineValueType = multiLineQuotesEnd
-				}
-				dst.add(secretFile, pos, lineValue{
-					lineValueType: lineValueType,
-					content:       v,
-					offset:        i,
-				})
-				pos += 1
+		switch secretValue.Syntax().(type) {
+		case *ast.BasicLit:
+			basicLit := secretValue.Syntax().(*ast.BasicLit)
+			dereferenceLiteral(basicLit, dst, secretFile, pos)
+		case *ast.BinaryExpr:
+			binaryExpr := secretValue.Syntax().(*ast.BinaryExpr)
+			switch binaryExpr.X.(type) {
+			case *ast.BasicLit:
+				basicLit := binaryExpr.X.(*ast.BasicLit)
+				dereferenceLiteral(basicLit, dst, secretFile, pos)
 			}
-		} else {
-			lineValueType := sensitiveBytes
-			value := basicLit.Value
-			if isCueString(value) {
-				lineValueType = sensitiveString
-			}
-			dst.add(secretFile, pos, lineValue{
-				lineValueType: lineValueType,
-				content:       value,
-			})
 		}
 	}
 	return nil
+}
+
+func dereferenceLiteral(
+	basicLit *ast.BasicLit,
+	dst positionalSecretData,
+	secretFile file,
+	pos int,
+) {
+	var lines []string
+	if isCueMultiLineString(basicLit.Value) {
+		lines = strings.Split(basicLit.Value, "\n")
+		length := len(lines)
+		for i, v := range lines {
+			lineValueType := multiLineSensitiveContent
+			if i == 0 {
+				lineValueType = multiLineQuotesBegin
+			} else if i == length-1 {
+				lineValueType = multiLineQuotesEnd
+			}
+			dst.add(secretFile, pos, lineValue{
+				lineValueType: lineValueType,
+				content:       v,
+				offset:        i,
+			})
+			pos += 1
+		}
+	} else {
+		lineValueType := sensitiveBytes
+		value := basicLit.Value
+		if isCueString(value) {
+			lineValueType = sensitiveString
+		}
+		dst.add(secretFile, pos, lineValue{
+			lineValueType: lineValueType,
+			content:       value,
+		})
+	}
 }
 
 func isCueString(str string) bool {
@@ -483,7 +538,10 @@ type encryptWriter struct {
 	close func() error
 }
 
-func newBufferedEncryptWriter(out io.Writer, recipient *age.X25519Recipient) (*encryptWriter, error) {
+func newBufferedEncryptWriter(
+	out io.Writer,
+	recipient *age.X25519Recipient,
+) (*encryptWriter, error) {
 	armorWriter := armor.NewWriter(out)
 	ageWriter, err := age.Encrypt(armorWriter, recipient)
 	if err != nil {
@@ -509,59 +567,103 @@ func (w encryptWriter) Close() error {
 	return w.close()
 }
 
+// Decrypter reads the private decryption key from a Kubernetes secret and uses it
+// to decrypt every encrypted secret found in the secrets/secrets.cue file in the declcd gitops repository.
 type Decrypter struct {
 	namespace  string
 	kubeClient kube.Client[unstructured.Unstructured]
+	// The amount of worker goroutines to be used to decrypt the files concurrently.
+	workerPoolSize int
 }
 
 func NewDecrypter(
 	namespace string,
 	kubeClient kube.Client[unstructured.Unstructured],
+	workerPoolSize int,
 ) Decrypter {
 	return Decrypter{
-		namespace:  namespace,
-		kubeClient: kubeClient,
+		namespace:      namespace,
+		kubeClient:     kubeClient,
+		workerPoolSize: workerPoolSize,
 	}
 }
 
+// Decrypt reads the private decryption key from a Kubernetes secret and uses it
+// to decrypt every encrypted secret found in the secrets/secrets.cue file in the declcd gitops repository.
+// It returns the path to the decrypted declcd project.
 func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, error) {
 	decryptedProjectPath := fmt.Sprintf("%s-%s", projectRoot, "dec")
-	if err := os.RemoveAll(decryptedProjectPath); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(decryptedProjectPath, 0700); err != nil {
-		return "", err
-	}
-	if err := copy.Copy(projectRoot, decryptedProjectPath); err != nil {
-		return "", err
-	}
-	state, err := lookupState(decryptedProjectPath)
-	if err != nil {
-		return "", err
-	}
-	unstrSec, err := dec.getSecret(ctx)
-	if err != nil {
-		return "", err
-	}
-	var sec v1.Secret
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstrSec.Object, &sec)
-	if err != nil {
-		return "", err
-	}
-	privKey := sec.Data[K8sSecretDataKey]
-	identity, err := age.ParseX25519Identity(string(privKey))
-	if err != nil {
-		return "", err
-	}
-	for fileName, v := range state.secretsFile.Secrets {
-		armorReader := armor.NewReader(strings.NewReader(v))
-		ageReader, err := age.Decrypt(armorReader, identity)
-		if err != nil {
-			return "", err
+	eg := &errgroup.Group{}
+	eg.SetLimit(dec.workerPoolSize)
+	stateChan := make(chan *state, 1)
+	identityChan := make(chan *age.X25519Identity, 1)
+	eg.Go(func() error {
+		if err := os.RemoveAll(decryptedProjectPath); err != nil {
+			return err
 		}
-		err = replaceFile(filepath.Join(decryptedProjectPath, fileName), ageReader)
+		if err := os.MkdirAll(decryptedProjectPath, 0700); err != nil {
+			return err
+		}
+		if err := copy.Copy(projectRoot, decryptedProjectPath); err != nil {
+			return err
+		}
+		state, err := lookupState(decryptedProjectPath)
+		if err != nil {
+			return err
+		}
+		stateChan <- state
+		return nil
+	})
+	eg.Go(func() error {
+		unstrSec, err := dec.getSecret(ctx)
+		if err != nil {
+			return err
+		}
+		var sec v1.Secret
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstrSec.Object, &sec)
+		if err != nil {
+			return err
+		}
+		privKey := sec.Data[K8sSecretDataKey]
+		identity, err := age.ParseX25519Identity(string(privKey))
+		if err != nil {
+			return err
+		}
+		identityChan <- identity
+		return nil
+	})
+	if err := eg.Wait(); err != nil {
+		return "", err
+	}
+	state := <-stateChan
+	identity := <-identityChan
+	for fileName, secret := range state.secretsFile.Secrets {
+		eg.Go(func() error {
+			return decrpyt(fileName, secret, decryptedProjectPath, identity)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return "", err
 	}
 	return decryptedProjectPath, nil
+}
+
+func decrpyt(
+	fileName string,
+	secret string,
+	decryptedProjectPath string,
+	identity age.Identity,
+) error {
+	armorReader := armor.NewReader(strings.NewReader(secret))
+	ageReader, err := age.Decrypt(armorReader, identity)
+	if err != nil {
+		return err
+	}
+	err = replaceFile(filepath.Join(decryptedProjectPath, fileName), ageReader)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (dec Decrypter) getSecret(ctx context.Context) (*unstructured.Unstructured, error) {

@@ -26,7 +26,8 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels,
 			},
-			Replicas: &replicas,
+			ServiceName: controllerName,
+			Replicas:    &replicas,
 			VolumeClaimTemplates: []v1.PersistentVolumeClaim{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -73,7 +74,10 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 							Name:    controllerName,
 							Image:   "ghcr.io/kharf/declcd:latest",
 							Command: []string{"/controller"},
-							Args:    []string{"--leader-elect"},
+							Args: []string{
+								"--leader-elect",
+								"--log-level=0",
+							},
 							SecurityContext: &v1.SecurityContext{
 								AllowPrivilegeEscalation: &allowPriviligeEscalation,
 								Capabilities: &v1.Capabilities{
@@ -91,6 +95,12 @@ func StatefulSet(controllerName string, labels map[string]string, ns string) *ap
 									v1.ResourceMemory: resource.MustParse("1.5Gi"),
 								},
 							},
+							Ports: []v1.ContainerPort{
+								{
+									Name:          "http",
+									Protocol:      v1.ProtocolTCP,
+									ContainerPort: 8080,
+								}},
 							VolumeMounts: []v1.VolumeMount{
 								{
 									Name:      pvcName,

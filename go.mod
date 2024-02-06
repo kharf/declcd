@@ -1,6 +1,6 @@
 module github.com/kharf/declcd
 
-go 1.21
+go 1.22.0
 
 require (
 	cuelang.org/go v0.7.0
@@ -8,11 +8,13 @@ require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/google/go-containerregistry v0.19.0
 	github.com/google/go-github/v58 v58.0.0
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.7
 	github.com/onsi/ginkgo/v2 v2.15.0
 	github.com/onsi/gomega v1.31.1
 	github.com/otiai10/copy v1.14.0
 	github.com/spf13/viper v1.18.2
 	github.com/xanzy/go-gitlab v0.97.0
+	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.26.0
 	gotest.tools/v3 v3.5.1
 	helm.sh/helm/v3 v3.14.0
@@ -120,7 +122,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/klauspost/compress v1.17.0 // indirect
+	github.com/klauspost/compress v1.17.3 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
@@ -146,7 +148,7 @@ require (
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_golang v1.18.0 // indirect
+	github.com/prometheus/client_golang v1.18.0
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect

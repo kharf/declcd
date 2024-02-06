@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"path/filepath"
+	"time"
 
 	"dagger.io/dagger"
 )
@@ -27,17 +28,18 @@ func (t Test) name() string {
 
 func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	testBase := request.container.
-		WithExec([]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"}).
+		WithExec(
+			[]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"},
+		).
 		WithExec([]string{envTest, "use", "1.26.1", "--bin-dir", localBin, "-p", "path"})
 
 	apiServerPath, err := testBase.Stdout(ctx)
 	if err != nil {
 		return nil, err
 	}
-
 	prepareTest := testBase.WithWorkdir(workDir).
-		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath))
-
+		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath)).
+		WithEnvVariable("CACHEBUSTER", time.Now().String())
 	var test *dagger.Container
 	if t.ID == TestAllArg {
 		test = prepareTest.
@@ -51,7 +53,6 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 				WithExec([]string{"go", "test", "-v", "./" + t.Package, "-run", t.ID})
 		}
 	}
-
 	return &stepResult{
 		container: test.WithWorkdir(workDir),
 	}, nil

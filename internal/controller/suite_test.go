@@ -17,16 +17,16 @@ limitations under the License.
 package controller
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubectl/pkg/scheme"
+	goRuntime "runtime"
 
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
@@ -34,9 +34,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 
@@ -81,34 +79,32 @@ var _ = BeforeSuite(func() {
 	err = client.Apply(env.Ctx, unstr, "controller")
 	Expect(err).NotTo(HaveOccurred())
 	chartReconciler := helm.NewChartReconciler(
-		env.HelmEnv.HelmConfig,
+		env.ControlPlane.Config,
 		env.DynamicTestKubeClient,
-		"",
+		"controller",
 		env.InventoryManager,
 		env.Log,
 	)
-	inventoryManager := inventory.Manager{
-		Log:  env.Log,
-		Path: filepath.Join(os.TempDir(), "inventory"),
-	}
+	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "declcd",
+		Name:      "reconciliation_duration_seconds",
+		Help:      "Duration of a GitOps Project reconciliation",
+	}, []string{"project", "url"})
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
-		InventoryManager:  inventoryManager,
+		InventoryManager:  env.InventoryManager,
 		Log:               env.Log,
-		GarbageCollector: garbage.Collector{
-			Log:              env.Log,
-			Client:           client,
-			InventoryManager: inventoryManager,
-			HelmConfig:       env.HelmEnv.HelmConfig,
-		},
-		Decrypter: env.SecretManager.Decrypter,
+		GarbageCollector:  env.GarbageCollector,
+		Decrypter:         env.SecretManager.Decrypter,
+		WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
 	}
 	err = (&GitOpsProjectReconciler{
-		Reconciler: reconciler,
+		Reconciler:              reconciler,
+		ReconciliationHistogram: reconciliationHisto,
 	}).SetupWithManager(env.ControllerManager)
 	Expect(err).ToNot(HaveOccurred())
 	go func() {

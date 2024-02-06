@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/secret"
 	_ "github.com/kharf/declcd/test/workingdir"
+	"go.uber.org/goleak"
 	"gotest.tools/v3/assert"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,7 +27,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-var expectedEncryptedContent = `package secrets
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(
+		m,
+	)
+}
+
+var allInOneOmittedContent = `package secrets
 
 import "k8s.io/api/core/v1"
 
@@ -97,7 +105,7 @@ import "k8s.io/api/core/v1"
 }
 `
 
-var expectedDecryptedContent = `package secrets
+var allInOneDecryptedContent = `package secrets
 
 import "k8s.io/api/core/v1"
 
@@ -171,6 +179,64 @@ import "k8s.io/api/core/v1"
 		namespace: #namespace.metadata.name
 	}
 }
+`
+
+var aOmittedContent = `package secrets
+
+import "k8s.io/api/core/v1"
+
+_fooSecret: '(enc;value omitted)'
+
+#a: v1.#Secret & {
+	apiVersion: "v1"
+	kind:       "Secret"
+	metadata: {
+		name:      "secret"
+		namespace: #namespace.metadata.name
+	}
+	data: {
+		foo: _fooSecret
+	}
+}
+`
+
+var aDecryptedContent = `package secrets
+
+import "k8s.io/api/core/v1"
+
+_fooSecret: 'bar'
+
+#a: v1.#Secret & {
+	apiVersion: "v1"
+	kind:       "Secret"
+	metadata: {
+		name:      "secret"
+		namespace: #namespace.metadata.name
+	}
+	data: {
+		foo: _fooSecret
+	}
+}
+`
+
+var bOmittedContent = `package secrets
+
+_bSecret: "(enc;value omitted)"
+`
+
+var bDecryptedContent = `package secrets
+
+_bSecret: "bar"
+`
+
+var cOmittedContent = `package secrets
+
+_cSecretFar: '(enc;value omitted)'
+`
+
+var cDecryptedContent = `package secrets
+
+_cSecretFar: 'bar'
 `
 
 func TestEncrypter_EncryptComponent(t *testing.T) {
@@ -184,22 +250,56 @@ func TestEncrypter_EncryptComponent(t *testing.T) {
 	assert.NilError(t, err)
 	err = secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
 	assert.NilError(t, err)
-	result, err := os.Open(filepath.Join(env.TestProject, "infra/secrets/secrets.cue"))
-	assert.NilError(t, err)
-	defer result.Close()
-	assertCue(t, result, expectedEncryptedContent)
 	secretsFile := readSecretsFile(t, env.TestProject)
-	assert.Equal(t, len(secretsFile.Secrets), 1)
-	for k, v := range secretsFile.Secrets {
-		assert.Equal(t, k, "/infra/secrets/secrets.cue")
-		encReader := strings.NewReader(v)
-		ar := armor.NewReader(encReader)
-		reader, err := age.Decrypt(ar, identity)
-		assert.NilError(t, err)
-		out := &strings.Builder{}
-		_, err = io.Copy(out, reader)
-		assert.NilError(t, err)
-		assert.Equal(t, out.String(), expectedDecryptedContent)
+	assert.Equal(t, len(secretsFile.Secrets), 4)
+	testCases := []struct {
+		name                     string
+		expectedPath             string
+		expectedOmittedContent   string
+		expedtedDecryptedContent string
+	}{
+		{
+			name:                     "AllInOneFile",
+			expectedPath:             "/infra/secrets/secrets.cue",
+			expectedOmittedContent:   allInOneOmittedContent,
+			expedtedDecryptedContent: allInOneDecryptedContent,
+		},
+		{
+			name:                     "A",
+			expectedPath:             "/infra/secrets/a.cue",
+			expectedOmittedContent:   aOmittedContent,
+			expedtedDecryptedContent: aDecryptedContent,
+		},
+		{
+			name:                     "B",
+			expectedPath:             "/infra/secrets/bsecret.cue",
+			expectedOmittedContent:   bOmittedContent,
+			expedtedDecryptedContent: bDecryptedContent,
+		},
+		{
+			name:                     "C",
+			expectedPath:             "/infra/secrets/csecretfar.cue",
+			expectedOmittedContent:   cOmittedContent,
+			expedtedDecryptedContent: cDecryptedContent,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := os.Open(filepath.Join(env.TestProject, tc.expectedPath))
+			assert.NilError(t, err)
+			defer result.Close()
+			assertCue(t, result, tc.expectedOmittedContent)
+			encryptedContent, found := secretsFile.Secrets[tc.expectedPath]
+			assert.Assert(t, found)
+			encReader := strings.NewReader(encryptedContent)
+			ar := armor.NewReader(encReader)
+			reader, err := age.Decrypt(ar, identity)
+			assert.NilError(t, err)
+			out := &strings.Builder{}
+			_, err = io.Copy(out, reader)
+			assert.NilError(t, err)
+			assert.Equal(t, out.String(), tc.expedtedDecryptedContent)
+		})
 	}
 }
 
@@ -245,12 +345,12 @@ func TestDecrypter_Decrypt(t *testing.T) {
 	err := secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
 	assert.NilError(t, err)
 	newProjectRoot, err := secret.NewDecrypter(
-		env.KubetestEnv.SecretManager.Namespace(), env.DynamicTestKubeClient,
+		env.KubetestEnv.SecretManager.Namespace(), env.DynamicTestKubeClient, runtime.GOMAXPROCS(0),
 	).Decrypt(env.Ctx, env.TestProject)
 	assert.NilError(t, err)
 	result, err := os.Open(filepath.Join(newProjectRoot, "infra/secrets/secrets.cue"))
 	assert.NilError(t, err)
-	assertCue(t, result, expectedDecryptedContent)
+	assertCue(t, result, allInOneDecryptedContent)
 	assert.Assert(t, env.TestProject != newProjectRoot)
 }
 
@@ -262,16 +362,25 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 		expectedErr := errors.New("error")
 		err := secret.NewManager(env.TestProject, nsStr, &kubetest.FakeDynamicClient{
 			Err: expectedErr,
-		}).CreateKeyIfNotExists(env.Ctx, "manager")
+		}, runtime.GOMAXPROCS(0)).CreateKeyIfNotExists(env.Ctx, "manager")
 		assert.ErrorIs(t, err, expectedErr)
 		var sec corev1.Secret
-		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
+		err = env.TestKubeClient.Get(
+			env.Ctx,
+			types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName},
+			&sec,
+		)
 		assert.Assert(t, k8sErrors.ReasonForError(err) == v1.StatusReasonNotFound)
 		_, err = os.Open(filepath.Join(env.TestProject, "secrets/recipients.cue"))
 		assert.Assert(t, errors.Is(err, fs.ErrNotExist))
 	})
 	t.Run("Existing", func(t *testing.T) {
-		manager := secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient)
+		manager := secret.NewManager(
+			env.TestProject,
+			nsStr,
+			env.DynamicTestKubeClient,
+			runtime.GOMAXPROCS(0),
+		)
 		err := manager.CreateKeyIfNotExists(env.Ctx, "manager")
 		assert.NilError(t, err)
 		recipientFile := readRecipientFile(t, env.TestProject)
@@ -279,7 +388,11 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 		secretsFile := readSecretsFile(t, env.TestProject)
 		assert.Assert(t, len(secretsFile.Secrets) == 0)
 		var sec corev1.Secret
-		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
+		err = env.TestKubeClient.Get(
+			env.Ctx,
+			types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName},
+			&sec,
+		)
 		assert.NilError(t, err)
 		key, found := sec.Data[secret.K8sSecretDataKey]
 		assert.Assert(t, found)
@@ -291,21 +404,30 @@ func TestManager_CreateKeyIfNotExists(t *testing.T) {
 		secretsFile2 := readSecretsFile(t, env.TestProject)
 		assert.Assert(t, len(secretsFile.Secrets) == 0)
 		var sec2 corev1.Secret
-		err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec2)
+		err = env.TestKubeClient.Get(
+			env.Ctx,
+			types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName},
+			&sec2,
+		)
 		assert.NilError(t, err)
 		key2, found := sec.Data[secret.K8sSecretDataKey]
 		assert.Equal(t, string(key2), string(key))
 		assert.Assert(t, maps.Equal(secretsFile2.Secrets, secretsFile.Secrets))
 		assert.Equal(t, recipientFile2.Recipient, recipientFile.Recipient)
 	})
-	err := secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient).CreateKeyIfNotExists(env.Ctx, "manager")
+	err := secret.NewManager(env.TestProject, nsStr, env.DynamicTestKubeClient, runtime.GOMAXPROCS(0)).
+		CreateKeyIfNotExists(env.Ctx, "manager")
 	assert.NilError(t, err)
 	recipientFile := readRecipientFile(t, env.TestProject)
 	assert.Assert(t, recipientFile.Recipient != "")
 	secretsFile := readSecretsFile(t, env.TestProject)
 	assert.Assert(t, len(secretsFile.Secrets) == 0)
 	var sec corev1.Secret
-	err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName}, &sec)
+	err = env.TestKubeClient.Get(
+		env.Ctx,
+		types.NamespacedName{Namespace: nsStr, Name: secret.K8sSecretName},
+		&sec,
+	)
 	assert.NilError(t, err)
 	key, found := sec.Data[secret.K8sSecretDataKey]
 	assert.Assert(t, found)
@@ -321,4 +443,30 @@ func readRecipientFile(t *testing.T, testProject string) secret.RecipientFile {
 	var instance secret.RecipientFile
 	assert.NilError(t, recipientValue.Decode(&instance))
 	return instance
+}
+
+var decryptResult string
+
+func BenchmarkDecrypter_Decrypt(b *testing.B) {
+	env := projecttest.StartProjectEnv(b,
+		projecttest.WithProjectSource("secret"),
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(false, false),
+			kubetest.WithDecryptionKeyCreated(),
+		),
+	)
+	defer env.Stop()
+	err := secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
+	assert.NilError(b, err)
+	workerPoolSize := runtime.GOMAXPROCS(0)
+	b.ResetTimer()
+	var newProjectRoot string
+	for n := 0; n < b.N; n++ {
+		newProjectRoot, err = secret.NewDecrypter(
+			env.KubetestEnv.SecretManager.Namespace(),
+			env.DynamicTestKubeClient,
+			workerPoolSize,
+		).Decrypt(env.Ctx, env.TestProject)
+	}
+	decryptResult = newProjectRoot
 }

@@ -23,7 +23,9 @@ func BuildPackage(packagePath string, projectRoot string) (*cue.Value, error) {
 	}
 	instances := load.Instances([]string{harmonizedPackagePath}, cfg)
 	if len(instances) > 1 {
-		return nil, fmt.Errorf("too many cue instances found. Make sure to only use a single cue package inside a directory")
+		return nil, fmt.Errorf(
+			"too many cue instances found. Make sure to only use a single cue package inside a directory",
+		)
 	}
 	instance := instances[0]
 	if instance.Err != nil {
