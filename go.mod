@@ -3,7 +3,7 @@ module github.com/kharf/declcd
 go 1.21
 
 require (
-	cuelang.org/go v0.7.0
+	cuelang.org/go v0.7.1
 	filippo.io/age v1.1.1
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/google/go-containerregistry v0.19.0
