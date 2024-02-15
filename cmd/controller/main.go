@@ -18,10 +18,15 @@ package main
 
 import (
 	"flag"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"go.uber.org/zap/zapcore"
-	"helm.sh/helm/v3/pkg/action"
 	helmKube "helm.sh/helm/v3/pkg/kube"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -47,6 +52,7 @@ import (
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
+	goRuntime "runtime"
 )
 
 var (
@@ -64,18 +70,28 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var logLevel int
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(
+		&metricsAddr,
+		"metrics-bind-address",
+		":8080",
+		"The address the metric endpoint binds to.",
+	)
+	flag.StringVar(
+		&probeAddr,
+		"health-probe-bind-address",
+		":8081",
+		"The address the probe endpoint binds to.",
+	)
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.IntVar(&logLevel, "log-level", 0, "The verbosity level. Higher means chattier.")
+	flag.Parse()
 	opts := ctrlZap.Options{
 		Development: false,
 		Level:       zapcore.Level(logLevel * -1),
 	}
 	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&opts))
 	ctrl.SetLogger(log)
 	cfg := ctrl.GetConfigOrDie()
@@ -83,6 +99,9 @@ func main() {
 		Scheme: scheme,
 		Metrics: server.Options{
 			BindAddress: metricsAddr,
+			ExtraHandlers: map[string]http.Handler{
+				"/debug/pprof/": http.DefaultServeMux,
+			},
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -104,36 +123,37 @@ func main() {
 		os.Exit(1)
 	}
 	componentBuilder := component.NewBuilder()
-	projectManager := project.NewManager(componentBuilder, log)
-	helmCfg := action.Configuration{}
-	getter := kube.InMemoryRESTClientGetter{
-		Cfg:        cfg,
-		RestMapper: mgr.GetRESTMapper(),
-	}
-	voidLog := func(string, ...interface{}) {}
-	err = helmCfg.Init(getter, "default", "secret", voidLog)
-	if err != nil {
-		setupLog.Error(err, "Unable to init helm")
-		os.Exit(1)
-	}
+	maxProcs := goRuntime.GOMAXPROCS(0)
+	projectManager := project.NewManager(componentBuilder, log, maxProcs)
 	//TODO: downward api read controller from file
 	helmKube.ManagedFieldsManager = install.ControllerName
 	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
-	helmCfg.KubeClient = &kube.HelmClient{
-		Client:        helmCfg.KubeClient.(*helmKube.Client),
-		DynamicClient: *kubeDynamicClient,
-		FieldManager:  install.ControllerName,
+	if err != nil {
+		setupLog.Error(err, "Unable to setup Kubernetes client")
+		os.Exit(1)
 	}
-	inventoryManager := inventory.Manager{
+	inventoryManager := &inventory.Manager{
 		Log:  log,
 		Path: "/inventory",
 	}
-	chartReconciler := helm.NewChartReconciler(helmCfg, kubeDynamicClient, install.ControllerName, inventoryManager, log)
+	chartReconciler := helm.NewChartReconciler(
+		cfg,
+		kubeDynamicClient,
+		install.ControllerName,
+		inventoryManager,
+		log,
+	)
 	namespace, err := os.ReadFile("/podinfo/namespace")
 	if err != nil {
 		setupLog.Error(err, "Unable to read current namespace")
 		os.Exit(1)
 	}
+	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "declcd",
+		Name:      "reconciliation_duration_seconds",
+		Help:      "Duration of a GitOps Project reconciliation",
+	}, []string{"project", "url"})
+	metrics.Registry.MustRegister(reconciliationHisto)
 	if err := (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
 			Log:               log,
@@ -145,11 +165,15 @@ func main() {
 			InventoryManager:  inventoryManager,
 			GarbageCollector: garbage.Collector{
 				Log:              log,
+				Client:           kubeDynamicClient,
+				KubeConfig:       cfg,
 				InventoryManager: inventoryManager,
-				HelmConfig:       helmCfg,
+				WorkerPoolSize:   maxProcs,
 			},
-			Decrypter: secret.NewDecrypter(string(namespace), kubeDynamicClient),
+			Decrypter:      secret.NewDecrypter(string(namespace), kubeDynamicClient, maxProcs),
+			WorkerPoolSize: maxProcs,
 		},
+		ReconciliationHistogram: reconciliationHisto,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", "GitOpsProject")
 		os.Exit(1)

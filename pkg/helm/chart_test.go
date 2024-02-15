@@ -52,7 +52,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "Default",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -79,7 +82,14 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
 				var hpa autoscalingv2.HorizontalPodAutoscaler
-				err := env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Name: fixture.expectedReleaseName, Namespace: fixture.expectedNamespace}, &hpa)
+				err := env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{
+						Name:      fixture.expectedReleaseName,
+						Namespace: fixture.expectedNamespace,
+					},
+					&hpa,
+				)
 				assert.NilError(t, err)
 				assert.Equal(t, hpa.Name, fixture.expectedReleaseName)
 				assert.Equal(t, hpa.Namespace, fixture.expectedNamespace)
@@ -88,7 +98,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "OCI",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, true)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, true)),
+				)
 				repoURL := strings.Replace(env.HelmEnv.ChartServer.URL, "http", "oci", 1)
 				chart := Chart{
 					Name:    "test",
@@ -114,7 +127,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "Namespaced",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -139,7 +155,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "Cache",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -171,7 +190,11 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				})
 				assert.NilError(t, err)
 				var deployment appsv1.Deployment
-				err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: "default"}, &deployment)
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "test", Namespace: "default"},
+					&deployment,
+				)
 				assert.Error(t, err, "deployments.apps \"test\" not found")
 				fixture.cleanChart = true
 				fixture.expectedVersion = 2
@@ -181,7 +204,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "Upgrade",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -202,12 +228,19 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				}
 			},
 			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
-				releasesFilePath := filepath.Join(env.TestProject, "infra", "prometheus", "releases.cue")
+				releasesFilePath := filepath.Join(
+					env.TestProject,
+					"infra",
+					"prometheus",
+					"releases.cue",
+				)
 				releasesContent, err := os.ReadFile(releasesFilePath)
 				assert.NilError(t, err)
 				tmpl, err := template.New("releases").Parse(string(releasesContent))
 				assert.NilError(t, err)
-				releasesFile, err := os.Create(filepath.Join(env.TestProject, "infra", "prometheus", "releases.cue"))
+				releasesFile, err := os.Create(
+					filepath.Join(env.TestProject, "infra", "prometheus", "releases.cue"),
+				)
 				assert.NilError(t, err)
 				defer releasesFile.Close()
 				err = tmpl.Execute(releasesFile, struct {
@@ -220,7 +253,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					Version: "2.0.0",
 				})
 				assert.NilError(t, err)
-				err = env.GitRepository.CommitFile("infra/prometheus/releases.cue", "update chart to v2")
+				err = env.GitRepository.CommitFile(
+					"infra/prometheus/releases.cue",
+					"update chart to v2",
+				)
 				assert.NilError(t, err)
 				chart := Chart{
 					Name:    "test",
@@ -236,7 +272,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "NoUpgrade",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -263,7 +302,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "Conflict",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -297,7 +339,12 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						},
 					},
 				}
-				err := env.DynamicTestKubeClient.Apply(env.Ctx, &unstr, "imposter", kube.Force(true))
+				err := env.DynamicTestKubeClient.Apply(
+					env.Ctx,
+					&unstr,
+					"imposter",
+					kube.Force(true),
+				)
 				assert.NilError(t, err)
 				fixture.expectedVersion = 2
 				fixture.testReconcile(t, reconciler, assertChartv1)
@@ -306,7 +353,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "PendingUpgradeRecovery",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -341,7 +391,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		{
 			name: "PendingInstallRecovery",
 			pre: func() (projecttest.ProjectEnv, fixture) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false)))
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: env.HelmEnv.RepositoryServer.URL,
@@ -378,7 +431,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			env, fixture := tc.pre()
 			defer env.Stop()
 			reconciler := NewChartReconciler(
-				env.HelmEnv.HelmConfig,
+				env.ControlPlane.Config,
 				env.DynamicTestKubeClient,
 				"controller",
 				env.InventoryManager,
@@ -393,17 +446,29 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
 	ctx := context.Background()
 	var deployment appsv1.Deployment
-	err := env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &deployment)
+	err := env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&deployment,
+	)
 	assert.NilError(t, err)
 	assert.Equal(t, deployment.Name, liveName)
 	assert.Equal(t, deployment.Namespace, namespace)
 	var svc corev1.Service
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &svc)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svc,
+	)
 	assert.NilError(t, err)
 	assert.Equal(t, svc.Name, liveName)
 	assert.Equal(t, svc.Namespace, namespace)
 	var svcAcc corev1.ServiceAccount
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &svcAcc)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svcAcc,
+	)
 	assert.NilError(t, err)
 	assert.Equal(t, svcAcc.Name, liveName)
 	assert.Equal(t, svcAcc.Namespace, namespace)
@@ -412,20 +477,36 @@ func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, nam
 func assertChartv2(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
 	ctx := context.Background()
 	var deployment appsv1.Deployment
-	err := env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &deployment)
+	err := env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&deployment,
+	)
 	assert.NilError(t, err)
 	assert.Equal(t, deployment.Name, liveName)
 	assert.Equal(t, deployment.Namespace, namespace)
 	var hpa autoscalingv2.HorizontalPodAutoscaler
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &hpa)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&hpa,
+	)
 	assert.Error(t, err, "horizontalpodautoscalers.autoscaling \"test\" not found")
 	var svc corev1.Service
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &svc)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svc,
+	)
 	assert.NilError(t, err)
 	assert.Equal(t, svc.Name, liveName)
 	assert.Equal(t, svc.Namespace, namespace)
 	var svcAcc corev1.ServiceAccount
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: liveName, Namespace: namespace}, &svcAcc)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svcAcc,
+	)
 	assert.Error(t, err, "serviceaccounts \"test\" not found")
 }
 

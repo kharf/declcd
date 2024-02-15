@@ -25,16 +25,16 @@ var (
 // It is a component which is part of the current cluster state.
 type Component struct {
 	id    string
-	items map[string]item
+	items map[string]Item
 }
 
 // Items returns the metadata to all stored objects of this component.
-func (component Component) Items() map[string]item {
+func (component Component) Items() map[string]Item {
 	return component.items
 }
 
 // Item is a small representation of a stored object.
-type item interface {
+type Item interface {
 	TypeMeta() *v1.TypeMeta
 	ComponentID() string
 	Name() string
@@ -51,7 +51,7 @@ type HelmReleaseItem struct {
 	namespace   string
 }
 
-var _ item = (*HelmReleaseItem)(nil)
+var _ Item = (*HelmReleaseItem)(nil)
 
 // NewHelmReleaseItem constructs a ReleaseMetadata,
 // which is a small representation of a Release.
@@ -89,21 +89,26 @@ func (hr HelmReleaseItem) AsKey() string {
 	return fmt.Sprintf("%s_%s_%s_%s", hr.componentID, hr.name, hr.namespace, "HelmRelease")
 }
 
-// Manifest a small inventory representation of a Manifest.
-// Manifest is a Kubernetes object.
-type Manifest struct {
+// ManifestItem a small inventory representation of a ManifestItem.
+// ManifestItem is a Kubernetes object.
+type ManifestItem struct {
 	typeMeta    v1.TypeMeta
 	componentID string
 	name        string
 	namespace   string
 }
 
-var _ item = (*Manifest)(nil)
+var _ Item = (*ManifestItem)(nil)
 
-// NewManifest constructs a manifest,
+// NewManifestItem constructs a manifest,
 // which is a small representation of a Manifest.
-func NewManifest(typeMeta v1.TypeMeta, componentID string, name string, namespace string) Manifest {
-	return Manifest{
+func NewManifestItem(
+	typeMeta v1.TypeMeta,
+	componentID string,
+	name string,
+	namespace string,
+) ManifestItem {
+	return ManifestItem{
 		typeMeta:    typeMeta,
 		componentID: componentID,
 		name:        name,
@@ -112,28 +117,28 @@ func NewManifest(typeMeta v1.TypeMeta, componentID string, name string, namespac
 }
 
 // TypeMeta describes an individual object.
-func (manifest Manifest) TypeMeta() *v1.TypeMeta {
+func (manifest ManifestItem) TypeMeta() *v1.TypeMeta {
 	return &manifest.typeMeta
 }
 
 // Name of the manifest.
-func (manifest Manifest) Name() string {
+func (manifest ManifestItem) Name() string {
 	return manifest.name
 }
 
 // Namespace of the manifest.
-func (manifest Manifest) Namespace() string {
+func (manifest ManifestItem) Namespace() string {
 	return manifest.namespace
 }
 
 // ComponentID is a link to the component this manifest belongs to.
-func (manifest Manifest) ComponentID() string {
+func (manifest ManifestItem) ComponentID() string {
 	return manifest.componentID
 }
 
 // AsKey returns the string representation of the manifest.
 // This is used as an identifier in the inventory.
-func (manifest Manifest) AsKey() string {
+func (manifest ManifestItem) AsKey() string {
 	group := ""
 	version := ""
 	groupVersion := strings.Split(manifest.typeMeta.APIVersion, "/")
@@ -143,22 +148,30 @@ func (manifest Manifest) AsKey() string {
 		group = groupVersion[0]
 		version = groupVersion[1]
 	}
-	return fmt.Sprintf("%s_%s_%s_%s_%s_%s", manifest.componentID, manifest.name, manifest.namespace, manifest.typeMeta.Kind, group, version)
+	return fmt.Sprintf(
+		"%s_%s_%s_%s_%s_%s",
+		manifest.componentID,
+		manifest.name,
+		manifest.namespace,
+		manifest.typeMeta.Kind,
+		group,
+		version,
+	)
 }
 
-// Inventory represents all stored Declcd components.
+// Storage represents all stored Declcd components.
 // It is effectively the current cluster state.
-type storage struct {
+type Storage struct {
 	components map[string]Component
 }
 
 // Components returns all stored Declcd components.
-func (inv storage) Components() map[string]Component {
+func (inv Storage) Components() map[string]Component {
 	return inv.components
 }
 
 // HasItem evaluates whether an item is part of the current cluster state.
-func (inv storage) HasItem(item item) bool {
+func (inv Storage) HasItem(item Item) bool {
 	exists := false
 	if comp, found := inv.components[item.ComponentID()]; found {
 		_, exists = comp.items[item.AsKey()]
@@ -174,7 +187,7 @@ type Manager struct {
 }
 
 // Load reads the current inventory and returns all the stored components.
-func (manager Manager) Load() (*storage, error) {
+func (manager *Manager) Load() (*Storage, error) {
 	if err := os.MkdirAll(manager.Path, 0700); err != nil {
 		return nil, err
 	}
@@ -191,13 +204,16 @@ func (manager Manager) Load() (*storage, error) {
 			if !found {
 				comp = Component{
 					id:    componentID,
-					items: make(map[string]item),
+					items: make(map[string]Item),
 				}
 			}
 			if len(identifier) == 4 {
 				kind := identifier[3]
 				if kind != "HelmRelease" {
-					return fmt.Errorf("%w: key with only 4 identifiers is expected to be a HelmRelease", ErrWrongInventoryKey)
+					return fmt.Errorf(
+						"%w: key with only 4 identifiers is expected to be a HelmRelease",
+						ErrWrongInventoryKey,
+					)
 				}
 				comp.items[key] = NewHelmReleaseItem(
 					componentID,
@@ -216,7 +232,7 @@ func (manager Manager) Load() (*storage, error) {
 				} else {
 					apiVersion = fmt.Sprintf("%s/%s", group, version)
 				}
-				comp.items[key] = NewManifest(
+				comp.items[key] = NewManifestItem(
 					v1.TypeMeta{
 						Kind:       identifier[3],
 						APIVersion: apiVersion,
@@ -233,14 +249,14 @@ func (manager Manager) Load() (*storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &storage{
+	return &Storage{
 		components: components,
 	}, nil
 }
 
 // GetItem opens the item file for reading.
 // If there is an error, it will be of type *PathError.
-func (manager Manager) GetItem(item item) (io.ReadCloser, error) {
+func (manager Manager) GetItem(item Item) (io.ReadCloser, error) {
 	itemFile, err := os.Open(filepath.Join(manager.Path, item.ComponentID(), item.AsKey()))
 	if err != nil {
 		return nil, err
@@ -249,7 +265,7 @@ func (manager Manager) GetItem(item item) (io.ReadCloser, error) {
 }
 
 // StoreItem persists given item with optional content in the inventory.
-func (manager Manager) StoreItem(item item, contentReader io.Reader) error {
+func (manager Manager) StoreItem(item Item, contentReader io.Reader) error {
 	dir := filepath.Join(manager.Path, item.ComponentID())
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -260,7 +276,10 @@ func (manager Manager) StoreItem(item item, contentReader io.Reader) error {
 	}
 	defer file.Close()
 	if contentReader != nil {
-		bufferedReadWriter := bufio.NewReadWriter(bufio.NewReader(contentReader), bufio.NewWriter(file))
+		bufferedReadWriter := bufio.NewReadWriter(
+			bufio.NewReader(contentReader),
+			bufio.NewWriter(file),
+		)
 		for {
 			line, err := bufferedReadWriter.ReadString('\n')
 			if err == io.EOF {
@@ -280,7 +299,7 @@ func (manager Manager) StoreItem(item item, contentReader io.Reader) error {
 
 // DeleteItem removes the item from the inventory.
 // Declcd will not be tracking its current state anymore.
-func (manager Manager) DeleteItem(item item) error {
+func (manager Manager) DeleteItem(item Item) error {
 	dir := filepath.Join(manager.Path, item.ComponentID())
 	dirFile, err := os.Open(dir)
 	if err != nil {

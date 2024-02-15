@@ -14,7 +14,7 @@ var (
 type Builder struct {
 }
 
-// NewBuilder contructs a [Builder] with given CUE context.
+// NewBuilder contructs a [Builder].
 func NewBuilder() Builder {
 	return Builder{}
 }
@@ -45,7 +45,8 @@ const (
 	ProjectRootPath = "."
 )
 
-// Build accepts options defining which component to compile and how it is done and compiles it to a k8s unstructured API object/struct.
+// Build accepts options defining which component to compile
+// and how it is done and compiles it to a component Instance with its manifests and helm releases.
 func (b Builder) Build(opts ...buildOptions) (*Instance, error) {
 	options := &BuildOptions{
 		componentPath: "",

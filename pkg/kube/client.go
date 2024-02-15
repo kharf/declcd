@@ -31,20 +31,20 @@ type InMemoryRESTClientGetter struct {
 
 var _ action.RESTClientGetter = (*InMemoryRESTClientGetter)(nil)
 
-func (c InMemoryRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
+func (c *InMemoryRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
 	return c.Cfg, nil
 }
 
-func (c InMemoryRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+func (c *InMemoryRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	client, err := discovery.NewDiscoveryClientForConfig(c.Cfg)
 	return memory.NewMemCacheClient(client), err
 }
 
-func (c InMemoryRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
+func (c *InMemoryRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
 	return c.RestMapper, nil
 }
 
-func (c InMemoryRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+func (c *InMemoryRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
@@ -90,13 +90,15 @@ type Client[T any] interface {
 	Get(ctx context.Context, obj *T) (*T, error)
 	// Delete removes the object from the Kubernetes cluster.
 	Delete(ctx context.Context, obj *T) error
+	// Returns the [meta.RESTMapper] associated with this client.
+	RESTMapper() meta.RESTMapper
 }
 
 // DynamicClient connects to a Kubernetes cluster
 // to create, read, update and delete unstructured manifests/objects.
 type DynamicClient struct {
 	dynamicClient *dynamic.DynamicClient
-	RestMapper    meta.RESTMapper
+	restMapper    meta.RESTMapper
 	invalidate    func()
 }
 
@@ -117,7 +119,7 @@ func NewDynamicClient(config *rest.Config) (*DynamicClient, error) {
 	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cacheClient)
 	return &DynamicClient{
 		dynamicClient: dynClient,
-		RestMapper:    restMapper,
+		restMapper:    restMapper,
 		invalidate:    restMapper.Reset,
 	}, nil
 }
@@ -133,7 +135,12 @@ func (client *DynamicClient) Invalidate() error {
 // and takes the ownership of this object.
 // The object is created when it does not exist.
 // It errors on conflicts if force is set to false.
-func (client *DynamicClient) Apply(ctx context.Context, obj *unstructured.Unstructured, fieldManager string, opts ...ApplyOption) error {
+func (client *DynamicClient) Apply(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	fieldManager string,
+	opts ...ApplyOption,
+) error {
 	applyOptions := new(applyOptions)
 	for _, opt := range opts {
 		opt.Apply(applyOptions)
@@ -175,7 +182,12 @@ func (client *DynamicClient) Apply(ctx context.Context, obj *unstructured.Unstru
 // Update applies changes to an object.
 // The object is created when it does not exist.
 // It does not error on conflicts.
-func (client *DynamicClient) Update(ctx context.Context, obj *unstructured.Unstructured, fieldManager string, opts ...ApplyOption) error {
+func (client *DynamicClient) Update(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	fieldManager string,
+	opts ...ApplyOption,
+) error {
 	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
 	if err != nil {
 		return err
@@ -183,16 +195,24 @@ func (client *DynamicClient) Update(ctx context.Context, obj *unstructured.Unstr
 	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: fieldManager})
 	if err != nil {
 		if k8sErrors.ReasonForError(err) == v1.StatusReasonAlreadyExists {
-			existingObj, err := resourceInterface.Get(ctx, obj.GetName(), v1.GetOptions{TypeMeta: v1.TypeMeta{
-				Kind:       obj.GetKind(),
-				APIVersion: obj.GetAPIVersion(),
-			},
-			})
+			existingObj, err := resourceInterface.Get(
+				ctx,
+				obj.GetName(),
+				v1.GetOptions{TypeMeta: v1.TypeMeta{
+					Kind:       obj.GetKind(),
+					APIVersion: obj.GetAPIVersion(),
+				},
+				},
+			)
 			if err != nil {
 				return err
 			}
 			obj.SetResourceVersion(existingObj.GetResourceVersion())
-			_, err = resourceInterface.Update(ctx, obj, v1.UpdateOptions{FieldManager: fieldManager})
+			_, err = resourceInterface.Update(
+				ctx,
+				obj,
+				v1.UpdateOptions{FieldManager: fieldManager},
+			)
 			if err != nil {
 				return err
 			}
@@ -217,7 +237,12 @@ func (client *DynamicClient) Update(ctx context.Context, obj *unstructured.Unstr
 	return nil
 }
 
-func (client *DynamicClient) wait(ctx context.Context, name string, typeMeta v1.TypeMeta, resourceInterface dynamic.ResourceInterface) (bool, error) {
+func (client *DynamicClient) wait(
+	ctx context.Context,
+	name string,
+	typeMeta v1.TypeMeta,
+	resourceInterface dynamic.ResourceInterface,
+) (bool, error) {
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
@@ -234,10 +259,7 @@ func (client *DynamicClient) wait(ctx context.Context, name string, typeMeta v1.
 	}
 	conditions := getConditions(obj)
 	ok := slices.ContainsFunc(conditions, func(cond condition) bool {
-		if cond.cType == string(apiextensionsv1.Established) {
-			return true
-		}
-		return false
+		return cond.cType == string(apiextensionsv1.Established)
 	})
 	if ok {
 		return true, nil
@@ -304,7 +326,10 @@ var (
 // Get retrieves the unstructured object from a Kubernetes cluster.
 // Following fields have to be set on obj:
 // - GVK, Name
-func (client *DynamicClient) Get(ctx context.Context, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+func (client *DynamicClient) Get(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+) (*unstructured.Unstructured, error) {
 	namespace := ""
 	metadata, ok := obj.Object["metadata"].(map[string]interface{})
 	if !ok {
@@ -331,8 +356,15 @@ func (client *DynamicClient) Get(ctx context.Context, obj *unstructured.Unstruct
 	return foundObj, nil
 }
 
-func (client *DynamicClient) resourceInterface(gvk schema.GroupVersionKind, namespace string) (dynamic.ResourceInterface, error) {
-	restMapper := client.RestMapper
+func (client *DynamicClient) RESTMapper() meta.RESTMapper {
+	return client.restMapper
+}
+
+func (client *DynamicClient) resourceInterface(
+	gvk schema.GroupVersionKind,
+	namespace string,
+) (dynamic.ResourceInterface, error) {
+	restMapper := client.restMapper
 	dynamicClient := client.dynamicClient
 	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
@@ -348,7 +380,7 @@ func (client *DynamicClient) resourceInterface(gvk schema.GroupVersionKind, name
 // TODO: remove when Helm supports SSA.
 type HelmClient struct {
 	*helmKube.Client
-	DynamicClient DynamicClient
+	DynamicClient Client[unstructured.Unstructured]
 	FieldManager  string
 }
 
@@ -373,7 +405,11 @@ func (c *HelmClient) Create(resources helmKube.ResourceList) (*helmKube.Result, 
 var metadataAccessor = meta.NewAccessor()
 
 // taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
-func (c *HelmClient) Update(original helmKube.ResourceList, target helmKube.ResourceList, force bool) (*helmKube.Result, error) {
+func (c *HelmClient) Update(
+	original helmKube.ResourceList,
+	target helmKube.ResourceList,
+	force bool,
+) (*helmKube.Result, error) {
 	ctx := context.Background()
 	res := &helmKube.Result{}
 	err := target.Visit(func(info *resource.Info, err error) error {
@@ -391,7 +427,12 @@ func (c *HelmClient) Update(original helmKube.ResourceList, target helmKube.Reso
 		return res, err
 	}
 	for _, info := range original.Difference(target) {
-		c.Log("Deleting %s %q in namespace %s...", info.Mapping.GroupVersionKind.Kind, info.Name, info.Namespace)
+		c.Log(
+			"Deleting %s %q in namespace %s...",
+			info.Mapping.GroupVersionKind.Kind,
+			info.Name,
+			info.Namespace,
+		)
 
 		if err := info.Get(); err != nil {
 			c.Log("Unable to get obj %q, err: %s", info.Name, err)
@@ -402,7 +443,12 @@ func (c *HelmClient) Update(original helmKube.ResourceList, target helmKube.Reso
 			c.Log("Unable to get annotations on %q, err: %s", info.Name, err)
 		}
 		if annotations != nil && annotations[helmKube.ResourcePolicyAnno] == helmKube.KeepPolicy {
-			c.Log("Skipping delete of %q due to annotation [%s=%s]", info.Name, helmKube.ResourcePolicyAnno, helmKube.KeepPolicy)
+			c.Log(
+				"Skipping delete of %q due to annotation [%s=%s]",
+				info.Name,
+				helmKube.ResourcePolicyAnno,
+				helmKube.KeepPolicy,
+			)
 			continue
 		}
 		if err := c.deleteResource(info, v1.DeletePropagationBackground); err != nil {
@@ -416,6 +462,8 @@ func (c *HelmClient) Update(original helmKube.ResourceList, target helmKube.Reso
 
 func (c *HelmClient) deleteResource(info *resource.Info, policy v1.DeletionPropagation) error {
 	opts := &v1.DeleteOptions{PropagationPolicy: &policy}
-	_, err := resource.NewHelper(info.Client, info.Mapping).WithFieldManager(c.FieldManager).DeleteWithOptions(info.Namespace, info.Name, opts)
+	_, err := resource.NewHelper(info.Client, info.Mapping).
+		WithFieldManager(c.FieldManager).
+		DeleteWithOptions(info.Namespace, info.Name, opts)
 	return err
 }

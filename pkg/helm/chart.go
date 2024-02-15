@@ -20,12 +20,14 @@ import (
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
+	helmKube "helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/rest"
 )
 
 // A Helm package that contains information
@@ -41,19 +43,24 @@ type Chart struct {
 // and applies them on a Kubernetes cluster.
 // It stores releases in the inventory, but never collects it.
 type ChartReconciler struct {
-	// Configuration used for Helm operations
-	cfg              action.Configuration
+	kubeConfig       *rest.Config
 	client           kube.Client[unstructured.Unstructured]
 	fieldManager     string
-	inventoryManager inventory.Manager
+	inventoryManager *inventory.Manager
 	log              logr.Logger
 }
 
 // NewChartReconciler constructs a ChartReconciler,
 // which reads Helm Packages with their desired state and applies them on a Kubernetes cluster.
-func NewChartReconciler(cfg action.Configuration, client kube.Client[unstructured.Unstructured], fieldManager string, inventoryManager inventory.Manager, log logr.Logger) ChartReconciler {
+func NewChartReconciler(
+	kubeConfig *rest.Config,
+	client kube.Client[unstructured.Unstructured],
+	fieldManager string,
+	inventoryManager *inventory.Manager,
+	log logr.Logger,
+) ChartReconciler {
 	return ChartReconciler{
-		cfg:              cfg,
+		kubeConfig:       kubeConfig,
 		client:           client,
 		fieldManager:     fieldManager,
 		inventoryManager: inventoryManager,
@@ -65,14 +72,24 @@ func NewChartReconciler(cfg action.Configuration, client kube.Client[unstructure
 // It upgrades a Helm Chart based on whether it is already installed or not.
 // A successful run stores the release in the inventory, but never collects it.
 // In case an upgrade or installation is interrupted and left in a dangling state, the dangling release secret will be removed and a new upgrade/installation will be run.
-func (c ChartReconciler) Reconcile(ctx context.Context, componentID string, desiredRelease ReleaseDeclaration) (*Release, error) {
+func (c ChartReconciler) Reconcile(
+	ctx context.Context,
+	componentID string,
+	desiredRelease ReleaseDeclaration,
+) (*Release, error) {
 	if desiredRelease.Name == "" {
 		desiredRelease.Name = desiredRelease.Chart.Name
 	}
 	if desiredRelease.Namespace == "" {
 		desiredRelease.Namespace = "default"
 	}
-	installedRelease, err := c.doReconcile(ctx, componentID, desiredRelease)
+	// Need to init on every reconcile in order to override the fallback namespace, which is taken from the kube config
+	// when templates have no metadata.namespace defined.
+	helmCfg, err := Init(desiredRelease.Namespace, c.kubeConfig, c.client, c.fieldManager)
+	if err != nil {
+		return nil, err
+	}
+	installedRelease, err := c.doReconcile(ctx, componentID, desiredRelease, helmCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -91,37 +108,82 @@ func (c ChartReconciler) Reconcile(ctx context.Context, componentID string, desi
 	return installedRelease, nil
 }
 
-func (c ChartReconciler) doReconcile(ctx context.Context, componentID string, desiredRelease ReleaseDeclaration) (*Release, error) {
-	logArgs := []interface{}{"name", desiredRelease.Chart.Name, "url", desiredRelease.Chart.RepoURL, "version", desiredRelease.Chart.Version, "releasename", desiredRelease.Name, "namespace", desiredRelease.Namespace}
-	c.log.Info("Loading chart", logArgs...)
-	chrt, err := c.load(desiredRelease.Chart, logArgs)
+// Init setups a Helm config with a Kubernetes client capable of doing SSA
+// and overrides any default namespace with given namespace.
+func Init(
+	namespace string,
+	kubeConfig *rest.Config,
+	client kube.Client[unstructured.Unstructured],
+	fieldManager string,
+) (*action.Configuration, error) {
+	helmCfg := &action.Configuration{}
+	voidLog := func(string, ...interface{}) {}
+	getter := &kube.InMemoryRESTClientGetter{
+		Cfg:        kubeConfig,
+		RestMapper: client.RESTMapper(),
+	}
+	err := helmCfg.Init(getter, "default", "secret", voidLog)
 	if err != nil {
 		return nil, err
 	}
-	histClient := action.NewHistory(&c.cfg)
+	helmKubeClient := helmCfg.KubeClient.(*helmKube.Client)
+	// Set namespace to the release namespace in order to avoid taking the namespace from the kube config.
+	helmKubeClient.Namespace = namespace
+	helmCfg.KubeClient = &kube.HelmClient{
+		Client:        helmKubeClient,
+		DynamicClient: client,
+		FieldManager:  fieldManager,
+	}
+	return helmCfg, nil
+}
+
+func (c ChartReconciler) doReconcile(
+	ctx context.Context,
+	componentID string,
+	desiredRelease ReleaseDeclaration,
+	helmConfig *action.Configuration,
+) (*Release, error) {
+	logArgs := []interface{}{
+		"name",
+		desiredRelease.Chart.Name,
+		"url",
+		desiredRelease.Chart.RepoURL,
+		"version",
+		desiredRelease.Chart.Version,
+		"releasename",
+		desiredRelease.Name,
+		"namespace",
+		desiredRelease.Namespace,
+	}
+	c.log.Info("Loading chart", logArgs...)
+	chrt, err := c.load(desiredRelease.Chart, logArgs, helmConfig)
+	if err != nil {
+		return nil, err
+	}
+	histClient := action.NewHistory(helmConfig)
 	histClient.Max = 2
 	releases, err := histClient.Run(desiredRelease.Name)
 	if err != nil {
 		if err != driver.ErrReleaseNotFound {
 			return nil, err
 		}
-		return c.install(desiredRelease, chrt, logArgs)
+		return c.install(desiredRelease, chrt, logArgs, helmConfig)
 	}
 	if len(releases) == 1 {
 		if releases[0].Info.Status == release.StatusPendingInstall {
-			if err := c.reset(releases[0], logArgs); err != nil {
+			if err := c.reset(releases[0], logArgs, helmConfig); err != nil {
 				return nil, err
 			}
-			return c.install(desiredRelease, chrt, logArgs)
+			return c.install(desiredRelease, chrt, logArgs, helmConfig)
 		}
 	}
-	driftType, err := c.diff(ctx, componentID, desiredRelease, chrt, logArgs)
+	driftType, err := c.diff(ctx, componentID, desiredRelease, chrt, logArgs, helmConfig)
 	if err != nil {
 		release := releases[len(releases)-1]
 		if !release.Info.Status.IsPending() {
 			return nil, err
 		}
-		if err := c.reset(release, logArgs); err != nil {
+		if err := c.reset(release, logArgs, helmConfig); err != nil {
 			return nil, err
 		}
 		driftType = driftTypeUpdate
@@ -137,7 +199,7 @@ func (c ChartReconciler) doReconcile(ctx context.Context, componentID string, de
 			Version:   latestInternalRelease.Version,
 		}, nil
 	}
-	upgrade := action.NewUpgrade(&c.cfg)
+	upgrade := action.NewUpgrade(helmConfig)
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.MaxHistory = 5
@@ -167,8 +229,15 @@ const (
 	driftTypeNone               = "none"
 )
 
-func (c ChartReconciler) diff(ctx context.Context, componentID string, desiredRelease ReleaseDeclaration, loadedChart *chart.Chart, logArgs []interface{}) (driftType, error) {
-	upgrade := action.NewUpgrade(&c.cfg)
+func (c ChartReconciler) diff(
+	ctx context.Context,
+	componentID string,
+	desiredRelease ReleaseDeclaration,
+	loadedChart *chart.Chart,
+	logArgs []interface{},
+	helmConfig *action.Configuration,
+) (driftType, error) {
+	upgrade := action.NewUpgrade(helmConfig)
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.DryRun = true
@@ -189,15 +258,23 @@ func (c ChartReconciler) diff(ctx context.Context, componentID string, desiredRe
 			continue
 		}
 		newManifest := &unstructured.Unstructured{Object: unstr}
+		// manifests with no namespace are set to the release namespace on installation/upgrade.
+		// Kube client checks whether the manifest is namespaced or not,
+		// so we dont care if we set it on non namespaced manifests.
+		if newManifest.GetNamespace() == "" {
+			newManifest.SetNamespace(desiredRelease.Namespace)
+		}
 		obj, err := c.client.Get(ctx, newManifest)
 		if err != nil {
 			switch k8sErrors.ReasonForError(err) {
 			case v1.StatusReasonNotFound:
+				c.logDrift(driftTypeDeleted, logArgs, newManifest, err)
 				return driftTypeDeleted, nil
 			}
 			return "", err
 		}
 		if obj == nil {
+			c.logDrift(driftTypeDeleted, logArgs, newManifest, err)
 			return driftTypeDeleted, nil
 		}
 		if err := c.client.Apply(ctx, newManifest, c.fieldManager, kube.DryRun(true)); err != nil {
@@ -205,14 +282,16 @@ func (c ChartReconciler) diff(ctx context.Context, componentID string, desiredRe
 			case v1.StatusReasonUnknown:
 				return "", err
 			}
-			logArgs = append(logArgs, "manifest", newManifest.GetName(), "kind", newManifest.GetKind(), "apiVersion", newManifest.GetAPIVersion(), "err", err)
-			c.log.V(1).Info("Drift detected", logArgs...)
+			c.logDrift(driftTypeConflict, logArgs, newManifest, err)
 			return driftTypeConflict, nil
 		}
 	}
-	contentReader, err := c.inventoryManager.GetItem(inventory.NewHelmReleaseItem(componentID, desiredRelease.Name, desiredRelease.Namespace))
+	contentReader, err := c.inventoryManager.GetItem(
+		inventory.NewHelmReleaseItem(componentID, desiredRelease.Name, desiredRelease.Namespace),
+	)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
+			c.logDrift(driftTypeDeleted, logArgs, nil, err)
 			return driftTypeDeleted, nil
 		}
 		return "", err
@@ -230,11 +309,50 @@ func (c ChartReconciler) diff(ctx context.Context, componentID string, desiredRe
 	}); isEqual {
 		return driftTypeNone, nil
 	}
+	c.logDrift(driftTypeUpdate, logArgs, nil, nil)
 	return driftTypeUpdate, nil
 }
 
-func (c ChartReconciler) install(desiredRelease ReleaseDeclaration, loadedChart *chart.Chart, logArgs []interface{}) (*Release, error) {
-	install := action.NewInstall(&c.cfg)
+func (c ChartReconciler) logDrift(
+	driftType driftType,
+	logArgs []interface{},
+	newManifest *unstructured.Unstructured,
+	err error,
+) {
+	logArgs = append(
+		logArgs,
+		"driftType",
+		driftType,
+	)
+	if newManifest != nil {
+		logArgs = append(
+			logArgs,
+			"manifest",
+			newManifest.GetName(),
+			"kind",
+			newManifest.GetKind(),
+			"apiVersion",
+			newManifest.GetAPIVersion(),
+		)
+	}
+	if err != nil {
+		logArgs = append(
+			logArgs,
+			"err",
+			err,
+		)
+
+	}
+	c.log.V(1).Info("Drift detected", logArgs...)
+}
+
+func (c ChartReconciler) install(
+	desiredRelease ReleaseDeclaration,
+	loadedChart *chart.Chart,
+	logArgs []interface{},
+	helmConfig *action.Configuration,
+) (*Release, error) {
+	install := action.NewInstall(helmConfig)
 	install.Wait = false
 	install.ReleaseName = desiredRelease.Name
 	install.CreateNamespace = true
@@ -254,9 +372,13 @@ func (c ChartReconciler) install(desiredRelease ReleaseDeclaration, loadedChart 
 	}, nil
 }
 
-func (c ChartReconciler) reset(release *release.Release, logArgs []interface{}) error {
+func (c ChartReconciler) reset(
+	release *release.Release,
+	logArgs []interface{},
+	helmConfig *action.Configuration,
+) error {
 	c.log.Info("Resetting dangling release", logArgs...)
-	_, err := c.cfg.Releases.Delete(release.Name, release.Version)
+	_, err := helmConfig.Releases.Delete(release.Name, release.Version)
 	if err != nil {
 		c.log.Error(err, "Resetting dangling release failed", logArgs...)
 		return err
@@ -264,7 +386,11 @@ func (c ChartReconciler) reset(release *release.Release, logArgs []interface{}) 
 	return nil
 }
 
-func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart.Chart, error) {
+func (c ChartReconciler) load(
+	chartRequest Chart,
+	logArgs []interface{},
+	helmConfig *action.Configuration,
+) (*chart.Chart, error) {
 	var err error
 	archivePath := newArchivePath(chartRequest)
 	chart, err := loader.Load(archivePath.fullPath)
@@ -272,7 +398,7 @@ func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
 			c.log.Info("Pulling chart", logArgs...)
-			if err := c.pull(chartRequest, archivePath.dir); err != nil {
+			if err := c.pull(chartRequest, archivePath.dir, helmConfig); err != nil {
 				return nil, err
 			}
 			chart, err := loader.Load(archivePath.fullPath)
@@ -286,8 +412,12 @@ func (c ChartReconciler) load(chartRequest Chart, logArgs []interface{}) (*chart
 	return chart, nil
 }
 
-func (c ChartReconciler) pull(chartRequest Chart, chartDestPath string) error {
-	pull := action.NewPullWithOpts(action.WithConfig(&c.cfg))
+func (c ChartReconciler) pull(
+	chartRequest Chart,
+	chartDestPath string,
+	helmConfig *action.Configuration,
+) error {
+	pull := action.NewPullWithOpts(action.WithConfig(helmConfig))
 	pull.DestDir = chartDestPath
 	var chartRef string
 	if registry.IsOCI(chartRequest.RepoURL) {

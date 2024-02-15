@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
@@ -31,9 +32,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 	)
 	defer env.Stop()
 	chartReconciler := helm.NewChartReconciler(
-		env.HelmEnv.HelmConfig,
+		env.ControlPlane.Config,
 		env.DynamicTestKubeClient,
-		"",
+		"controller",
 		env.InventoryManager,
 		env.Log,
 	)
@@ -47,6 +48,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
 		Decrypter:         env.SecretManager.Decrypter,
+		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false
 	gProject := gitopsv1.GitOpsProject{
@@ -71,7 +73,11 @@ func TestReconciler_Reconcile(t *testing.T) {
 	ctx := context.Background()
 	ns := "prometheus"
 	var mysubcomponent appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
+		&mysubcomponent,
+	)
 	assert.NilError(t, err)
 	assert.Equal(t, mysubcomponent.Name, "mysubcomponent")
 	assert.Equal(t, mysubcomponent.Namespace, ns)
@@ -98,7 +104,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		dep.Namespace,
 	)
 	assert.Assert(t, inventoryStorage.HasItem(testHR))
-	invNs := inventory.NewManifest(
+	invNs := inventory.NewManifestItem(
 		v1.TypeMeta{
 			Kind:       "Namespace",
 			APIVersion: "v1",
@@ -108,7 +114,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		"",
 	)
 	assert.Assert(t, inventoryStorage.HasItem(invNs))
-	subComponentDeploymentManifest := inventory.NewManifest(
+	subComponentDeploymentManifest := inventory.NewManifestItem(
 		v1.TypeMeta{
 			Kind:       "Deployment",
 			APIVersion: "apps/v1",
@@ -119,9 +125,14 @@ func TestReconciler_Reconcile(t *testing.T) {
 	)
 	assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
 	t.Run("RemoveSubcomponent", func(t *testing.T) {
-		err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"))
+		err = os.Remove(
+			filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"),
+		)
 		assert.NilError(t, err)
-		err = env.GitRepository.CommitFile("infra/prometheus/subcomponent/component.cue", "undeploy subcomponent")
+		err = env.GitRepository.CommitFile(
+			"infra/prometheus/subcomponent/component.cue",
+			"undeploy subcomponent",
+		)
 		assert.NilError(t, err)
 		result, err = reconciler.Reconcile(env.Ctx, gProject)
 		assert.NilError(t, err)
@@ -132,7 +143,11 @@ func TestReconciler_Reconcile(t *testing.T) {
 		assert.Assert(t, !inventoryStorage.HasItem(subComponentDeploymentManifest))
 		assert.Assert(t, inventoryStorage.HasItem(invNs))
 		assert.Assert(t, inventoryStorage.HasItem(testHR))
-		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: ns}, &mysubcomponent)
+		err = env.TestKubeClient.Get(
+			ctx,
+			types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
+			&mysubcomponent,
+		)
 		assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
 	})
 	t.Run("RemovePrometheus", func(t *testing.T) {
@@ -154,12 +169,18 @@ func TestReconciler_Reconcile(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, projecttest.WithKubernetes(kubetest.WithHelm(true, false), kubetest.WithDecryptionKeyCreated()))
+	env := projecttest.StartProjectEnv(
+		t,
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(true, false),
+			kubetest.WithDecryptionKeyCreated(),
+		),
+	)
 	defer env.Stop()
 	chartReconciler := helm.NewChartReconciler(
-		env.HelmEnv.HelmConfig,
+		env.ControlPlane.Config,
 		env.DynamicTestKubeClient,
-		"",
+		"controller",
 		env.InventoryManager,
 		env.Log,
 	)
@@ -169,11 +190,12 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
-		InventoryManager: inventory.Manager{
+		InventoryManager: &inventory.Manager{
 			Log:  env.Log,
 			Path: filepath.Join(os.TempDir(), "inventory"),
 		},
-		Log: env.Log,
+		Log:            env.Log,
+		WorkerPoolSize: runtime.GOMAXPROCS(0),
 	}
 	suspend := true
 	result, err := reconciler.Reconcile(env.Ctx, gitopsv1.GitOpsProject{
@@ -196,6 +218,68 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	assert.Equal(t, result.Suspended, true)
 	ctx := context.Background()
 	var deployment appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment)
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"},
+		&deployment,
+	)
 	assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
+}
+
+var reconcileResult *project.ReconcileResult
+
+func BenchmarkReconciler_Reconcile(b *testing.B) {
+	env := projecttest.StartProjectEnv(b,
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(true, false),
+			kubetest.WithDecryptionKeyCreated(),
+			kubetest.WithVCSSSHKeyCreated(),
+		),
+	)
+	defer env.Stop()
+	chartReconciler := helm.NewChartReconciler(
+		env.ControlPlane.Config,
+		env.DynamicTestKubeClient,
+		"controller",
+		env.InventoryManager,
+		env.Log,
+	)
+	reconciler := project.Reconciler{
+		Client:            env.ControllerManager.GetClient(),
+		ComponentBuilder:  component.NewBuilder(),
+		RepositoryManager: env.RepositoryManager,
+		ProjectManager:    env.ProjectManager,
+		ChartReconciler:   chartReconciler,
+		InventoryManager:  env.InventoryManager,
+		GarbageCollector:  env.GarbageCollector,
+		Log:               env.Log,
+		Decrypter:         env.SecretManager.Decrypter,
+		WorkerPoolSize:    runtime.GOMAXPROCS(0),
+	}
+	suspend := false
+	gProject := gitopsv1.GitOpsProject{
+		TypeMeta: v1.TypeMeta{
+			APIVersion: "gitops.declcd.io/v1",
+			Kind:       "GitOpsProject",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "reconcile-test",
+			Namespace: "default",
+			UID:       "reconcile-test",
+		},
+		Spec: gitopsv1.GitOpsProjectSpec{
+			URL:                 env.TestProject,
+			PullIntervalSeconds: 5,
+			Suspend:             &suspend,
+		},
+	}
+	var err error
+	var result *project.ReconcileResult
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result, err = reconciler.Reconcile(env.Ctx, gProject)
+		assert.NilError(b, err)
+		assert.Equal(b, result.Suspended, false)
+	}
+	reconcileResult = result
 }

@@ -11,6 +11,9 @@ v1.#Component & {
 			#both,
 			#multiLine,
 			#none,
+			#a,
+			#b,
+			#c,
 		]
 	}
 }
