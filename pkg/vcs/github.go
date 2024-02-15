@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	gogithub "github.com/google/go-github/v58/github"
+	gogithub "github.com/google/go-github/v59/github"
 )
 
 const (
@@ -26,14 +26,22 @@ func NewGithubClient(httpClient *http.Client, token string) *githubClient {
 
 var _ providerClient = (*githubClient)(nil)
 
-func (g *githubClient) CreateDeployKey(ctx context.Context, id string, opts ...deployKeyOption) (*deployKey, error) {
+func (g *githubClient) CreateDeployKey(
+	ctx context.Context,
+	id string,
+	opts ...deployKeyOption,
+) (*deployKey, error) {
 	deployKey, err := genDeployKey(opts...)
 	if err != nil {
 		return nil, err
 	}
 	idSplit := strings.Split(id, "/")
 	if len(idSplit) != 2 {
-		return nil, fmt.Errorf("%w: %s doesn't correspond to the owner/repo format", ErrRepositoryID, id)
+		return nil, fmt.Errorf(
+			"%w: %s doesn't correspond to the owner/repo format",
+			ErrRepositoryID,
+			id,
+		)
 	}
 	keyReqBody := gogithub.Key{
 		Title: &deployKey.title,
