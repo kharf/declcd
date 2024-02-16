@@ -8,71 +8,185 @@ import (
 	"github.com/kharf/declcd/pkg/helm"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"gotest.tools/v3/assert"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestBuilder_Build(t *testing.T) {
 	builder := NewBuilder()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)
-	projectRoot := path.Join(cwd, "test", "testdata", "simple")
-	component, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("./infra/prometheus"))
-	assert.NilError(t, err)
-	componentID := component.ID
-	assert.Equal(t, componentID, "prometheus")
-	componentManifests := component.Manifests
-	assert.Assert(t, len(componentManifests) == 2)
-	namespace := componentManifests[0].Object
-	assert.Equal(t, namespace["apiVersion"], "v1")
-	assert.Equal(t, namespace["kind"], "Namespace")
-	nsMetadata := namespace["metadata"].(map[string]interface{})
-	ns := "prometheus"
-	assert.Equal(t, nsMetadata["name"], ns)
-	releases := component.HelmReleases
-	assert.Assert(t, len(releases) == 1)
-	release := releases[0]
-	assert.Equal(t, release.Name, "{{.Name}}")
-	assert.Equal(t, release.Namespace, ns)
-	assert.Assert(t, len(release.Values) == 1)
-	expectedValues := helm.Values{
-		"autoscaling": map[string]interface{}{
-			"enabled": true,
+	testCases := []struct {
+		name              string
+		projectRoot       string
+		componentPath     string
+		expectedInstances []Instance
+		expectedErr       string
+	}{
+		{
+			name:          "Success",
+			projectRoot:   path.Join(cwd, "test", "testdata", "build"),
+			componentPath: "./infra/prometheus",
+			expectedInstances: []Instance{
+				&Manifest{
+					ID: "prometheus___Namespace",
+					Content: unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "Namespace",
+							"metadata": map[string]interface{}{
+								"name":      "prometheus",
+								"namespace": "",
+							},
+						},
+					},
+					Dependencies: []string{},
+				},
+				&Manifest{
+					ID: "secret_prometheus__Secret",
+					Content: unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "Secret",
+							"metadata": map[string]interface{}{
+								"name":      "secret",
+								"namespace": "prometheus",
+							},
+							"data": map[string]interface{}{
+								"foo": []byte("(enc;value omitted)"),
+							},
+						},
+					},
+					Dependencies: []string{"prometheus___Namespace"},
+				},
+				&HelmRelease{
+					ID: "{{.Name}}_prometheus_HelmRelease",
+					Content: helm.ReleaseDeclaration{
+						Name:      "{{.Name}}",
+						Namespace: "prometheus",
+						Chart: helm.Chart{
+							Name:    "test",
+							RepoURL: "{{.RepoUrl}}",
+							Version: "{{.Version}}",
+						},
+						Values: helm.Values{
+							"autoscaling": map[string]interface{}{
+								"enabled": true,
+							},
+						},
+					},
+					Dependencies: []string{"prometheus___Namespace"},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name:              "MissingMetadata",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/metadatamissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingMetadataNameWithSchema",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/metadatanameschemamissing",
+			expectedInstances: []Instance{},
+			expectedErr:       "secret.content.metadata.name: cannot convert non-concrete value string & string (and 1 more errors)",
+		},
+		{
+			name:              "MissingMetadataName",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/metadatanamemissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingApiVersion",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/apiversionmissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingKind",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/kindmissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingReleaseName",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/releasenamemissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingReleaseNamespace",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/releasenamespacemissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingReleaseChart",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/releasechartmissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingReleaseChartName",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/releasechartnamemissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingReleaseChartRepoURL",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/releasechartrepourlmissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
+		},
+		{
+			name:              "MissingReleaseChartVersion",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			componentPath:     "./infra/releasechartversionmissing",
+			expectedInstances: []Instance{},
+			expectedErr:       ErrMissingField.Error(),
 		},
 	}
-	componentDependencies := component.Dependencies
-	assert.Assert(t, len(componentDependencies) == 1)
-	linkerdID := componentDependencies[0]
-	assert.Equal(t, linkerdID, "linkerd")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			components, err := builder.Build(
+				WithProjectRoot(tc.projectRoot),
+				WithComponentPath(tc.componentPath),
+			)
+			if tc.expectedErr != "" {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			} else {
+				assert.NilError(t, err)
+				assert.Assert(t, len(components) == len(tc.expectedInstances))
+				for i, expected := range tc.expectedInstances {
+					current := components[i]
+					switch expected := expected.(type) {
+					case *Manifest:
+						current, ok := current.(*Manifest)
+						assert.Assert(t, ok)
+						assert.Equal(t, current.ID, expected.ID)
+						assert.DeepEqual(t, current.Dependencies, expected.Dependencies)
+						assert.DeepEqual(t, current.Content, expected.Content)
+					case *HelmRelease:
+						current, ok := current.(*HelmRelease)
+						assert.Assert(t, ok)
+						assert.Equal(t, current.ID, expected.ID)
+						assert.DeepEqual(t, current.Content.Values, expected.Content.Values)
+						assert.DeepEqual(t, current.Dependencies, expected.Dependencies)
+					}
 
-	assert.DeepEqual(t, release.Values, expectedValues)
-
-	subcomponent, err := builder.Build(WithProjectRoot(projectRoot), WithComponentPath("infra/prometheus/subcomponent"))
-	assert.NilError(t, err)
-	subcomponentManifests := subcomponent.Manifests
-	assert.Assert(t, len(subcomponentManifests) == 1)
-	deployment := subcomponent.Manifests[0]
-	assert.Equal(t, deployment.GetAPIVersion(), "apps/v1")
-	assert.Equal(t, deployment.GetKind(), "Deployment")
-	assert.Equal(t, deployment.GetName(), "mysubcomponent")
-	deploySpec := deployment.Object["spec"].(map[string]interface{})
-	replicas := deploySpec["replicas"]
-	if _, ok := replicas.(int64); ok {
-		assert.Equal(t, replicas, int64(1))
-	} else {
-		assert.Equal(t, replicas, 1)
-	}
-	deployTemplate := deploySpec["template"].(map[string]interface{})
-	deployTemplateSpec := deployTemplate["spec"].(map[string]interface{})
-	deployContainers := deployTemplateSpec["containers"].([]interface{})
-	assert.Equal(t, len(deployContainers), 1)
-	deployContainer := deployContainers[0].(map[string]interface{})
-	assert.Equal(t, deployContainer["name"], "subcomponent")
-	assert.Equal(t, deployContainer["image"], "subcomponent:1.14.2")
-	deployContainerPorts := deployContainer["ports"].([]interface{})
-	deployContainerPort := deployContainerPorts[0].(map[string]interface{})
-	containerPort := deployContainerPort["containerPort"]
-	if _, ok := containerPort.(int64); ok {
-		assert.Equal(t, containerPort, int64(80))
-	} else {
-		assert.Equal(t, containerPort, 80)
+				}
+			}
+		})
 	}
 }

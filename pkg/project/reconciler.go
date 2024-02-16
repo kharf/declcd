@@ -1,7 +1,9 @@
 package project
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -92,15 +94,15 @@ func (reconciler Reconciler) Reconcile(
 		log.Error(err, "Unable to load declcd project", "project", gProject.GetName())
 		return reconcileResult, err
 	}
-	componentNodes, err := dependencyGraph.TopologicalSort()
+	componentInstances, err := dependencyGraph.TopologicalSort()
 	if err != nil {
 		log.Error(err, "Unable to resolve dependencies", "project", gProject.GetName())
 		return reconcileResult, err
 	}
-	if err := reconciler.GarbageCollector.Collect(ctx, *dependencyGraph); err != nil {
+	if err := reconciler.GarbageCollector.Collect(ctx, dependencyGraph); err != nil {
 		return reconcileResult, err
 	}
-	if err := reconciler.reconcileComponents(ctx, componentNodes, repositoryDir); err != nil {
+	if err := reconciler.reconcileComponents(ctx, componentInstances, repositoryDir); err != nil {
 		log.Error(err, "Unable to reconcile components", "project", gProject.GetName())
 		return reconcileResult, err
 	}
@@ -109,81 +111,57 @@ func (reconciler Reconciler) Reconcile(
 
 func (reconciler Reconciler) reconcileComponents(
 	ctx context.Context,
-	componentNodes []component.Node,
+	componentInstances []component.Instance,
 	repositoryDir string,
 ) error {
 	componentBuilder := reconciler.ComponentBuilder
 	eg := errgroup.Group{}
 	eg.SetLimit(reconciler.WorkerPoolSize)
-	for _, node := range componentNodes {
+	for _, instance := range componentInstances {
 		eg.Go(func() error {
-			return reconciler.newMethod(
+			return reconciler.reconcileComponent(
 				ctx,
 				componentBuilder,
 				repositoryDir,
-				node,
+				instance,
 			)
 		})
 	}
 	return eg.Wait()
 }
 
-func (reconciler Reconciler) newMethod(
+func (reconciler Reconciler) reconcileComponent(
 	ctx context.Context,
 	componentBuilder component.Builder,
 	repositoryDir string,
-	node component.Node,
-) error {
-	componentInstance, err := componentBuilder.Build(
-		component.WithProjectRoot(repositoryDir),
-		component.WithComponentPath(node.Path()),
-	)
-	if err != nil {
-		return err
-	}
-	component := *componentInstance
-	if err := reconciler.reconcileManifests(ctx, component); err != nil {
-		return err
-	}
-	if err := reconciler.reconcileHelmReleases(ctx, component); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (reconciler Reconciler) reconcileManifests(
-	ctx context.Context,
 	componentInstance component.Instance,
 ) error {
-	for _, manifest := range componentInstance.Manifests {
-		if err := reconciler.createOrUpdate(ctx, &manifest); err != nil {
+	switch componentInstance := componentInstance.(type) {
+	case *component.Manifest:
+		if err := reconciler.createOrUpdate(ctx, &componentInstance.Content); err != nil {
 			return err
 		}
-		invManifest := inventory.NewManifestItem(
-			v1.TypeMeta{
-				Kind:       manifest.GetKind(),
-				APIVersion: manifest.GetAPIVersion(),
+		invManifest := &inventory.ManifestItem{
+			ID: componentInstance.ID,
+			TypeMeta: v1.TypeMeta{
+				Kind:       componentInstance.Content.GetKind(),
+				APIVersion: componentInstance.Content.GetAPIVersion(),
 			},
-			componentInstance.ID,
-			manifest.GetName(),
-			manifest.GetNamespace(),
-		)
-		if err := reconciler.InventoryManager.StoreItem(invManifest, nil); err != nil {
+			Name:      componentInstance.Content.GetName(),
+			Namespace: componentInstance.Content.GetNamespace(),
+		}
+		buf := &bytes.Buffer{}
+		if err := json.NewEncoder(buf).Encode(componentInstance.Content.Object); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (reconciler Reconciler) reconcileHelmReleases(
-	ctx context.Context,
-	componentInstance component.Instance,
-) error {
-	for _, release := range componentInstance.HelmReleases {
+		if err := reconciler.InventoryManager.StoreItem(invManifest, buf); err != nil {
+			return err
+		}
+	case *component.HelmRelease:
 		if _, err := reconciler.ChartReconciler.Reconcile(
 			ctx,
+			componentInstance.Content,
 			componentInstance.ID,
-			release,
 		); err != nil {
 			return err
 		}

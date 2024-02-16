@@ -2,7 +2,6 @@ package component
 
 import (
 	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/kube"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -10,60 +9,56 @@ const (
 	FileName = "component.cue"
 )
 
-// Instance represents a Declcd component with its id, dependencies, rendered manifests and helm releases.
+// Instance represents a Declcd component with its id, dependencies and content.
 // It is the Go equivalent of the CUE definition the user interacts with.
-type Instance struct {
-	ID           string                      `json:"id"`
-	Dependencies []string                    `json:"dependencies"`
-	Manifests    []unstructured.Unstructured `json:"manifests"`
-	HelmReleases []helm.ReleaseDeclaration   `json:"helmReleases"`
+// ID is constructed based on the content of the component.
+type Instance interface {
+	GetID() string
+	GetDependencies() []string
 }
 
-func New(id string, dependencies []string, manifests []unstructured.Unstructured, helmReleases []helm.ReleaseDeclaration) Instance {
-	return Instance{
-		ID:           id,
-		Dependencies: dependencies,
-		Manifests:    manifests,
-		HelmReleases: helmReleases,
-	}
+// internalInstance represents a Declcd component with its id, dependencies and content.
+// It is the Go equivalent of the Component CUE definition the user interacts with.
+type internalInstance struct {
+	ID           string                 `json:"id"`
+	Type         string                 `json:"type"`
+	Dependencies []string               `json:"dependencies"`
+	Content      map[string]interface{} `json:"content"`
 }
 
-// Node represents a Declcd component with its id, dependencies and manifest metadata inside a directed acyclic graph.
-// This object is a smaller representation of [Instance] with only references and metadata.
-type Node struct {
-	id           string
-	path         string
-	dependencies []string
-	manifests    []kube.ManifestMetadata
-	helmReleases []helm.ReleaseMetadata
+// Manifest represents a Declcd component with its id, dependencies and content.
+// It is the Go equivalent of the CUE definition the user interacts with.
+// See [unstructured.Unstructured] for more.
+type Manifest struct {
+	ID           string
+	Dependencies []string
+	Content      unstructured.Unstructured
 }
 
-func NewNode(id string, path string, dependencies []string, manifests []kube.ManifestMetadata, helmReleases []helm.ReleaseMetadata) Node {
-	return Node{
-		id:           id,
-		path:         path,
-		dependencies: dependencies,
-		manifests:    manifests,
-		helmReleases: helmReleases,
-	}
+var _ Instance = (*Manifest)(nil)
+
+func (m *Manifest) GetID() string {
+	return m.ID
 }
 
-func (node Node) ID() string {
-	return node.id
+func (m *Manifest) GetDependencies() []string {
+	return m.Dependencies
 }
 
-func (node Node) Path() string {
-	return node.path
+// HelmRelease represents a Declcd component with its id, dependencies and content..
+// It is the Go equivalent of the CUE definition the user interacts with.
+// See [helm.ReleaseDeclaration] for more.
+type HelmRelease struct {
+	ID           string
+	Dependencies []string
+	Content      helm.ReleaseDeclaration
 }
 
-func (node Node) Dependencies() []string {
-	return node.dependencies
-}
+var _ Instance = (*HelmRelease)(nil)
 
-func (node Node) Manifests() []kube.ManifestMetadata {
-	return node.manifests
+func (hr *HelmRelease) GetID() string {
+	return hr.ID
 }
-
-func (node Node) HelmReleases() []helm.ReleaseMetadata {
-	return node.helmReleases
+func (hr *HelmRelease) GetDependencies() []string {
+	return hr.Dependencies
 }

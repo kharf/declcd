@@ -320,7 +320,7 @@ func (client *DynamicClient) Delete(ctx context.Context, obj *unstructured.Unstr
 }
 
 var (
-	ErrManifestNoMetadata = errors.New("helm chart manifest has no metadata")
+	ErrManifestNoMetadata = errors.New("Helm chart manifest has no metadata")
 )
 
 // Get retrieves the unstructured object from a Kubernetes cluster.

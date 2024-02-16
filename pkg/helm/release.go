@@ -6,7 +6,7 @@ type ReleaseDeclaration struct {
 	// When set, the installed objects are suffixed with the chart name.
 	// Defaults to the chart name.
 	Name string `json:"name"`
-	// Namespaces specifies the Kubernetes namespace to which the Helm Chart is installed to.
+	// Namespace specifies the Kubernetes namespace to which the Helm Chart is installed to.
 	// Defaults to default.
 	Namespace string `json:"namespace"`
 	Chart     Chart  `json:"chart"`

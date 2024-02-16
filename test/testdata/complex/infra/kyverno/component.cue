@@ -23,15 +23,5 @@ _namespace: corev1.#Namespace & {
 	}
 }
 
-v1.#Component & {
-	kyverno: {
-		dependencies: [
-		]
-		manifests: [
-			_namespace,
-		]
-		helmReleases: [
-			_release,
-		]
-	}
-}
+ns: content:      _namespace
+release: content: _release

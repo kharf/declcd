@@ -5,15 +5,9 @@ import (
 	"github.com/kharf/decldc-test-repo/infra/prometheus"
 )
 
-v1.#Component & {
-	monitors: {
-		dependencies: [
-			prometheus.prometheus.id,
-		]
-		manifests: [
-			_declcdMonitor,
-		]
-		helmReleases: [
-		]
-	}
+monitor: v1.#Component & {
+	dependencies: [
+		prometheus.namespace.id,
+	]
+	content: _declcdMonitor
 }

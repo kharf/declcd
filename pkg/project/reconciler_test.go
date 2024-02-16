@@ -2,6 +2,7 @@ package project_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -94,35 +95,37 @@ func TestReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, string(fooSecretValue), "bar")
 	inventoryStorage, err := reconciler.InventoryManager.Load()
 	assert.NilError(t, err)
-	invComponents := inventoryStorage.Components()
-	assert.Assert(t, len(invComponents) == 3)
-	prometheus := invComponents["prometheus"]
-	assert.Assert(t, len(prometheus.Items()) == 3)
-	testHR := inventory.NewHelmReleaseItem(
-		"prometheus",
-		dep.Name,
-		dep.Namespace,
-	)
+	invComponents := inventoryStorage.Items()
+	assert.Assert(t, len(invComponents) == 5)
+	testHR := &inventory.HelmReleaseItem{
+		Name:      dep.Name,
+		Namespace: dep.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", dep.Name, dep.Namespace),
+	}
 	assert.Assert(t, inventoryStorage.HasItem(testHR))
-	invNs := inventory.NewManifestItem(
-		v1.TypeMeta{
+	invNs := &inventory.ManifestItem{
+		TypeMeta: v1.TypeMeta{
 			Kind:       "Namespace",
 			APIVersion: "v1",
 		},
-		"prometheus",
-		mysubcomponent.Namespace,
-		"",
-	)
+		Name:      mysubcomponent.Namespace,
+		Namespace: "",
+		ID:        fmt.Sprintf("%s___Namespace", mysubcomponent.Namespace),
+	}
 	assert.Assert(t, inventoryStorage.HasItem(invNs))
-	subComponentDeploymentManifest := inventory.NewManifestItem(
-		v1.TypeMeta{
+	subComponentDeploymentManifest := &inventory.ManifestItem{
+		TypeMeta: v1.TypeMeta{
 			Kind:       "Deployment",
 			APIVersion: "apps/v1",
 		},
-		"subcomponent",
-		mysubcomponent.Name,
-		mysubcomponent.Namespace,
-	)
+		Name:      mysubcomponent.Name,
+		Namespace: mysubcomponent.Namespace,
+		ID: fmt.Sprintf(
+			"%s_%s_apps_Deployment",
+			mysubcomponent.Name,
+			mysubcomponent.Namespace,
+		),
+	}
 	assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
 	t.Run("RemoveSubcomponent", func(t *testing.T) {
 		err = os.Remove(
@@ -138,8 +141,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		assert.NilError(t, err)
 		inventoryStorage, err := reconciler.InventoryManager.Load()
 		assert.NilError(t, err)
-		invComponents := inventoryStorage.Components()
-		assert.Assert(t, len(invComponents) == 2)
+		invComponents := inventoryStorage.Items()
+		assert.Assert(t, len(invComponents) == 4)
 		assert.Assert(t, !inventoryStorage.HasItem(subComponentDeploymentManifest))
 		assert.Assert(t, inventoryStorage.HasItem(invNs))
 		assert.Assert(t, inventoryStorage.HasItem(testHR))
@@ -159,7 +162,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		assert.NilError(t, err)
 		inventoryStorage, err = reconciler.InventoryManager.Load()
 		assert.NilError(t, err)
-		invComponents := inventoryStorage.Components()
+		invComponents := inventoryStorage.Items()
 		assert.Assert(t, len(invComponents) == 1)
 		assert.Assert(t, !inventoryStorage.HasItem(invNs))
 		assert.Assert(t, !inventoryStorage.HasItem(testHR))

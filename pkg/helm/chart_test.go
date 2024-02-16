@@ -74,6 +74,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    vals,
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -116,6 +117,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -144,6 +146,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test_mynamespace_HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "mynamespace",
 					expectedVersion:     1,
@@ -172,6 +175,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -221,6 +225,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -289,6 +294,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -319,6 +325,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -370,6 +377,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -408,6 +416,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Chart:     chart,
 						Values:    Values{},
 					},
+					releaseID:           "test__HelmRelease",
 					expectedReleaseName: "test",
 					expectedNamespace:   "default",
 					expectedVersion:     1,
@@ -513,6 +522,7 @@ func assertChartv2(t *testing.T, env *kubetest.KubetestEnv, liveName string, nam
 type fixture struct {
 	env                 *kubetest.KubetestEnv
 	release             helm.ReleaseDeclaration
+	releaseID           string
 	expectedReleaseName string
 	expectedNamespace   string
 	expectedVersion     int
@@ -529,8 +539,8 @@ func (f fixture) testReconcile(
 	}
 	release, err := reconciler.Reconcile(
 		f.env.Ctx,
-		"test",
 		f.release,
+		f.releaseID,
 	)
 	assert.NilError(t, err)
 	assert.Equal(t, release.Version, f.expectedVersion)

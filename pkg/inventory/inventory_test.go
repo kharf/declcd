@@ -1,6 +1,8 @@
 package inventory_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strconv"
 	"testing"
@@ -42,18 +44,20 @@ func TestManager_Load(t *testing.T) {
 		{
 			name: "Mixed",
 			items: []inventory.Item{
-				inventory.NewManifestItem(
-					metav1.TypeMeta{
+				&inventory.ManifestItem{
+					TypeMeta: metav1.TypeMeta{
 						Kind:       "Namespace",
 						APIVersion: "v1",
 					},
-					"test",
-					"a",
-					"",
-				),
-				inventory.NewHelmReleaseItem(
-					"test", "test", "test",
-				),
+					Name:      "a",
+					Namespace: "",
+					ID:        "a___Namespace",
+				},
+				&inventory.HelmReleaseItem{
+					Name:      "test",
+					Namespace: "test",
+					ID:        "test_test_HelmRelease",
+				},
 			},
 		},
 	}
@@ -66,8 +70,25 @@ func TestManager_Load(t *testing.T) {
 				Path: path,
 			}
 			for _, item := range tc.items {
-				err := manager.StoreItem(item, nil)
-				assert.NilError(t, err)
+				switch item := item.(type) {
+				case *inventory.ManifestItem:
+					unstr := map[string]interface{}{
+						"apiVersion": item.TypeMeta.APIVersion,
+						"kind":       item.TypeMeta.Kind,
+						"metadata": map[string]interface{}{
+							"name":      item.Name,
+							"Namespace": item.Namespace,
+						},
+					}
+					buf := &bytes.Buffer{}
+					err := json.NewEncoder(buf).Encode(&unstr)
+					assert.NilError(t, err)
+					err = manager.StoreItem(item, buf)
+					assert.NilError(t, err)
+				case *inventory.HelmReleaseItem:
+					err := manager.StoreItem(item, nil)
+					assert.NilError(t, err)
+				}
 			}
 			storage, err := manager.Load()
 			assert.NilError(t, err)
@@ -89,15 +110,14 @@ func BenchmarkManager_Load(b *testing.B) {
 		Path: path,
 	}
 	for i := 0; i < 1000; i++ {
-		item := inventory.NewManifestItem(
-			metav1.TypeMeta{
+		item := &inventory.ManifestItem{
+			TypeMeta: metav1.TypeMeta{
 				Kind:       "Deployment",
 				APIVersion: "apps/v1",
 			},
-			strconv.Itoa(i),
-			"name",
-			"namespace",
-		)
+			Name:      strconv.Itoa(i),
+			Namespace: "namespace",
+		}
 		err := manager.StoreItem(item, nil)
 		assert.NilError(b, err)
 	}

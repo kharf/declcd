@@ -1,0 +1,19 @@
+package secrets
+
+{
+	secrets: {
+		"/infra/prometheus/secret.cue": """
+			-----BEGIN AGE ENCRYPTED FILE-----
+			YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB1dW0xYVVQY0ppcTFOZ2U0
+			Qm9rRWZ1L1J4MysvYU9lcUdDY21wQWZ2ZENVCnVVT1dvdm9USXFLWVlsNldza1hl
+			V2NPQVZQdXVIZFk5NlZDK09zbkVNK28KLS0tIHZ4eXFoN1lYRUJiU2FMbkJOZGtF
+			akJnQVIvWW5yaWVVRThJQVMrbWw5dXMKRb0oWA04VIiLDUj10X2OcQsZDK1F6wyT
+			bqAq7kj4pBo2ZUgMv5wYULM+JIWQDq/tmQh3qom227KLNd+95GvIg+c0dl7pgYLK
+			wb4g+qaJuhc0u8brWTqG05SCfxNTG4krMbE7diA5FksDUQlPTSMkLO8T63UIndu4
+			IbRYxsSN1xzKQACAlsf9wo704eERgqMGLyLufCPHi3EEnps5yMZBTfDjeCegboZc
+			qjpPx6Sgvg9meIul6nAzfYi7v/orSuIsztazUfVMOt752XygJTenVQUvSXUTDADX
+			bXhNKtUW+r0zL1LvVfUH/scKOPaZkhNO//TSRroqQKk=
+			-----END AGE ENCRYPTED FILE-----
+			"""
+	}
+}

@@ -27,16 +27,16 @@ _namespace: corev1.#Namespace & {
 	}
 }
 
-v1.#Component & {
-	keda: {
-		dependencies: [
-			linkerd.linkerd.id,
-		]
-		manifests: [
-			_namespace,
-		]
-		helmReleases: [
-			_release,
-		]
-	}
+ns: {
+	dependencies: [
+		linkerd.linkerd.id,
+	]
+	content: _namespace
+}
+
+release: {
+	dependencies: [
+		linkerd.linkerd.id,
+	]
+	content: _release
 }
