@@ -74,8 +74,8 @@ func NewChartReconciler(
 // In case an upgrade or installation is interrupted and left in a dangling state, the dangling release secret will be removed and a new upgrade/installation will be run.
 func (c ChartReconciler) Reconcile(
 	ctx context.Context,
-	componentID string,
 	desiredRelease ReleaseDeclaration,
+	releaseID string,
 ) (*Release, error) {
 	if desiredRelease.Name == "" {
 		desiredRelease.Name = desiredRelease.Chart.Name
@@ -89,15 +89,15 @@ func (c ChartReconciler) Reconcile(
 	if err != nil {
 		return nil, err
 	}
-	installedRelease, err := c.doReconcile(ctx, componentID, desiredRelease, helmCfg)
+	installedRelease, err := c.doReconcile(ctx, desiredRelease, releaseID, helmCfg)
 	if err != nil {
 		return nil, err
 	}
-	invRelease := inventory.NewHelmReleaseItem(
-		componentID,
-		installedRelease.Name,
-		installedRelease.Namespace,
-	)
+	invRelease := &inventory.HelmReleaseItem{
+		Name:      installedRelease.Name,
+		Namespace: installedRelease.Namespace,
+		ID:        releaseID,
+	}
 	buf := &bytes.Buffer{}
 	if err := json.NewEncoder(buf).Encode(installedRelease); err != nil {
 		return nil, err
@@ -139,8 +139,8 @@ func Init(
 
 func (c ChartReconciler) doReconcile(
 	ctx context.Context,
-	componentID string,
 	desiredRelease ReleaseDeclaration,
+	releaseID string,
 	helmConfig *action.Configuration,
 ) (*Release, error) {
 	logArgs := []interface{}{
@@ -177,7 +177,7 @@ func (c ChartReconciler) doReconcile(
 			return c.install(desiredRelease, chrt, logArgs, helmConfig)
 		}
 	}
-	driftType, err := c.diff(ctx, componentID, desiredRelease, chrt, logArgs, helmConfig)
+	driftType, err := c.diff(ctx, desiredRelease, releaseID, chrt, logArgs, helmConfig)
 	if err != nil {
 		release := releases[len(releases)-1]
 		if !release.Info.Status.IsPending() {
@@ -231,8 +231,8 @@ const (
 
 func (c ChartReconciler) diff(
 	ctx context.Context,
-	componentID string,
 	desiredRelease ReleaseDeclaration,
+	releaseID string,
 	loadedChart *chart.Chart,
 	logArgs []interface{},
 	helmConfig *action.Configuration,
@@ -287,7 +287,11 @@ func (c ChartReconciler) diff(
 		}
 	}
 	contentReader, err := c.inventoryManager.GetItem(
-		inventory.NewHelmReleaseItem(componentID, desiredRelease.Name, desiredRelease.Namespace),
+		&inventory.HelmReleaseItem{
+			Name:      desiredRelease.Name,
+			Namespace: desiredRelease.Namespace,
+			ID:        releaseID,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

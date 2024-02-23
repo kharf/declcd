@@ -4,13 +4,8 @@ import (
 	"github.com/kharf/declcd/api/v1"
 )
 
-v1.#Component & {
-	certManager: {
-		manifests: [
-			_namespace,
-		]
-		helmReleases: [
-			_release,
-		]
-	}
+ns: v1.#Component & {
+	content: _namespace
 }
+
+release: content: _release

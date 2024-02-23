@@ -35,54 +35,82 @@ func TestMain(m *testing.M) {
 
 var allInOneOmittedContent = `package secrets
 
-import "k8s.io/api/core/v1"
+import (
+	"github.com/kharf/declcd/api/v1"
+	corev1 "k8s.io/api/core/v1"
+)
 
-#data: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
+#Namespace: {
+	_name!: string
+	v1.#Component & {
+		content: v1.#Manifest & {
+			apiVersion: "v1"
+			kind:       "Namespace"
+			metadata: {
+				name: _name
+			}
+		}
+	}
+}
+
+ns: #Namespace & {
+	_name: "mynamespace"
+}
+
+#Secret: {
+	_name!: string
+	data: {[string]: bytes}
+	stringData: {[string]: string}
+	corev1.#Secret & {
+		apiVersion: "v1"
+		kind:       "Secret"
+		metadata: {
+			name:      _name
+			namespace: ns.content.metadata.name
+		}
+	}
+}
+
+b: #Secret & {
+	_name: "b"
+	stringData: {
+		foo: _bSecret
+	}
+}
+
+c: #Secret & {
+	_name: "c"
+	data: {
+		foo: _cSecret
+	}
+}
+
+data: #Secret & {
+	_name: "data"
+	data: {
+		foo: '(enc;value omitted)'
+	}
+}
+
+stringData: #Secret & {
+	_name: "stringData"
+	stringData: {
+		foo: "(enc;value omitted)"
+	}
+}
+
+both: #Secret & {
+	_name: "both"
+	stringData: {
+		foo: "(enc;value omitted)"
 	}
 	data: {
 		foo: '(enc;value omitted)'
 	}
 }
 
-#stringData: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
-	stringData: {
-		foo: "(enc;value omitted)"
-	}
-}
-
-#both: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
-	stringData: {
-		foo: "(enc;value omitted)"
-	}
-	data: {
-		foo: '(enc;value omitted)'
-	}
-}
-
-#multiLine: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
+multiLine: #Secret & {
+	_name: "multiLine"
 	stringData: {
 		foo: """
 (enc;value omitted)
@@ -95,66 +123,89 @@ import "k8s.io/api/core/v1"
 	}
 }
 
-#none: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
+none: #Secret & {
+	_name: "none"
 }
 `
 
 var allInOneDecryptedContent = `package secrets
 
-import "k8s.io/api/core/v1"
+import (
+	"github.com/kharf/declcd/api/v1"
+	corev1 "k8s.io/api/core/v1"
+)
 
-#data: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
+#Namespace: {
+	_name!: string
+	v1.#Component & {
+		content: v1.#Manifest & {
+			apiVersion: "v1"
+			kind:       "Namespace"
+			metadata: {
+				name: _name
+			}
+		}
+	}
+}
+
+ns: #Namespace & {
+	_name: "mynamespace"
+}
+
+#Secret: {
+	_name!: string
+	data: {[string]: bytes}
+	stringData: {[string]: string}
+	corev1.#Secret & {
+		apiVersion: "v1"
+		kind:       "Secret"
+		metadata: {
+			name:      _name
+			namespace: ns.content.metadata.name
+		}
+	}
+}
+
+b: #Secret & {
+	_name: "b"
+	stringData: {
+		foo: _bSecret
+	}
+}
+
+c: #Secret & {
+	_name: "c"
+	data: {
+		foo: _cSecret
+	}
+}
+
+data: #Secret & {
+	_name: "data"
+	data: {
+		foo: 'bar'
+	}
+}
+
+stringData: #Secret & {
+	_name: "stringData"
+	stringData: {
+		foo: "bar"
+	}
+}
+
+both: #Secret & {
+	_name: "both"
+	stringData: {
+		foo: "bar"
 	}
 	data: {
 		foo: 'bar'
 	}
 }
 
-#stringData: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
-	stringData: {
-		foo: "bar"
-	}
-}
-
-#both: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
-	stringData: {
-		foo: "bar"
-	}
-	data: {
-		foo: 'bar'
-	}
-}
-
-#multiLine: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
+multiLine: #Secret & {
+	_name: "multiLine"
 	stringData: {
 		foo: """
 				bar
@@ -171,29 +222,16 @@ import "k8s.io/api/core/v1"
 	}
 }
 
-#none: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
+none: #Secret & {
+	_name: "none"
 }
 `
 
 var aOmittedContent = `package secrets
 
-import "k8s.io/api/core/v1"
-
 _fooSecret: '(enc;value omitted)'
-
-#a: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
+a: #Secret & {
+	_name: "a"
 	data: {
 		foo: _fooSecret
 	}
@@ -202,17 +240,9 @@ _fooSecret: '(enc;value omitted)'
 
 var aDecryptedContent = `package secrets
 
-import "k8s.io/api/core/v1"
-
 _fooSecret: 'bar'
-
-#a: v1.#Secret & {
-	apiVersion: "v1"
-	kind:       "Secret"
-	metadata: {
-		name:      "secret"
-		namespace: #namespace.metadata.name
-	}
+a: #Secret & {
+	_name: "a"
 	data: {
 		foo: _fooSecret
 	}
@@ -239,7 +269,7 @@ var cDecryptedContent = `package secrets
 _cSecretFar: 'bar'
 `
 
-func TestEncrypter_EncryptComponent(t *testing.T) {
+func TestEncrypter_EncryptPackage(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithProjectSource("secret"),
 		projecttest.WithKubernetes(kubetest.WithKubernetesDisabled()),
@@ -248,7 +278,7 @@ func TestEncrypter_EncryptComponent(t *testing.T) {
 	privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
 	identity, err := age.ParseX25519Identity(privKey)
 	assert.NilError(t, err)
-	err = secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
+	err = secret.NewEncrypter(env.TestProject).EncryptPackage("infra/secrets")
 	assert.NilError(t, err)
 	secretsFile := readSecretsFile(t, env.TestProject)
 	assert.Equal(t, len(secretsFile.Secrets), 4)
@@ -260,7 +290,7 @@ func TestEncrypter_EncryptComponent(t *testing.T) {
 	}{
 		{
 			name:                     "AllInOneFile",
-			expectedPath:             "/infra/secrets/secrets.cue",
+			expectedPath:             "/infra/secrets/component.cue",
 			expectedOmittedContent:   allInOneOmittedContent,
 			expedtedDecryptedContent: allInOneDecryptedContent,
 		},
@@ -342,13 +372,13 @@ func TestDecrypter_Decrypt(t *testing.T) {
 		),
 	)
 	defer env.Stop()
-	err := secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
+	err := secret.NewEncrypter(env.TestProject).EncryptPackage("infra/secrets")
 	assert.NilError(t, err)
 	newProjectRoot, err := secret.NewDecrypter(
 		env.KubetestEnv.SecretManager.Namespace(), env.DynamicTestKubeClient, runtime.GOMAXPROCS(0),
 	).Decrypt(env.Ctx, env.TestProject)
 	assert.NilError(t, err)
-	result, err := os.Open(filepath.Join(newProjectRoot, "infra/secrets/secrets.cue"))
+	result, err := os.Open(filepath.Join(newProjectRoot, "infra/secrets/component.cue"))
 	assert.NilError(t, err)
 	assertCue(t, result, allInOneDecryptedContent)
 	assert.Assert(t, env.TestProject != newProjectRoot)
@@ -456,7 +486,7 @@ func BenchmarkDecrypter_Decrypt(b *testing.B) {
 		),
 	)
 	defer env.Stop()
-	err := secret.NewEncrypter(env.TestProject).EncryptComponent("infra/secrets")
+	err := secret.NewEncrypter(env.TestProject).EncryptPackage("infra/secrets")
 	assert.NilError(b, err)
 	workerPoolSize := runtime.GOMAXPROCS(0)
 	b.ResetTimer()

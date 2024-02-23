@@ -40,7 +40,7 @@ const (
 
 var (
 	omittedValueText = "(enc;value omitted)"
-	ErrKeyNotFound   = errors.New("decryption key not found")
+	ErrKeyNotFound   = errors.New("Decryption key not found")
 )
 
 // Manager is capable of encrypting and decrypting secrets for a declcd gitops project.
@@ -168,10 +168,10 @@ func NewEncrypter(projectRoot string) Encrypter {
 	}
 }
 
-// EncryptComponent reads the public encryption key from the secret/recipients.cue file and uses it
-// to encrypt every secret found in the declcd gitops repository and stores the encrypted files in secret/secrets.cue.
-func (enc Encrypter) EncryptComponent(component string) error {
-	componentValue, err := internalCue.BuildPackage(component, enc.projectRoot)
+// EncryptPackage reads the public encryption key from the secret/recipients.cue file and uses it
+// to encrypt every secret found in the cue declcd/package and stores the encrypted files in secret/secrets.cue.
+func (enc Encrypter) EncryptPackage(pkg string) error {
+	packageValue, err := internalCue.BuildPackage(pkg, enc.projectRoot)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (enc Encrypter) EncryptComponent(component string) error {
 	if err != nil {
 		return err
 	}
-	secretInstances, err := locateSecrets(*componentValue)
+	secretInstances, err := locateSecrets(*packageValue)
 	if err != nil {
 		return err
 	}

@@ -5,13 +5,9 @@ import (
 	"github.com/kharf/declcd/test/testdata/simple/infra/prometheus"
 )
 
-v1.#Component & {
-	subcomponent: {
-		dependencies: [
-			prometheus.prometheus.id,
-		]
-		manifests: [
-			_deployment,
-		]
-	}
+deployment: v1.#Component & {
+	dependencies: [
+		prometheus.ns.id,
+	]
+	content: _deployment
 }

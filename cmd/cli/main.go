@@ -88,11 +88,13 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&branch, "branch", "b", "main", "The branch of the gitops repository containing the project configuration")
+	cmd.Flags().
+		StringVarP(&branch, "branch", "b", "main", "The branch of the gitops repository containing the project configuration")
 	cmd.Flags().StringVarP(&url, "url", "u", "", "The url to the gitops repository")
 	cmd.Flags().StringVarP(&stage, "stage", "s", "", "The stage of the declcd configuration")
 	cmd.Flags().StringVarP(&token, "token", "t", "", "The access token used for authentication")
-	cmd.Flags().IntVarP(&interval, "interval", "i", 30, "This defines how often declcd will reconcile the cluster state. The value is defined in seconds")
+	cmd.Flags().
+		IntVarP(&interval, "interval", "i", 30, "This defines how often declcd will reconcile the cluster state. The value is defined in seconds")
 	return cmd
 }
 
@@ -106,7 +108,7 @@ func (builder EncryptCommandBuilder) Build() *cobra.Command {
 		Short: "Encrypt Secrets inside the GitOps Repository",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			if err := builder.secretEncrypter.EncryptComponent(args[0]); err != nil {
+			if err := builder.secretEncrypter.EncryptPackage(args[0]); err != nil {
 				return err
 			}
 			return nil

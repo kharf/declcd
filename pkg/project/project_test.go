@@ -17,12 +17,6 @@ import (
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(
-		m,
-	)
-}
-
 func setUp() logr.Logger {
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.OutputPaths = []string{"stdout"}
@@ -35,6 +29,9 @@ func setUp() logr.Logger {
 }
 
 func TestManager_Load(t *testing.T) {
+	defer goleak.VerifyNone(
+		t,
+	)
 	logger := setUp()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)
@@ -42,12 +39,19 @@ func TestManager_Load(t *testing.T) {
 	pm := project.NewManager(component.NewBuilder(), logger, runtime.GOMAXPROCS(0))
 	dag, err := pm.Load(root)
 	assert.NilError(t, err)
-	linkerd := dag.Get("linkerd")
-	assert.Equal(t, linkerd.Path(), "infra/linkerd")
-	prometheus := dag.Get("prometheus")
-	assert.Equal(t, prometheus.Path(), "infra/prometheus")
-	subcomponent := dag.Get("subcomponent")
-	assert.Equal(t, subcomponent.Path(), "infra/prometheus/subcomponent")
+	linkerd := dag.Get("linkerd___Namespace")
+	assert.Assert(t, linkerd != nil)
+	linkerdManifest, ok := linkerd.(*component.Manifest)
+	assert.Assert(t, ok)
+	assert.Assert(t, linkerdManifest.Content.GetAPIVersion() == "v1")
+	assert.Assert(t, linkerdManifest.Content.GetKind() == "Namespace")
+	assert.Assert(t, linkerdManifest.Content.GetName() == "linkerd")
+	prometheus := dag.Get("prometheus___Namespace")
+	assert.Assert(t, prometheus != nil)
+	prometheusRelease := dag.Get("{{.Name}}_prometheus_HelmRelease")
+	assert.Assert(t, prometheusRelease != nil)
+	subcomponent := dag.Get("mysubcomponent_prometheus_apps_Deployment")
+	assert.Assert(t, subcomponent != nil)
 }
 
 var dagResult *component.DependencyGraph

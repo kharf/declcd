@@ -5,15 +5,9 @@ import (
 	"github.com/kharf/decldc-test-repo/infra/prometheus"
 )
 
-v1.#Component & {
-	pyroscope: {
-		dependencies: [
-			prometheus.prometheus.id,
-		]
-		manifests: [
-		]
-		helmReleases: [
-			_release,
-		]
-	}
+release: v1.#Component & {
+	dependencies: [
+		prometheus.namespace.id,
+	]
+	content: _release
 }

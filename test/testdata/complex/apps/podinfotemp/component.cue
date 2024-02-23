@@ -2,11 +2,8 @@ package podinfotemp
 
 import "github.com/kharf/declcd/api/v1"
 
-v1.#Component & {
-	pit: {
-		manifests: [
-			_namespace,
-			_deployment,
-		]
-	}
+namespace: content: _namespace
+
+deployment: v1.#Component & {
+	content: _deployment
 }

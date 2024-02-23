@@ -5,17 +5,21 @@ import (
 	"github.com/kharf/declcd/test/testdata/simple/infra/linkerd"
 )
 
-v1.#Component & {
-	prometheus: {
-		dependencies: [
-			linkerd.linkerd.id,
-		]
-		manifests: [
-			#namespace,
-			_secret,
-		]
-		helmReleases: [
-			_release,
-		]
-	}
+ns: v1.#Component & {
+	content: #namespace
+}
+
+secret: v1.#Component & {
+	dependencies: [
+		ns.id,
+	]
+	content: _secret
+}
+
+release: v1.#Component & {
+	dependencies: [
+		ns.id,
+		linkerd.ns.id,
+	]
+	content: _release
 }

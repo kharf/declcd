@@ -1,16 +1,6 @@
 package prometheus
 
-import "github.com/kharf/declcd/api/v1"
-
-v1.#Component & {
-	prometheus: {
-		manifests: [
-			#namespace,
-			_goDashboardConfigMap,
-			_declcdDashboardConfigMap,
-		]
-		helmReleases: [
-			_release,
-		]
-	}
-}
+namespace: content:                #namespace
+goDashboardConfigMap: content:     _goDashboardConfigMap
+declcdDashboardConfigMap: content: _declcdDashboardConfigMap
+release: content:                  _release

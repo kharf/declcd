@@ -29,16 +29,16 @@ type Collector struct {
 // which are undefined in the declcd gitops repository, and uninstalls them from
 // the Kubernetes cluster and inventory.
 // The DependencyGraph is a representation of the gitops repository.
-func (c *Collector) Collect(ctx context.Context, dag component.DependencyGraph) error {
+func (c *Collector) Collect(ctx context.Context, dag *component.DependencyGraph) error {
 	storage, err := c.InventoryManager.Load()
 	if err != nil {
 		return err
 	}
 	eg := errgroup.Group{}
 	eg.SetLimit(c.WorkerPoolSize)
-	for componentID, invComponent := range storage.Components() {
+	for _, invComponent := range storage.Items() {
 		eg.Go(func() error {
-			return c.collect(ctx, dag, componentID, invComponent)
+			return c.collect(ctx, dag, invComponent)
 		})
 	}
 	return eg.Wait()
@@ -46,75 +46,45 @@ func (c *Collector) Collect(ctx context.Context, dag component.DependencyGraph) 
 
 func (c *Collector) collect(
 	ctx context.Context,
-	dag component.DependencyGraph,
-	componentID string,
-	invComponent inventory.Component,
+	dag *component.DependencyGraph,
+	inventoryItem inventory.Item,
 ) error {
-	if node := dag.Get(componentID); node != nil {
-		for _, item := range invComponent.Items() {
-			collect := true
-			switch item := item.(type) {
-			case inventory.HelmReleaseItem:
-				for _, hr := range node.HelmReleases() {
-					if compareHelmRelease(item, hr) {
-						collect = false
-						break
-					}
-				}
-				if collect {
-					if err := c.collectHelmRelease(item); err != nil {
-						return err
-					}
-				}
-			case inventory.ManifestItem:
-				for _, manifest := range node.Manifests() {
-					if compareManifest(item, manifest) {
-						collect = false
-						break
-					}
-				}
-				if collect {
-					if err := c.collectManifest(ctx, item); err != nil {
-						return err
-					}
-				}
+	collect := true
+	instance := dag.Get(inventoryItem.GetID())
+	if instance != nil {
+		collect = inventoryItem.GetID() != instance.GetID()
+	}
+	if collect {
+		switch item := inventoryItem.(type) {
+		case *inventory.HelmReleaseItem:
+			if err := c.collectHelmRelease(item); err != nil {
+				return err
 			}
-		}
-	} else {
-		for _, item := range invComponent.Items() {
-			switch item := item.(type) {
-			case inventory.HelmReleaseItem:
-				if err := c.collectHelmRelease(item); err != nil {
-					return err
-				}
-			case inventory.ManifestItem:
-				if err := c.collectManifest(ctx, item); err != nil {
-					return err
-				}
+		case *inventory.ManifestItem:
+			if err := c.collectManifest(ctx, item); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
 }
 
-func (c *Collector) collectHelmRelease(invHr inventory.HelmReleaseItem) error {
+func (c *Collector) collectHelmRelease(invHr *inventory.HelmReleaseItem) error {
 	c.Log.Info(
 		"Collecting unreferenced helm release",
-		"component",
-		invHr.ComponentID(),
 		"namespace",
-		invHr.Namespace(),
+		invHr.GetNamespace(),
 		"name",
-		invHr.Name(),
+		invHr.GetName(),
 	)
 	// fieldManager is irrelevant for deleting.
-	helmCfg, err := helm.Init(invHr.Namespace(), c.KubeConfig, c.Client, "")
+	helmCfg, err := helm.Init(invHr.GetNamespace(), c.KubeConfig, c.Client, "")
 	if err != nil {
 		return err
 	}
 	client := action.NewUninstall(helmCfg)
 	client.Wait = false
-	_, err = client.Run(invHr.Name())
+	_, err = client.Run(invHr.GetName())
 	if err != nil {
 		return err
 	}
@@ -124,23 +94,24 @@ func (c *Collector) collectHelmRelease(invHr inventory.HelmReleaseItem) error {
 	return nil
 }
 
-func (c *Collector) collectManifest(ctx context.Context, invManifest inventory.ManifestItem) error {
+func (c *Collector) collectManifest(
+	ctx context.Context,
+	invManifest *inventory.ManifestItem,
+) error {
 	c.Log.Info(
 		"Collecting unreferenced manifest",
-		"component",
-		invManifest.ComponentID(),
 		"namespace",
-		invManifest.Namespace(),
+		invManifest.GetNamespace(),
 		"name",
-		invManifest.Name(),
+		invManifest.GetName(),
 		"kind",
-		invManifest.TypeMeta().Kind,
+		invManifest.TypeMeta.Kind,
 	)
 	unstr := &unstructured.Unstructured{}
-	unstr.SetName(invManifest.Name())
-	unstr.SetNamespace(invManifest.Namespace())
-	unstr.SetKind(invManifest.TypeMeta().Kind)
-	unstr.SetAPIVersion(invManifest.TypeMeta().APIVersion)
+	unstr.SetName(invManifest.GetName())
+	unstr.SetNamespace(invManifest.GetNamespace())
+	unstr.SetKind(invManifest.TypeMeta.Kind)
+	unstr.SetAPIVersion(invManifest.TypeMeta.APIVersion)
 	if err := c.Client.Delete(ctx, unstr); err != nil {
 		return err
 	}
@@ -148,24 +119,4 @@ func (c *Collector) collectManifest(ctx context.Context, invManifest inventory.M
 		return err
 	}
 	return nil
-}
-
-func compareManifest(
-	inventoryManifest inventory.ManifestItem,
-	manifest kube.ManifestMetadata,
-) bool {
-	return inventoryManifest.ComponentID() == manifest.ComponentID() &&
-		inventoryManifest.TypeMeta().Kind == manifest.Kind &&
-		inventoryManifest.TypeMeta().APIVersion == manifest.APIVersion &&
-		inventoryManifest.Namespace() == manifest.Namespace() &&
-		inventoryManifest.Name() == manifest.Name()
-}
-
-func compareHelmRelease(
-	inventoryRelease inventory.HelmReleaseItem,
-	release helm.ReleaseMetadata,
-) bool {
-	return inventoryRelease.ComponentID() == release.ComponentID() &&
-		inventoryRelease.Name() == release.Name() &&
-		inventoryRelease.Namespace() == release.Namespace()
 }
