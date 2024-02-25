@@ -57,7 +57,7 @@ type applyOptions struct {
 
 // ApplyOption is a specific configuration used for applying changes to an object.
 type ApplyOption interface {
-	Apply(opt *applyOptions)
+	Apply(opts *applyOptions)
 }
 
 // DryRun indicates that modifications should not be persisted.

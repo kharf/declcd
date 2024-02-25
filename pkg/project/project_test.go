@@ -1,6 +1,7 @@
 package project_test
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,6 +22,7 @@ func setUp() logr.Logger {
 	zapConfig := zap.NewDevelopmentConfig()
 	zapConfig.OutputPaths = []string{"stdout"}
 	logOpts := ctrlZap.Options{
+		DestWriter:  io.Discard,
 		Development: true,
 		Level:       zapcore.Level(-3),
 	}

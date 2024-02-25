@@ -136,13 +136,14 @@ func main() {
 		Log:  log,
 		Path: "/inventory",
 	}
-	chartReconciler := helm.NewChartReconciler(
-		cfg,
-		kubeDynamicClient,
-		install.ControllerName,
-		inventoryManager,
-		log,
-	)
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            cfg,
+		Client:                kubeDynamicClient,
+		FieldManager:          install.ControllerName,
+		InventoryManager:      inventoryManager,
+		InsecureSkipTLSverify: false,
+		Log:                   log,
+	}
 	namespace, err := os.ReadFile("/podinfo/namespace")
 	if err != nil {
 		setupLog.Error(err, "Unable to read current namespace")
