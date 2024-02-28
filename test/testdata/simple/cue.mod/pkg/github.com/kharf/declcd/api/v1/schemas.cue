@@ -19,8 +19,6 @@ import "strings"
 	dependencies: [...string]
 }
 
-[Name=_]: #Component
-
 #Manifest: {
 	_type:       "Manifest"
 	apiVersion!: string

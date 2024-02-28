@@ -32,13 +32,14 @@ func TestReconciler_Reconcile(t *testing.T) {
 		),
 	)
 	defer env.Stop()
-	chartReconciler := helm.NewChartReconciler(
-		env.ControlPlane.Config,
-		env.DynamicTestKubeClient,
-		"controller",
-		env.InventoryManager,
-		env.Log,
-	)
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            env.ControlPlane.Config,
+		Client:                env.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryManager:      env.InventoryManager,
+		InsecureSkipTLSverify: true,
+		Log:                   env.Log,
+	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  component.NewBuilder(),
@@ -180,13 +181,14 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 		),
 	)
 	defer env.Stop()
-	chartReconciler := helm.NewChartReconciler(
-		env.ControlPlane.Config,
-		env.DynamicTestKubeClient,
-		"controller",
-		env.InventoryManager,
-		env.Log,
-	)
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            env.ControlPlane.Config,
+		Client:                env.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryManager:      env.InventoryManager,
+		InsecureSkipTLSverify: true,
+		Log:                   env.Log,
+	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  component.NewBuilder(),
@@ -240,13 +242,14 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 		),
 	)
 	defer env.Stop()
-	chartReconciler := helm.NewChartReconciler(
-		env.ControlPlane.Config,
-		env.DynamicTestKubeClient,
-		"controller",
-		env.InventoryManager,
-		env.Log,
-	)
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            env.ControlPlane.Config,
+		Client:                env.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryManager:      env.InventoryManager,
+		InsecureSkipTLSverify: true,
+		Log:                   env.Log,
+	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		ComponentBuilder:  component.NewBuilder(),

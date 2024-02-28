@@ -4,24 +4,29 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"text/template"
 	"time"
 
-	"gotest.tools/v3/assert"
 	goRuntime "runtime"
+
+	"gotest.tools/v3/assert"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/foxcpp/go-mockdns"
 	"github.com/google/go-containerregistry/pkg/registry"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/gittest"
@@ -349,6 +354,7 @@ type helmEnv struct {
 	HelmConfig       action.Configuration
 	ChartServer      *httptest.Server
 	RepositoryServer *httptest.Server
+	DNSServer        *mockdns.Server
 	chartArchives    []*os.File
 }
 
@@ -358,6 +364,10 @@ func (env helmEnv) Close() {
 	}
 	if env.RepositoryServer != nil {
 		env.RepositoryServer.Close()
+	}
+	if env.DNSServer != nil {
+		env.DNSServer.Close()
+		mockdns.UnpatchNet(net.DefaultResolver)
 	}
 	for _, f := range env.chartArchives {
 		os.Remove(f.Name())
@@ -398,19 +408,52 @@ func startHelmServer(t testing.TB, oci bool) helmEnv {
 	v1Archive := createChartArchive(t, "test", "1.0.0")
 	v2Archive := createChartArchive(t, "testv2", "2.0.0")
 	var chartServer *httptest.Server
+	var dnsServer *mockdns.Server
 	if oci {
-		opts := []registry.Option{registry.WithReferrersSupport(true)}
-		chartServer = httptest.NewServer(registry.New(opts...))
-		helmRegistryClient, err := helmRegistry.NewClient()
+		var err error
+		// Helm uses Docker under the hood to handle OCI
+		// and Docker defaults to HTTP when it detects that the registry host
+		// is localhost or 127.0.0.1.
+		// In order to test OCI with a HTTPS server, we have to supply a "fake" host.
+		// We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
+		// All OCI tests have to use declcd.io as host.
+		dnsServer, err = mockdns.NewServer(map[string]mockdns.Zone{
+			"declcd.io.": {
+				A: []string{"127.0.0.1"},
+			},
+		}, false)
+		assert.NilError(t, err)
+		dnsServer.PatchNet(net.DefaultResolver)
+		tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
+		assert.NilError(t, err)
+		listener, err := net.ListenTCP("tcp", tcpAddr)
+		assert.NilError(t, err)
+		port := listener.Addr().(*net.TCPAddr).Port
+		addr := "declcd.io:" + strconv.Itoa(port)
+		chartServer = httptest.NewUnstartedServer(registry.New())
+		chartServer.Config.Addr = addr
+		chartServer.Listener = listener
+		chartServer.StartTLS()
+		client := chartServer.Client()
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+		helmOpts := []helmRegistry.ClientOption{
+			helmRegistry.ClientOptDebug(true),
+			helmRegistry.ClientOptWriter(os.Stderr),
+			helmRegistry.ClientOptHTTPClient(client),
+			helmRegistry.ClientOptResolver(nil),
+		}
+		helmRegistryClient, err := helmRegistry.NewClient(helmOpts...)
 		assert.NilError(t, err)
 		v1Bytes, err := os.ReadFile(v1Archive.Name())
 		assert.NilError(t, err)
-		ociRepo, found := strings.CutPrefix(chartServer.URL, "http://")
-		assert.Assert(t, found)
-		_, err = helmRegistryClient.Push(v1Bytes, fmt.Sprintf("%s/%s:%s", ociRepo, "test", "1.0.0"))
+		_, err = helmRegistryClient.Push(v1Bytes, fmt.Sprintf("%s/%s:%s", addr, "test", "1.0.0"))
 		assert.NilError(t, err)
 	} else {
-		chartServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chartServer = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			archive := v1Archive
 			if strings.Contains(r.URL.Path, "2.0.0") {
 				archive = v2Archive
@@ -427,7 +470,7 @@ func startHelmServer(t testing.TB, oci bool) helmEnv {
 			}
 		}))
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		index := &repo.IndexFile{
 			APIVersion: "v1",
 			Generated:  time.Now(),
@@ -462,6 +505,7 @@ func startHelmServer(t testing.TB, oci bool) helmEnv {
 	return helmEnv{
 		ChartServer:      chartServer,
 		RepositoryServer: server,
+		DNSServer:        dnsServer,
 		chartArchives:    []*os.File{v1Archive, v2Archive},
 	}
 }

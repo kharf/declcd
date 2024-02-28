@@ -5,6 +5,7 @@ go 1.22.0
 require (
 	cuelang.org/go v0.7.1
 	filippo.io/age v1.1.1
+	github.com/foxcpp/go-mockdns v1.0.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/google/go-containerregistry v0.19.0
 	github.com/google/go-github/v59 v59.0.0
@@ -37,6 +38,7 @@ require (
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
+	github.com/miekg/dns v1.1.25 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect

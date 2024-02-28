@@ -13,7 +13,6 @@ import (
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -73,13 +72,11 @@ func TestCollector_Collect(t *testing.T) {
 	}
 	ctx := context.Background()
 	converter := runtime.DefaultUnstructuredConverter
-	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
-	assert.NilError(t, err)
 	dag := component.NewDependencyGraph()
 	for _, im := range invManifests {
 		obj, err := converter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
-		err = client.Apply(ctx, &unstr, "test")
+		err = env.DynamicTestKubeClient.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
 		buf := &bytes.Buffer{}
 		json.NewEncoder(buf).Encode(unstr.Object)
@@ -101,13 +98,14 @@ func TestCollector_Collect(t *testing.T) {
 	invHelmReleases := []*inventory.HelmReleaseItem{
 		hr,
 	}
-	chartReconciler := helm.NewChartReconciler(
-		env.ControlPlane.Config,
-		env.DynamicTestKubeClient,
-		"controller",
-		env.InventoryManager,
-		env.Log,
-	)
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            env.ControlPlane.Config,
+		Client:                env.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryManager:      env.InventoryManager,
+		InsecureSkipTLSverify: true,
+		Log:                   env.Log,
+	}
 	releases := make([]helm.ReleaseDeclaration, 0, len(invHelmReleases))
 	for _, hrMetadata := range invHelmReleases {
 		release := helm.ReleaseDeclaration{
@@ -181,7 +179,7 @@ func TestCollector_Collect(t *testing.T) {
 		for _, im := range renderedManifests {
 			obj, err := converter.ToUnstructured(toObject(im))
 			unstr := unstructured.Unstructured{Object: obj}
-			err = client.Apply(ctx, &unstr, "test")
+			err = env.DynamicTestKubeClient.Apply(ctx, &unstr, "test")
 			assert.NilError(t, err)
 			buf := &bytes.Buffer{}
 			json.NewEncoder(buf).Encode(unstr.Object)

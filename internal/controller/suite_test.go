@@ -78,13 +78,14 @@ var _ = BeforeSuite(func() {
 	unstr := &unstructured.Unstructured{Object: unstrObj}
 	err = client.Apply(env.Ctx, unstr, "controller")
 	Expect(err).NotTo(HaveOccurred())
-	chartReconciler := helm.NewChartReconciler(
-		env.ControlPlane.Config,
-		env.DynamicTestKubeClient,
-		"controller",
-		env.InventoryManager,
-		env.Log,
-	)
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            env.ControlPlane.Config,
+		Client:                env.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryManager:      env.InventoryManager,
+		InsecureSkipTLSverify: true,
+		Log:                   env.Log,
+	}
 	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "declcd",
 		Name:      "reconciliation_duration_seconds",

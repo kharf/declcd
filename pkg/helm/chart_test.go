@@ -103,7 +103,14 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, true)),
 				)
-				repoURL := strings.Replace(env.HelmEnv.ChartServer.URL, "http", "oci", 1)
+				// has to be declcd.io, because of Docker defaulting to HTTP, when localhost is detected.
+				// more info in internal/kubetest/env.go#startHelmServer
+				repoURL := strings.Replace(
+					env.HelmEnv.ChartServer.URL,
+					"https://127.0.0.1",
+					"oci://declcd.io",
+					1,
+				)
 				chart := Chart{
 					Name:    "test",
 					RepoURL: repoURL,
@@ -439,15 +446,16 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, fixture := tc.pre()
 			defer env.Stop()
-			reconciler := NewChartReconciler(
-				env.ControlPlane.Config,
-				env.DynamicTestKubeClient,
-				"controller",
-				env.InventoryManager,
-				env.Log,
-			)
-			fixture.testReconcile(t, reconciler, assertChartv1)
-			tc.post(env, reconciler, fixture)
+			chartReconciler := helm.ChartReconciler{
+				KubeConfig:            env.ControlPlane.Config,
+				Client:                env.DynamicTestKubeClient,
+				FieldManager:          "controller",
+				InventoryManager:      env.InventoryManager,
+				InsecureSkipTLSverify: true,
+				Log:                   env.Log,
+			}
+			fixture.testReconcile(t, chartReconciler, assertChartv1)
+			tc.post(env, chartReconciler, fixture)
 		})
 	}
 }
