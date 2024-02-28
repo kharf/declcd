@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
@@ -42,6 +43,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
+		DynamicClient:     env.DynamicTestKubeClient,
 		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
@@ -50,6 +52,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
 		Decrypter:         env.SecretManager.Decrypter,
+		FieldManager:      install.ControllerName,
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false
@@ -191,16 +194,17 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
+		DynamicClient:     env.DynamicTestKubeClient,
 		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
 		ChartReconciler:   chartReconciler,
-		InventoryManager: &inventory.Manager{
-			Log:  env.Log,
-			Path: filepath.Join(os.TempDir(), "inventory"),
-		},
-		Log:            env.Log,
-		WorkerPoolSize: runtime.GOMAXPROCS(0),
+		InventoryManager:  env.InventoryManager,
+		GarbageCollector:  env.GarbageCollector,
+		Log:               env.Log,
+		Decrypter:         env.SecretManager.Decrypter,
+		FieldManager:      install.ControllerName,
+		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := true
 	result, err := reconciler.Reconcile(env.Ctx, gitopsv1.GitOpsProject{
@@ -252,6 +256,7 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 	}
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
+		DynamicClient:     env.DynamicTestKubeClient,
 		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
@@ -260,6 +265,7 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
 		Decrypter:         env.SecretManager.Decrypter,
+		FieldManager:      install.ControllerName,
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false

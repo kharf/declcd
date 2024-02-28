@@ -67,7 +67,7 @@ func (dr DryRun) Apply(opts *applyOptions) {
 	opts.dryRun = bool(dr)
 }
 
-// Force indicates that conflicts should error.
+// Force indicates that conflicts should not error.
 type Force bool
 
 func (f Force) Apply(opts *applyOptions) {

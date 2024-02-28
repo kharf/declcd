@@ -13,13 +13,12 @@ import (
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	"golang.org/x/sync/errgroup"
-	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -29,6 +28,7 @@ import (
 type Reconciler struct {
 	Log               logr.Logger
 	Client            client.Client
+	DynamicClient     kube.Client[unstructured.Unstructured]
 	ProjectManager    Manager
 	RepositoryManager vcs.RepositoryManager
 	ComponentBuilder  component.Builder
@@ -36,6 +36,7 @@ type Reconciler struct {
 	InventoryManager  *inventory.Manager
 	GarbageCollector  garbage.Collector
 	Decrypter         secret.Decrypter
+	FieldManager      string
 	WorkerPoolSize    int
 }
 
@@ -114,31 +115,51 @@ func (reconciler Reconciler) reconcileComponents(
 	componentInstances []component.Instance,
 	repositoryDir string,
 ) error {
-	componentBuilder := reconciler.ComponentBuilder
 	eg := errgroup.Group{}
 	eg.SetLimit(reconciler.WorkerPoolSize)
 	for _, instance := range componentInstances {
-		eg.Go(func() error {
-			return reconciler.reconcileComponent(
+		// TODO: implement SCC decomposition for better concurrency/parallelism
+		if len(instance.GetDependencies()) == 0 {
+			eg.Go(func() error {
+				return reconciler.reconcileComponent(
+					ctx,
+					repositoryDir,
+					instance,
+				)
+			})
+		} else {
+			if err := eg.Wait(); err != nil {
+				return err
+			}
+			if err := reconciler.reconcileComponent(
 				ctx,
-				componentBuilder,
 				repositoryDir,
 				instance,
-			)
-		})
+			); err != nil {
+				return err
+			}
+		}
 	}
 	return eg.Wait()
 }
 
 func (reconciler Reconciler) reconcileComponent(
 	ctx context.Context,
-	componentBuilder component.Builder,
 	repositoryDir string,
 	componentInstance component.Instance,
 ) error {
 	switch componentInstance := componentInstance.(type) {
 	case *component.Manifest:
-		if err := reconciler.createOrUpdate(ctx, &componentInstance.Content); err != nil {
+		reconciler.Log.Info(
+			"Applying manifest",
+			"namespace",
+			componentInstance.Content.GetNamespace(),
+			"name",
+			componentInstance.Content.GetName(),
+			"kind",
+			componentInstance.Content.GetKind(),
+		)
+		if err := reconciler.DynamicClient.Apply(ctx, &componentInstance.Content, reconciler.FieldManager, kube.Force(true)); err != nil {
 			return err
 		}
 		invManifest := &inventory.ManifestItem{
@@ -165,38 +186,6 @@ func (reconciler Reconciler) reconcileComponent(
 		); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (reconciler Reconciler) createOrUpdate(
-	ctx context.Context,
-	manifest *unstructured.Unstructured,
-) error {
-	client := reconciler.Client
-	log := reconciler.Log
-	log.Info(
-		"Applying manifest",
-		"namespace",
-		manifest.GetNamespace(),
-		"name",
-		manifest.GetName(),
-		"kind",
-		manifest.GetKind(),
-	)
-	if err := client.Create(ctx, manifest); err != nil {
-		if errors.IsAlreadyExists(err) {
-			currentManifest := unstructured.Unstructured{Object: map[string]interface{}{
-				"kind":       manifest.GetKind(),
-				"apiVersion": manifest.GetAPIVersion(),
-			}}
-			if err := client.Get(ctx, types.NamespacedName{Namespace: manifest.GetNamespace(), Name: manifest.GetName()}, &currentManifest); err != nil {
-				return err
-			}
-			manifest.SetResourceVersion(currentManifest.GetResourceVersion())
-			return client.Update(ctx, manifest)
-		}
-		return err
 	}
 	return nil
 }

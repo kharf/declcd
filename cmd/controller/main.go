@@ -159,6 +159,7 @@ func main() {
 		Reconciler: project.Reconciler{
 			Log:               log,
 			Client:            mgr.GetClient(),
+			DynamicClient:     kubeDynamicClient,
 			ComponentBuilder:  componentBuilder,
 			RepositoryManager: vcs.NewRepositoryManager(string(namespace), kubeDynamicClient, log),
 			ProjectManager:    projectManager,
@@ -172,6 +173,7 @@ func main() {
 				WorkerPoolSize:   maxProcs,
 			},
 			Decrypter:      secret.NewDecrypter(string(namespace), kubeDynamicClient, maxProcs),
+			FieldManager:   install.ControllerName,
 			WorkerPoolSize: maxProcs,
 		},
 		ReconciliationHistogram: reconciliationHisto,

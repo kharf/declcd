@@ -19,6 +19,8 @@ package controller
 import (
 	"testing"
 
+	goRuntime "runtime"
+
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -26,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubectl/pkg/scheme"
-	goRuntime "runtime"
 
+	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -93,6 +95,7 @@ var _ = BeforeSuite(func() {
 	}, []string{"project", "url"})
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
+		DynamicClient:     env.DynamicTestKubeClient,
 		ComponentBuilder:  component.NewBuilder(),
 		RepositoryManager: env.RepositoryManager,
 		ProjectManager:    env.ProjectManager,
@@ -101,6 +104,7 @@ var _ = BeforeSuite(func() {
 		Log:               env.Log,
 		GarbageCollector:  env.GarbageCollector,
 		Decrypter:         env.SecretManager.Decrypter,
+		FieldManager:      install.ControllerName,
 		WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
 	}
 	err = (&GitOpsProjectReconciler{

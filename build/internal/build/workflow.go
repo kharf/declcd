@@ -19,7 +19,7 @@ func (workflow WorkflowsGen) run(ctx context.Context, request stepRequest) (*ste
 	workflowsDir := ".github/workflows"
 	gen := request.container.
 		WithExec([]string{"mkdir", "-p", workflowsDir}).
-		WithExec([]string{"go", "install", "cuelang.org/go/cmd/cue@v0.6.0"}).
+		WithExec([]string{"go", "install", "cuelang.org/go/cmd/cue@v0.8.0-alpha.3"}).
 		WithWorkdir("build").
 		WithExec([]string{"../bin/cue", "cmd", "genyamlworkflows"}).
 		WithWorkdir(workDir)
