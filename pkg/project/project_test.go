@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
@@ -34,10 +36,14 @@ func TestManager_Load(t *testing.T) {
 	defer goleak.VerifyNone(
 		t,
 	)
+	env := projecttest.StartProjectEnv(t,
+		projecttest.WithKubernetes(
+			kubetest.WithKubernetesDisabled(),
+		),
+	)
+	defer env.Stop()
 	logger := setUp()
-	cwd, err := os.Getwd()
-	assert.NilError(t, err)
-	root := filepath.Join(cwd, "test", "testdata", "simple")
+	root := env.TestProject
 	pm := project.NewManager(component.NewBuilder(), logger, runtime.GOMAXPROCS(0))
 	dag, err := pm.Load(root)
 	assert.NilError(t, err)

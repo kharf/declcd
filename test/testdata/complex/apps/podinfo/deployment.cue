@@ -1,6 +1,6 @@
 package podinfo
 
-import "k8s.io/api/apps/v1"
+import "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/apps/v1"
 
 _deployment: v1.#Deployment & {
 	apiVersion: "apps/v1"

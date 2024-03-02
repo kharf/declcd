@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	gogithub "github.com/google/go-github/v59/github"
+	gogithub "github.com/google/go-github/v60/github"
 )
 
 const (

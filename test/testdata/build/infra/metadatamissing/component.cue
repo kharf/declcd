@@ -1,7 +1,7 @@
 package metadatamissing
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 )
 
 secret: {

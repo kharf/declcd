@@ -46,19 +46,19 @@ func TestMain(m *testing.M) {
 func TestChartReconciler_Reconcile(t *testing.T) {
 	testCases := []struct {
 		name string
-		pre  func() (projecttest.ProjectEnv, fixture)
-		post func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture)
+		pre  func() (projecttest.Environment, fixture)
+		post func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture)
 	}{
 		{
 			name: "Default",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				vals := Values{
@@ -67,7 +67,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -81,7 +81,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				var hpa autoscalingv2.HorizontalPodAutoscaler
 				err := env.TestKubeClient.Get(
 					env.Ctx,
@@ -98,7 +98,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "OCI",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, true)),
@@ -106,7 +106,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				// has to be declcd.io, because of Docker defaulting to HTTP, when localhost is detected.
 				// more info in internal/kubetest/env.go#startHelmServer
 				repoURL := strings.Replace(
-					env.HelmEnv.ChartServer.URL,
+					env.HelmEnv.ChartServer.URL(),
 					"https://127.0.0.1",
 					"oci://declcd.io",
 					1,
@@ -117,7 +117,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -131,22 +131,22 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {},
 		},
 		{
 			name: "Namespaced",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "mynamespace",
@@ -160,22 +160,22 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {},
 		},
 		{
 			name: "Cache",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -189,9 +189,8 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          false,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				env.HelmEnv.ChartServer.Close()
-				env.HelmEnv.RepositoryServer.Close()
 				ctx := context.Background()
 				err := env.TestKubeClient.Delete(ctx, &appsv1.Deployment{
 					ObjectMeta: v1.ObjectMeta{
@@ -214,18 +213,18 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "Upgrade",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -239,7 +238,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				releasesFilePath := filepath.Join(
 					env.TestProject,
 					"infra",
@@ -261,7 +260,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					Version string
 				}{
 					Name:    "test",
-					RepoUrl: env.HelmEnv.RepositoryServer.URL,
+					RepoUrl: env.HelmEnv.ChartServer.URL(),
 					Version: "2.0.0",
 				})
 				assert.NilError(t, err)
@@ -272,7 +271,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				assert.NilError(t, err)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "2.0.0",
 				}
 				fixture.cleanChart = true
@@ -283,18 +282,18 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "NoUpgrade",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -308,24 +307,24 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				fixture.testReconcile(t, reconciler, assertChartv1)
 			},
 		},
 		{
 			name: "Conflict",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -339,7 +338,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				unstr := unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
@@ -366,18 +365,18 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "PendingUpgradeRecovery",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -391,7 +390,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				helmGet := action.NewGet(&env.HelmEnv.HelmConfig)
 				rel, err := helmGet.Run("test")
 				assert.NilError(t, err)
@@ -405,18 +404,18 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "PendingInstallRecovery",
-			pre: func() (projecttest.ProjectEnv, fixture) {
+			pre: func() (projecttest.Environment, fixture) {
 				env := projecttest.StartProjectEnv(
 					t,
 					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
 				)
 				chart := Chart{
 					Name:    "test",
-					RepoURL: env.HelmEnv.RepositoryServer.URL,
+					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "1.0.0",
 				}
 				return env, fixture{
-					env: env.KubetestEnv,
+					env: env.Environment,
 					release: helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "",
@@ -430,7 +429,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					cleanChart:          true,
 				}
 			},
-			post: func(env projecttest.ProjectEnv, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
 				helmGet := action.NewGet(&env.HelmEnv.HelmConfig)
 				rel, err := helmGet.Run("test")
 				assert.NilError(t, err)
@@ -460,7 +459,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 	}
 }
 
-func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
+func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
 	ctx := context.Background()
 	var deployment appsv1.Deployment
 	err := env.TestKubeClient.Get(
@@ -491,7 +490,7 @@ func assertChartv1(t *testing.T, env *kubetest.KubetestEnv, liveName string, nam
 	assert.Equal(t, svcAcc.Namespace, namespace)
 }
 
-func assertChartv2(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string) {
+func assertChartv2(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
 	ctx := context.Background()
 	var deployment appsv1.Deployment
 	err := env.TestKubeClient.Get(
@@ -528,7 +527,7 @@ func assertChartv2(t *testing.T, env *kubetest.KubetestEnv, liveName string, nam
 }
 
 type fixture struct {
-	env                 *kubetest.KubetestEnv
+	env                 *kubetest.Environment
 	release             helm.ReleaseDeclaration
 	releaseID           string
 	expectedReleaseName string
@@ -540,7 +539,7 @@ type fixture struct {
 func (f fixture) testReconcile(
 	t *testing.T,
 	reconciler ChartReconciler,
-	assertion func(t *testing.T, env *kubetest.KubetestEnv, liveName string, namespace string),
+	assertion func(t *testing.T, env *kubetest.Environment, liveName string, namespace string),
 ) {
 	if f.cleanChart {
 		defer Remove(f.release.Chart)

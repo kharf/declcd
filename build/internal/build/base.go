@@ -64,6 +64,7 @@ func RunWith(steps ...step) error {
 		WithMountedCache("/go", goCache).
 		WithWorkdir(workDir).
 		WithEnvVariable("GOBIN", filepath.Join(workDir, localBin)).
+		WithEnvVariable("CUE_EXPERIMENT", "modules").
 		WithEnvVariable("TMPDIR", tmp)
 	latestContainer := base
 	for _, step := range steps {

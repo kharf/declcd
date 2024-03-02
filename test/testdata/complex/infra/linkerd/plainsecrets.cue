@@ -1,6 +1,6 @@
 package linkerd
 
-import "k8s.io/api/core/v1"
+import "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 
 _trustAnchorSecret: v1.#Secret & {
 	apiVersion: "v1"

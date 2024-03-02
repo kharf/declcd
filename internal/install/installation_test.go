@@ -23,23 +23,23 @@ import (
 func TestAction_Install(t *testing.T) {
 	testCases := []struct {
 		name      string
-		assertion func(env projecttest.ProjectEnv, nsName string)
-		post      func(env projecttest.ProjectEnv, action install.Action, nsName string)
+		assertion func(env projecttest.Environment, nsName string)
+		post      func(env projecttest.Environment, action install.Action, nsName string)
 	}{
 		{
 			name: "Fresh",
-			assertion: func(env projecttest.ProjectEnv, nsName string) {
+			assertion: func(env projecttest.Environment, nsName string) {
 				defaultAssertion(t, env, nsName)
 			},
-			post: func(env projecttest.ProjectEnv, action install.Action, nsName string) {
+			post: func(env projecttest.Environment, action install.Action, nsName string) {
 			},
 		},
 		{
 			name: "Idempotence",
-			assertion: func(env projecttest.ProjectEnv, nsName string) {
+			assertion: func(env projecttest.Environment, nsName string) {
 				defaultAssertion(t, env, nsName)
 			},
-			post: func(env projecttest.ProjectEnv, action install.Action, nsName string) {
+			post: func(env projecttest.Environment, action install.Action, nsName string) {
 				ctx := context.Background()
 				var getSecrets func() (v1.Secret, v1.Secret)
 				getSecrets = func() (v1.Secret, v1.Secret) {
@@ -104,7 +104,7 @@ func TestAction_Install(t *testing.T) {
 	}
 }
 
-func defaultAssertion(t *testing.T, env projecttest.ProjectEnv, nsName string) {
+func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) {
 	ctx := context.Background()
 	var ns v1.Namespace
 	err := env.TestKubeClient.Get(ctx, types.NamespacedName{Name: nsName}, &ns)

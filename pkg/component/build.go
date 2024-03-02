@@ -89,11 +89,11 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 		case "HelmRelease":
 			name, found := instance.Content["name"].(string)
 			if !found {
-				return nil, fmt.Errorf("%w: %s field not found", ErrMissingField, "name")
+				return nil, missingFieldError("name")
 			}
 			namespace, found := instance.Content["namespace"].(string)
 			if !found {
-				return nil, fmt.Errorf("%w: %s field not found", ErrMissingField, "namespace")
+				return nil, missingFieldError("namespace")
 			}
 			chart, ok := instance.Content["chart"].(map[string]interface{})
 			if !ok {
@@ -105,15 +105,15 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 			}
 			chartName, found := chart["name"].(string)
 			if !found {
-				return nil, fmt.Errorf("%w: %s field not found", ErrMissingField, "chart.name")
+				return nil, missingFieldError("chart.name")
 			}
 			chartRepoURL, found := chart["repoURL"].(string)
 			if !found {
-				return nil, fmt.Errorf("%w: %s field not found", ErrMissingField, "chart.repoURL")
+				return nil, missingFieldError("chart.repoURL")
 			}
 			chartVersion, found := chart["version"].(string)
 			if !found {
-				return nil, fmt.Errorf("%w: %s field not found", ErrMissingField, "chart.version")
+				return nil, missingFieldError("chart.version")
 			}
 			values, ok := instance.Content["values"].(map[string]interface{})
 			if !ok {
@@ -145,11 +145,11 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 func validateManifest(instance internalInstance) error {
 	_, found := instance.Content["apiVersion"]
 	if !found {
-		return fmt.Errorf("%w: %s field not found", ErrMissingField, "apiVersion")
+		return missingFieldError("apiVersioin")
 	}
 	_, found = instance.Content["kind"]
 	if !found {
-		return fmt.Errorf("%w: %s field not found", ErrMissingField, "kind")
+		return missingFieldError("kind")
 	}
 	metadata, ok := instance.Content["metadata"].(map[string]interface{})
 	if !ok {
@@ -161,11 +161,15 @@ func validateManifest(instance internalInstance) error {
 	}
 	_, found = metadata["name"]
 	if !found {
-		return fmt.Errorf("%w: %s field not found", ErrMissingField, "metadata.name")
+		return missingFieldError("metadata.name")
 	}
 	_, found = metadata["namespace"]
 	if !found {
-		return fmt.Errorf("%w: %s field not found", ErrMissingField, "metadata.namespace")
+		return missingFieldError("metadata.namespace")
 	}
 	return nil
+}
+
+func missingFieldError(field string) error {
+	return fmt.Errorf("%w: %s field not found", ErrMissingField, field)
 }
