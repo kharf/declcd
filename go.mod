@@ -9,13 +9,12 @@ require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/google/go-containerregistry v0.19.0
 	github.com/google/go-github/v59 v59.0.0
-	github.com/google/go-github/v60 v60.0.0
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.7
 	github.com/onsi/ginkgo/v2 v2.15.0
 	github.com/onsi/gomega v1.31.1
 	github.com/otiai10/copy v1.14.0
 	github.com/spf13/viper v1.18.2
-	github.com/xanzy/go-gitlab v0.98.0
+	github.com/xanzy/go-gitlab v0.99.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.27.0
 	gotest.tools/v3 v3.5.1
