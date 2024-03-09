@@ -49,7 +49,7 @@ import (
 var (
 	k8sClient client.Client
 	test      *testing.T
-	env       projecttest.ProjectEnv
+	env       projecttest.Environment
 )
 
 func TestAPIs(t *testing.T) {

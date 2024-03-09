@@ -53,7 +53,11 @@ type RepositoryManager struct {
 	log                 logr.Logger
 }
 
-func NewRepositoryManager(controllerNamespace string, kubeClient kube.Client[unstructured.Unstructured], log logr.Logger) RepositoryManager {
+func NewRepositoryManager(
+	controllerNamespace string,
+	kubeClient kube.Client[unstructured.Unstructured],
+	log logr.Logger,
+) RepositoryManager {
 	return RepositoryManager{
 		log:                 log,
 		controllerNamespace: controllerNamespace,
@@ -91,7 +95,10 @@ var (
 	ErrAuthKeyNotFound = errors.New("VCS auth key secret not found")
 )
 
-func (manager RepositoryManager) getAuthMethodFromSecret(ctx context.Context, secret v1.Secret) (transport.AuthMethod, error) {
+func (manager RepositoryManager) getAuthMethodFromSecret(
+	ctx context.Context,
+	secret v1.Secret,
+) (transport.AuthMethod, error) {
 	var authMethod transport.AuthMethod
 	switch string(secret.Data[K8sSecretDataAuthType]) {
 	case "ssh":
@@ -106,7 +113,10 @@ func (manager RepositoryManager) getAuthMethodFromSecret(ctx context.Context, se
 }
 
 // Load loads a remote vcs repository to a local path or opens it if it exists.
-func (manager RepositoryManager) Load(ctx context.Context, opts ...loadOption) (*Repository, error) {
+func (manager RepositoryManager) Load(
+	ctx context.Context,
+	opts ...loadOption,
+) (*Repository, error) {
 	options := &LoadOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -177,7 +187,11 @@ func (manager RepositoryManager) Load(ctx context.Context, opts ...loadOption) (
 	return &repository, nil
 }
 
-func getAuthSecret(ctx context.Context, kubeClient kube.Client[unstructured.Unstructured], controllerNamespace string) (*v1.Secret, error) {
+func getAuthSecret(
+	ctx context.Context,
+	kubeClient kube.Client[unstructured.Unstructured],
+	controllerNamespace string,
+) (*v1.Secret, error) {
 	unstr := &unstructured.Unstructured{}
 	unstr.SetName(K8sSecretName)
 	unstr.SetNamespace(controllerNamespace)
@@ -194,6 +208,7 @@ func getAuthSecret(ctx context.Context, kubeClient kube.Client[unstructured.Unst
 	return &sec, nil
 }
 
+// RepositoryConfigurator is capable of setting up Declcd with a Git provider.
 type RepositoryConfigurator struct {
 	controllerNamespace string
 	kubeClient          kube.Client[unstructured.Unstructured]
@@ -223,7 +238,11 @@ func NewRepositoryConfigurator(
 	}
 	providerParts := strings.Split(providerIdParts[0], ".")
 	if len(providerParts) != 2 {
-		return nil, fmt.Errorf("%s: expected one '.' in host '%s'", ErrUnknownURLFormat, providerIdParts[0])
+		return nil, fmt.Errorf(
+			"%s: expected one '.' in host '%s'",
+			ErrUnknownURLFormat,
+			providerIdParts[0],
+		)
 	}
 	idSuffixParts := strings.Split(providerIdParts[1], ".")
 	if len(idSuffixParts) != 2 {
@@ -242,7 +261,10 @@ func NewRepositoryConfigurator(
 	}, nil
 }
 
-func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(ctx context.Context, fieldManager string) error {
+func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
+	ctx context.Context,
+	fieldManager string,
+) error {
 	sec, err := getAuthSecret(ctx, config.kubeClient, config.controllerNamespace)
 	if err != nil {
 		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {

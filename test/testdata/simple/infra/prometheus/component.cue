@@ -1,22 +1,22 @@
 package prometheus
 
 import (
-	v1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/schema@v0"
 	"github.com/kharf/declcd/test/testdata/simple/infra/linkerd"
 )
 
-ns: v1.#Component & {
+ns: schema.#Component & {
 	content: #namespace
 }
 
-secret: v1.#Component & {
+secret: schema.#Component & {
 	dependencies: [
 		ns.id,
 	]
 	content: _secret
 }
 
-release: v1.#Component & {
+release: schema.#Component & {
 	dependencies: [
 		ns.id,
 		linkerd.ns.id,

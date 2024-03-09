@@ -1,10 +1,10 @@
 package prometheus
 
 import (
-	"github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/schema@v0"
 )
 
-_release: v1.#HelmRelease & {
+_release: schema.#HelmRelease & {
 	name:      "{{.Name}}"
 	namespace: #namespace.metadata.name
 	chart: {

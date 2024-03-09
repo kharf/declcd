@@ -2,7 +2,7 @@ package subcomponent
 
 import (
 	"github.com/kharf/declcd/test/testdata/simple/infra/prometheus"
-	"k8s.io/api/apps/v1"
+	"github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/apps/v1"
 )
 
 _deployment: v1.#Deployment & {

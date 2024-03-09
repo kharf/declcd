@@ -7,10 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -45,8 +45,9 @@ func (manager *Manager) Load(projectPath string) (*component.DependencyGraph, er
 	}
 	resultChan := make(chan instanceResult)
 	go func() {
-		wg := sync.WaitGroup{}
-		semaphore := make(chan struct{}, manager.workerPoolSize)
+		defer close(resultChan)
+		eg := errgroup.Group{}
+		eg.SetLimit(manager.workerPoolSize)
 		err := filepath.WalkDir(
 			projectPath,
 			func(path string, dirEntry fs.DirEntry, err error) error {
@@ -62,37 +63,38 @@ func (manager *Manager) Load(projectPath string) (*component.DependencyGraph, er
 					if err != nil {
 						return err
 					}
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						semaphore <- struct{}{}
+					eg.Go(func() error {
 						instances, err := manager.componentBuilder.Build(
 							component.WithProjectRoot(projectPath),
 							component.WithComponentPath(relativePath),
 						)
+						if err != nil {
+							return err
+						}
 						resultChan <- instanceResult{
 							instances: instances,
-							err:       err,
 						}
-						<-semaphore
-					}()
+						return nil
+					})
 				}
 				return nil
 			},
 		)
-		wg.Wait()
-		if err != nil {
+		if err := eg.Wait(); err != nil {
 			resultChan <- instanceResult{
-				instances: []component.Instance{},
-				err:       fmt.Errorf("%w: %w", ErrLoadProject, err),
+				err: err,
 			}
 		}
-		close(resultChan)
+		if err != nil {
+			resultChan <- instanceResult{
+				err: err,
+			}
+		}
 	}()
 	dag := component.NewDependencyGraph()
 	for result := range resultChan {
 		if result.err != nil {
-			return nil, result.err
+			return nil, fmt.Errorf("%w: %w", ErrLoadProject, result.err)
 		}
 		if err := dag.Insert(result.instances...); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrLoadProject, err)

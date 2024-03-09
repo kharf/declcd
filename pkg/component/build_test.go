@@ -5,6 +5,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/helm"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"gotest.tools/v3/assert"
@@ -12,6 +13,9 @@ import (
 )
 
 func TestBuilder_Build(t *testing.T) {
+	testRoot, err := os.MkdirTemp("", "")
+	assert.NilError(t, err)
+	ocitest.StartCUERegistry(t, testRoot)
 	builder := NewBuilder()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)

@@ -36,14 +36,14 @@ func TestMain(m *testing.M) {
 var allInOneOmittedContent = `package secrets
 
 import (
-	"github.com/kharf/declcd/api/v1"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/kharf/declcd/schema@v0"
+	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 )
 
 #Namespace: {
 	_name!: string
-	v1.#Component & {
-		content: v1.#Manifest & {
+	schema.#Component & {
+		content: schema.#Manifest & {
 			apiVersion: "v1"
 			kind:       "Namespace"
 			metadata: {
@@ -131,14 +131,14 @@ none: #Secret & {
 var allInOneDecryptedContent = `package secrets
 
 import (
-	"github.com/kharf/declcd/api/v1"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/kharf/declcd/schema@v0"
+	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 )
 
 #Namespace: {
 	_name!: string
-	v1.#Component & {
-		content: v1.#Manifest & {
+	schema.#Component & {
+		content: schema.#Manifest & {
 			apiVersion: "v1"
 			kind:       "Namespace"
 			metadata: {
@@ -375,7 +375,7 @@ func TestDecrypter_Decrypt(t *testing.T) {
 	err := secret.NewEncrypter(env.TestProject).EncryptPackage("infra/secrets")
 	assert.NilError(t, err)
 	newProjectRoot, err := secret.NewDecrypter(
-		env.KubetestEnv.SecretManager.Namespace(), env.DynamicTestKubeClient, runtime.GOMAXPROCS(0),
+		env.Environment.SecretManager.Namespace(), env.DynamicTestKubeClient, runtime.GOMAXPROCS(0),
 	).Decrypt(env.Ctx, env.TestProject)
 	assert.NilError(t, err)
 	result, err := os.Open(filepath.Join(newProjectRoot, "infra/secrets/component.cue"))
@@ -493,7 +493,7 @@ func BenchmarkDecrypter_Decrypt(b *testing.B) {
 	var newProjectRoot string
 	for n := 0; n < b.N; n++ {
 		newProjectRoot, err = secret.NewDecrypter(
-			env.KubetestEnv.SecretManager.Namespace(),
+			env.Environment.SecretManager.Namespace(),
 			env.DynamicTestKubeClient,
 			workerPoolSize,
 		).Decrypt(env.Ctx, env.TestProject)

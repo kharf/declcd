@@ -1,8 +1,8 @@
 package prometheus
 
 import (
-	v1 "github.com/kharf/declcd/api/v1"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/kharf/declcd/schema@v0"
+	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 )
 
 #namespace: corev1.#Namespace & {
@@ -13,11 +13,11 @@ import (
 	}
 }
 
-ns: v1.#Component & {
+ns: schema.#Component & {
 	content: #namespace
 }
 
-secret: v1.#Component & {
+secret: schema.#Component & {
 	dependencies: [
 		ns.id,
 	]
@@ -34,11 +34,11 @@ secret: v1.#Component & {
 	}
 }
 
-release: v1.#Component & {
+release: schema.#Component & {
 	dependencies: [
 		ns.id,
 	]
-	content: v1.#HelmRelease & {
+	content: schema.#HelmRelease & {
 		name:      "{{.Name}}"
 		namespace: #namespace.metadata.name
 		chart: {

@@ -113,7 +113,7 @@ func TestCollector_Collect(t *testing.T) {
 			Namespace: hrMetadata.GetNamespace(),
 			Chart: helm.Chart{
 				Name:    "test",
-				RepoURL: env.HelmEnv.RepositoryServer.URL,
+				RepoURL: env.HelmEnv.ChartServer.URL(),
 				Version: "1.0.0",
 			},
 			Values: helm.Values{},

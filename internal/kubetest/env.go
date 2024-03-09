@@ -1,24 +1,9 @@
 package kubetest
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
-	"crypto/tls"
-	"fmt"
-	"io"
-	"io/fs"
-	"log"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
-	"text/template"
-	"time"
 
 	goRuntime "runtime"
 
@@ -26,17 +11,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/foxcpp/go-mockdns"
-	"github.com/google/go-containerregistry/pkg/registry"
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/install"
-	helmKube "helm.sh/helm/v3/pkg/kube"
-	helmRegistry "helm.sh/helm/v3/pkg/registry"
+	"github.com/kharf/declcd/internal/helmtest"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/garbage"
@@ -45,11 +25,7 @@ import (
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	_ "github.com/kharf/declcd/test/workingdir"
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart"
-	"helm.sh/helm/v3/pkg/repo"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/rest"
 	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -57,10 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-type KubetestEnv struct {
+type Environment struct {
 	ControlPlane          *envtest.Environment
 	ControllerManager     manager.Manager
-	HelmEnv               helmEnv
+	HelmEnv               helmtest.Environment
 	TestKubeClient        client.Client
 	DynamicTestKubeClient *kube.DynamicClient
 	GarbageCollector      garbage.Collector
@@ -71,7 +47,7 @@ type KubetestEnv struct {
 	clean                 func()
 }
 
-func (env KubetestEnv) Stop() {
+func (env Environment) Stop() {
 	env.clean()
 }
 
@@ -153,7 +129,6 @@ func WithVCSSSHKeyCreated() vcsSSHKeyCreated {
 	return true
 }
 
-// Has no effect when provided to projecttest.StartProjectEnv
 func WithProject(
 	repo *gittest.LocalGitRepository,
 	testProject string,
@@ -166,7 +141,7 @@ func WithProject(
 	}
 }
 
-func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *KubetestEnv {
+func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environment {
 	logf.SetLogger(log)
 	options := &options{
 		helm: helmOption{
@@ -210,7 +185,19 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *KubetestEn
 	if err != nil {
 		t.Fatal(err)
 	}
-	helmEnv := setupHelm(t, cfg, options)
+	helmEnv := helmtest.Environment{}
+	if options.helm.enabled {
+		helmEnv = helmtest.StartHelmEnv(
+			t,
+			cfg,
+			helmtest.WithOCI(options.helm.oci),
+			helmtest.WithProject(
+				options.project.repo,
+				options.project.testProject,
+				options.project.testRoot,
+			),
+		)
+	}
 	client, err := kube.NewDynamicClient(testEnv.Config)
 	assert.NilError(t, err)
 	inventoryPath, err := os.MkdirTemp(options.project.testRoot, "inventory-*")
@@ -289,7 +276,7 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		goRuntime.GOMAXPROCS(0),
 	)
 	repositoryManger := vcs.NewRepositoryManager("test", client, log)
-	return &KubetestEnv{
+	return &Environment{
 		ControlPlane:          testEnv,
 		ControllerManager:     mgr,
 		HelmEnv:               helmEnv,
@@ -306,271 +293,6 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 			cancel()
 		},
 	}
-}
-
-func replaceTemplate(t testing.TB, options *options, repoURL string) {
-	releasesFilePath := filepath.Join(
-		options.project.testProject,
-		"infra",
-		"prometheus",
-		"releases.cue",
-	)
-	releasesContent, err := os.ReadFile(releasesFilePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tmpl, err := template.New("releases").Parse(string(releasesContent))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	releasesFile, err := os.Create(releasesFilePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer releasesFile.Close()
-
-	err = tmpl.Execute(releasesFile, struct {
-		Name    string
-		RepoUrl string
-		Version string
-	}{
-		Name:    "test",
-		RepoUrl: repoURL,
-		Version: "1.0.0",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = options.project.repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-type helmEnv struct {
-	HelmConfig       action.Configuration
-	ChartServer      *httptest.Server
-	RepositoryServer *httptest.Server
-	DNSServer        *mockdns.Server
-	chartArchives    []*os.File
-}
-
-func (env helmEnv) Close() {
-	if env.ChartServer != nil {
-		env.ChartServer.Close()
-	}
-	if env.RepositoryServer != nil {
-		env.RepositoryServer.Close()
-	}
-	if env.DNSServer != nil {
-		env.DNSServer.Close()
-		mockdns.UnpatchNet(net.DefaultResolver)
-	}
-	for _, f := range env.chartArchives {
-		os.Remove(f.Name())
-	}
-}
-
-func setupHelm(t testing.TB, cfg *rest.Config, options *options) helmEnv {
-	helmCfg := action.Configuration{}
-	var helmEnv helmEnv
-	if options.helm.enabled {
-		helmKube.ManagedFieldsManager = install.ControllerName
-		k8sClient, err := kube.NewDynamicClient(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		getter := &kube.InMemoryRESTClientGetter{
-			Cfg:        cfg,
-			RestMapper: k8sClient.RESTMapper(),
-		}
-		err = helmCfg.Init(getter, "default", "secret", log.Printf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		helmCfg.KubeClient = &kube.HelmClient{
-			Client:        helmCfg.KubeClient.(*helmKube.Client),
-			DynamicClient: k8sClient,
-			FieldManager:  "controller",
-		}
-		helmEnv = startHelmServer(t, options.helm.oci)
-		replaceTemplate(t, options, helmEnv.RepositoryServer.URL)
-	}
-	// need to be always set, even though we dont test helm releases
-	helmEnv.HelmConfig = helmCfg
-	return helmEnv
-}
-
-func startHelmServer(t testing.TB, oci bool) helmEnv {
-	v1Archive := createChartArchive(t, "test", "1.0.0")
-	v2Archive := createChartArchive(t, "testv2", "2.0.0")
-	var chartServer *httptest.Server
-	var dnsServer *mockdns.Server
-	if oci {
-		var err error
-		// Helm uses Docker under the hood to handle OCI
-		// and Docker defaults to HTTP when it detects that the registry host
-		// is localhost or 127.0.0.1.
-		// In order to test OCI with a HTTPS server, we have to supply a "fake" host.
-		// We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
-		// All OCI tests have to use declcd.io as host.
-		dnsServer, err = mockdns.NewServer(map[string]mockdns.Zone{
-			"declcd.io.": {
-				A: []string{"127.0.0.1"},
-			},
-		}, false)
-		assert.NilError(t, err)
-		dnsServer.PatchNet(net.DefaultResolver)
-		tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
-		assert.NilError(t, err)
-		listener, err := net.ListenTCP("tcp", tcpAddr)
-		assert.NilError(t, err)
-		port := listener.Addr().(*net.TCPAddr).Port
-		addr := "declcd.io:" + strconv.Itoa(port)
-		chartServer = httptest.NewUnstartedServer(registry.New())
-		chartServer.Config.Addr = addr
-		chartServer.Listener = listener
-		chartServer.StartTLS()
-		client := chartServer.Client()
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
-		helmOpts := []helmRegistry.ClientOption{
-			helmRegistry.ClientOptDebug(true),
-			helmRegistry.ClientOptWriter(os.Stderr),
-			helmRegistry.ClientOptHTTPClient(client),
-			helmRegistry.ClientOptResolver(nil),
-		}
-		helmRegistryClient, err := helmRegistry.NewClient(helmOpts...)
-		assert.NilError(t, err)
-		v1Bytes, err := os.ReadFile(v1Archive.Name())
-		assert.NilError(t, err)
-		_, err = helmRegistryClient.Push(v1Bytes, fmt.Sprintf("%s/%s:%s", addr, "test", "1.0.0"))
-		assert.NilError(t, err)
-	} else {
-		chartServer = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			archive := v1Archive
-			if strings.Contains(r.URL.Path, "2.0.0") {
-				archive = v2Archive
-			}
-
-			w.Header().Set("Content-Type", "application/gzip")
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(archive.Name())))
-			file, err := os.Open(archive.Name())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := io.Copy(w, file); err != nil {
-				t.Fatal(err)
-			}
-		}))
-	}
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		index := &repo.IndexFile{
-			APIVersion: "v1",
-			Generated:  time.Now(),
-			Entries: map[string]repo.ChartVersions{
-				"test": {
-					&repo.ChartVersion{
-						Metadata: &chart.Metadata{
-							APIVersion: "v1",
-							Version:    "1.0.0",
-							Name:       "test",
-						},
-						URLs: []string{chartServer.URL + "/test-1.0.0.tgz"},
-					},
-					&repo.ChartVersion{
-						Metadata: &chart.Metadata{
-							APIVersion: "v1",
-							Version:    "2.0.0",
-							Name:       "test",
-						},
-						URLs: []string{chartServer.URL + "/test-2.0.0.tgz"},
-					},
-				},
-			},
-		}
-		indexBytes, err := yaml.Marshal(index)
-		if err != nil {
-			t.Fatal(err)
-		}
-		w.Write(indexBytes)
-	}))
-
-	return helmEnv{
-		ChartServer:      chartServer,
-		RepositoryServer: server,
-		DNSServer:        dnsServer,
-		chartArchives:    []*os.File{v1Archive, v2Archive},
-	}
-}
-
-func createChartArchive(t testing.TB, chart string, version string) *os.File {
-	archive, err := os.CreateTemp("", fmt.Sprintf("*-test-%s.tgz", version))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	gzWriter := gzip.NewWriter(archive)
-	tarWriter := tar.NewWriter(gzWriter)
-
-	chartDir := filepath.Join(dir, "test", "testdata", "charts")
-	walkDirErr := fs.WalkDir(
-		os.DirFS(chartDir),
-		chart,
-		func(path string, d fs.DirEntry, err error) error {
-			if d.IsDir() || path == ".helmignore" {
-				return nil
-			}
-
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			header := &tar.Header{
-				Name: path,
-				Mode: int64(info.Mode()),
-				Size: info.Size(),
-			}
-			if err := tarWriter.WriteHeader(header); err != nil {
-				return err
-			}
-
-			file, err := os.Open(filepath.Join(chartDir, path))
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			if _, err := io.Copy(tarWriter, file); err != nil {
-				return err
-			}
-
-			return nil
-		},
-	)
-	err = tarWriter.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = gzWriter.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if walkDirErr != nil {
-		t.Fatal(err)
-	}
-
-	return archive
 }
 
 type FakeDynamicClient struct {

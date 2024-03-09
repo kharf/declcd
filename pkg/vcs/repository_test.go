@@ -21,12 +21,12 @@ import (
 func TestRepositoryManager_Load(t *testing.T) {
 	testCases := []struct {
 		name   string
-		pre    func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.ProjectEnv, *vcs.Repository)
+		pre    func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository)
 		assert bool
 	}{
 		{
 			name: "Clone",
-			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.ProjectEnv, *vcs.Repository) {
+			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
 						kubetest.WithHelm(false, false),
@@ -34,7 +34,11 @@ func TestRepositoryManager_Load(t *testing.T) {
 					),
 				)
 				defer env.Stop()
-				repository, err := env.RepositoryManager.Load(env.Ctx, vcs.WithTarget(localRepository), vcs.WithUrl(remoteRepository.Directory))
+				repository, err := env.RepositoryManager.Load(
+					env.Ctx,
+					vcs.WithTarget(localRepository),
+					vcs.WithUrl(remoteRepository.Directory),
+				)
 				assert.NilError(t, err)
 				return env, repository
 			},
@@ -42,7 +46,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 		},
 		{
 			name: "Open",
-			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.ProjectEnv, *vcs.Repository) {
+			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
 						kubetest.WithHelm(false, false),
@@ -50,9 +54,17 @@ func TestRepositoryManager_Load(t *testing.T) {
 					),
 				)
 				defer env.Stop()
-				repository, err := env.RepositoryManager.Load(env.Ctx, vcs.WithTarget(localRepository), vcs.WithUrl(remoteRepository.Directory))
+				repository, err := env.RepositoryManager.Load(
+					env.Ctx,
+					vcs.WithTarget(localRepository),
+					vcs.WithUrl(remoteRepository.Directory),
+				)
 				assert.NilError(t, err)
-				repository, err = env.RepositoryManager.Load(env.Ctx, vcs.WithTarget(localRepository), vcs.WithUrl(remoteRepository.Directory))
+				repository, err = env.RepositoryManager.Load(
+					env.Ctx,
+					vcs.WithTarget(localRepository),
+					vcs.WithUrl(remoteRepository.Directory),
+				)
 				assert.NilError(t, err)
 				return env, repository
 			},
@@ -60,14 +72,18 @@ func TestRepositoryManager_Load(t *testing.T) {
 		},
 		{
 			name: "SecretMissing",
-			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.ProjectEnv, *vcs.Repository) {
+			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
 						kubetest.WithHelm(false, false),
 					),
 				)
 				defer env.Stop()
-				repository, err := env.RepositoryManager.Load(env.Ctx, vcs.WithTarget(localRepository), vcs.WithUrl(remoteRepository.Directory))
+				repository, err := env.RepositoryManager.Load(
+					env.Ctx,
+					vcs.WithTarget(localRepository),
+					vcs.WithUrl(remoteRepository.Directory),
+				)
 				assert.ErrorIs(t, err, vcs.ErrAuthKeyNotFound)
 				return env, repository
 			},
@@ -117,34 +133,52 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 		expectedErr error
 	}{
 		{
-			name:        "Missing@",
-			url:         "github.com:kharf/declcd.git",
-			expectedErr: fmt.Errorf("%w: expected one '@' in url 'github.com:kharf/declcd.git'", vcs.ErrUnknownURLFormat),
+			name: "Missing@",
+			url:  "github.com:kharf/declcd.git",
+			expectedErr: fmt.Errorf(
+				"%w: expected one '@' in url 'github.com:kharf/declcd.git'",
+				vcs.ErrUnknownURLFormat,
+			),
 		},
 		{
-			name:        "Multiple@",
-			url:         "git@@github.com:kharf/declcd.git",
-			expectedErr: fmt.Errorf("%w: expected one '@' in url 'git@@github.com:kharf/declcd.git'", vcs.ErrUnknownURLFormat),
+			name: "Multiple@",
+			url:  "git@@github.com:kharf/declcd.git",
+			expectedErr: fmt.Errorf(
+				"%w: expected one '@' in url 'git@@github.com:kharf/declcd.git'",
+				vcs.ErrUnknownURLFormat,
+			),
 		},
 		{
-			name:        "Missing:",
-			url:         "git@github.comkharf/declcd.git",
-			expectedErr: fmt.Errorf("%w: expected one ':' in url 'git@github.comkharf/declcd.git'", vcs.ErrUnknownURLFormat),
+			name: "Missing:",
+			url:  "git@github.comkharf/declcd.git",
+			expectedErr: fmt.Errorf(
+				"%w: expected one ':' in url 'git@github.comkharf/declcd.git'",
+				vcs.ErrUnknownURLFormat,
+			),
 		},
 		{
-			name:        "Multiple:",
-			url:         "git@github.com:kha:rf/declcd.git",
-			expectedErr: fmt.Errorf("%w: expected one ':' in url 'git@github.com:kha:rf/declcd.git'", vcs.ErrUnknownURLFormat),
+			name: "Multiple:",
+			url:  "git@github.com:kha:rf/declcd.git",
+			expectedErr: fmt.Errorf(
+				"%w: expected one ':' in url 'git@github.com:kha:rf/declcd.git'",
+				vcs.ErrUnknownURLFormat,
+			),
 		},
 		{
-			name:        "MissingDotInHost",
-			url:         "git@githubcom:kharf/declcd.git",
-			expectedErr: fmt.Errorf("%w: expected one '.' in host 'githubcom'", vcs.ErrUnknownURLFormat),
+			name: "MissingDotInHost",
+			url:  "git@githubcom:kharf/declcd.git",
+			expectedErr: fmt.Errorf(
+				"%w: expected one '.' in host 'githubcom'",
+				vcs.ErrUnknownURLFormat,
+			),
 		},
 		{
-			name:        "MultipleDotsInHost",
-			url:         "git@gith.ub.com:kharf/declcd.git",
-			expectedErr: fmt.Errorf("%w: expected one '.' in host 'gith.ub.com'", vcs.ErrUnknownURLFormat),
+			name: "MultipleDotsInHost",
+			url:  "git@gith.ub.com:kharf/declcd.git",
+			expectedErr: fmt.Errorf(
+				"%w: expected one '.' in host 'gith.ub.com'",
+				vcs.ErrUnknownURLFormat,
+			),
 		},
 		{
 			name:        "UnknownProvider",
@@ -180,44 +214,66 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 	ns := "test"
 	testCases := []struct {
 		name string
-		pre  func() projecttest.ProjectEnv
-		post func(env projecttest.ProjectEnv, sec corev1.Secret)
+		pre  func() projecttest.Environment
+		post func(env projecttest.Environment, sec corev1.Secret)
 	}{
 		{
 			name: "NonExisting",
-			pre: func() projecttest.ProjectEnv {
+			pre: func() projecttest.Environment {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithProjectSource("empty"),
 					projecttest.WithKubernetes(kubetest.WithHelm(false, false)),
 				)
-				configurator, err := vcs.NewRepositoryConfigurator(ns, env.DynamicTestKubeClient, client, "git@github.com:kharf/declcd.git", "abcd")
+				configurator, err := vcs.NewRepositoryConfigurator(
+					ns,
+					env.DynamicTestKubeClient,
+					client,
+					"git@github.com:kharf/declcd.git",
+					"abcd",
+				)
 				assert.NilError(t, err)
 				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager")
 				assert.NilError(t, err)
 				return env
 			},
-			post: func(env projecttest.ProjectEnv, sec corev1.Secret) {},
+			post: func(env projecttest.Environment, sec corev1.Secret) {},
 		},
 		{
 			name: "Existing",
-			pre: func() projecttest.ProjectEnv {
+			pre: func() projecttest.Environment {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithProjectSource("empty"),
 					projecttest.WithKubernetes(kubetest.WithHelm(false, false)),
 				)
-				configurator, err := vcs.NewRepositoryConfigurator(ns, env.DynamicTestKubeClient, client, "git@github.com:kharf/declcd.git", "abcd")
+				configurator, err := vcs.NewRepositoryConfigurator(
+					ns,
+					env.DynamicTestKubeClient,
+					client,
+					"git@github.com:kharf/declcd.git",
+					"abcd",
+				)
 				assert.NilError(t, err)
 				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager")
 				assert.NilError(t, err)
 				return env
 			},
-			post: func(env projecttest.ProjectEnv, sec corev1.Secret) {
-				configurator, err := vcs.NewRepositoryConfigurator(ns, env.DynamicTestKubeClient, client, "git@github.com:kharf/declcd.git", "abcd")
+			post: func(env projecttest.Environment, sec corev1.Secret) {
+				configurator, err := vcs.NewRepositoryConfigurator(
+					ns,
+					env.DynamicTestKubeClient,
+					client,
+					"git@github.com:kharf/declcd.git",
+					"abcd",
+				)
 				assert.NilError(t, err)
 				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager")
 				assert.NilError(t, err)
 				var sec2 corev1.Secret
-				err = env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: ns, Name: vcs.K8sSecretName}, &sec2)
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Namespace: ns, Name: vcs.K8sSecretName},
+					&sec2,
+				)
 				assert.NilError(t, err)
 				key, _ := sec.Data[vcs.SSHKey]
 				key2, _ := sec2.Data[vcs.SSHKey]
@@ -230,7 +286,11 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			env := tc.pre()
 			defer env.Stop()
 			var sec corev1.Secret
-			err := env.TestKubeClient.Get(env.Ctx, types.NamespacedName{Namespace: ns, Name: vcs.K8sSecretName}, &sec)
+			err := env.TestKubeClient.Get(
+				env.Ctx,
+				types.NamespacedName{Namespace: ns, Name: vcs.K8sSecretName},
+				&sec,
+			)
 			assert.NilError(t, err)
 			key, _ := sec.Data[vcs.SSHKey]
 			assert.Assert(t, strings.HasPrefix(string(key), "-----BEGIN OPENSSH PRIVATE KEY-----"))

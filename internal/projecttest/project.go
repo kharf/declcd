@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
@@ -19,19 +20,24 @@ import (
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-type ProjectEnv struct {
+type Environment struct {
 	ProjectManager project.Manager
 	GitRepository  *gittest.LocalGitRepository
 	TestRoot       string
 	TestProject    string
 	Log            logr.Logger
-	*kubetest.KubetestEnv
+	*kubetest.Environment
+	CUEModuleRegistry *ocitest.Registry
 }
 
-func (env *ProjectEnv) Stop() {
-	if env.KubetestEnv != nil {
-		env.KubetestEnv.Stop()
+func (env *Environment) Stop() {
+	if env.Environment != nil {
+		env.Environment.Stop()
 	}
+	if env.CUEModuleRegistry != nil {
+		env.CUEModuleRegistry.Close()
+	}
+	os.Setenv("CUE_REGISTRY", "")
 }
 
 type Option interface {
@@ -63,7 +69,7 @@ func (opt withKubernetes) Apply(opts *options) {
 	opts.kubeOpts = opt
 }
 
-func StartProjectEnv(t testing.TB, opts ...Option) ProjectEnv {
+func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	options := options{
 		projectSource: "simple",
 	}
@@ -88,12 +94,14 @@ func StartProjectEnv(t testing.TB, opts ...Option) ProjectEnv {
 	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
 	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
 	projectManager := project.NewManager(component.NewBuilder(), log, runtime.GOMAXPROCS(0))
-	return ProjectEnv{
-		ProjectManager: projectManager,
-		GitRepository:  repo,
-		TestRoot:       testRoot,
-		TestProject:    testProject,
-		KubetestEnv:    env,
-		Log:            log,
+	cueModuleRegistry := ocitest.StartCUERegistry(t, testRoot)
+	return Environment{
+		ProjectManager:    projectManager,
+		GitRepository:     repo,
+		TestRoot:          testRoot,
+		TestProject:       testProject,
+		Environment:       env,
+		CUEModuleRegistry: cueModuleRegistry,
+		Log:               log,
 	}
 }

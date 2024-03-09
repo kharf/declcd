@@ -1,7 +1,7 @@
 package prometheus
 
 import (
-	"k8s.io/api/core/v1"
+	"github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 	"encoding/json"
 )
 
