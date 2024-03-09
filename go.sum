@@ -1,8 +1,8 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-cuelabs.dev/go/oci/ociregistry v0.0.0-20240222174315-5a9bab78b48a h1:HrJaOLbyXYjn++BvV1Ct90WPHbAT8YGbJgDNnn1t5tk=
-cuelabs.dev/go/oci/ociregistry v0.0.0-20240222174315-5a9bab78b48a/go.mod h1:ApHceQLLwcOkCEXM1+DyCXTHEJhNGDpJ2kmV6axsx24=
-cuelang.org/go v0.8.0-alpha.4 h1:P27Yzl3ZOSPEbpQ41uM+q8x9zm1mTbKQEphXq7Ts/tM=
-cuelang.org/go v0.8.0-alpha.4/go.mod h1:C5pGsw9kAAeCvyUdUpKDQiXwVi//u3y6xfei0rzkimw=
+cuelabs.dev/go/oci/ociregistry v0.0.0-20240229191153-7fc950808203 h1:7Teyf85JR7N0qOFl8LpD1S4HFDdDh9UQ3bHQF5Ulq5c=
+cuelabs.dev/go/oci/ociregistry v0.0.0-20240229191153-7fc950808203/go.mod h1:ApHceQLLwcOkCEXM1+DyCXTHEJhNGDpJ2kmV6axsx24=
+cuelang.org/go v0.8.0-alpha.5 h1:ExxKatG73saaykFtVs1xJ8kOyTItOFnFAfiRjYszQB4=
+cuelang.org/go v0.8.0-alpha.5/go.mod h1:sZLibTLWodhaAP/mYmCpvwNnmPY+Q1T+EuDhs0UBoXM=
 dario.cat/mergo v1.0.0 h1:AGCNq9Evsj31mOgNPcLyXc+4PNABt905YmuqPYYpBWk=
 dario.cat/mergo v1.0.0/go.mod h1:uNxQE+84aUszobStD9th8a29P2fMDhsBdgRYvZOxGmk=
 filippo.io/age v1.1.1 h1:pIpO7l151hCnQ4BdyBujnGP2YlUo0uj6sAVNHGBvXHg=
