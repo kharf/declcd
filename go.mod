@@ -3,8 +3,8 @@ module github.com/kharf/declcd
 go 1.22.0
 
 require (
-	cuelabs.dev/go/oci/ociregistry v0.0.0-20240222174315-5a9bab78b48a
-	cuelang.org/go v0.8.0-alpha.4
+	cuelabs.dev/go/oci/ociregistry v0.0.0-20240229191153-7fc950808203
+	cuelang.org/go v0.8.0-alpha.5
 	filippo.io/age v1.1.1
 	github.com/foxcpp/go-mockdns v1.1.0
 	github.com/go-git/go-git/v5 v5.11.0
