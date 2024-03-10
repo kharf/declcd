@@ -1,55 +1,91 @@
 {
- "labels": [
-  "dependencies",
-  "renovate"
- ],
- "extends": [
-  "config:best-practices"
- ],
- "dependencyDashboard": true,
- "semanticCommits": "enabled",
- "rebaseWhen": "auto",
- "branchConcurrentLimit": 0,
- "prConcurrentLimit": 0,
- "prHourlyLimit": 0,
- "github-actions": {
-  "enabled": false
- },
- "postUpdateOptions": [
-  "gomodTidy"
- ],
- "customManagers": [
-  {
-   "customType": "regex",
-   "fileMatch": [
-    "^build/(.*?).cue$"
-   ],
-   "matchStrings": [
-    "uses: \"(?<depName>.*?)@(?<currentValue>.*?)\""
-   ],
-   "datasourceTemplate": "github-tags",
-   "versioningTemplate": "semver-coerced"
-  },
-  {
-   "customType": "regex",
-   "fileMatch": [
-    "^build/(.*?).go$"
-   ],
-   "matchStrings": [
-    "From\\(\"(?<depName>.*?):(?<currentValue>.*?)\"\\)"
-   ],
-   "datasourceTemplate": "docker"
-  },
-  {
-   "customType": "regex",
-   "fileMatch": [
-    "^build/(.*?).cue$"
-   ],
-   "matchStrings": [
-    "https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"
-   ],
-   "datasourceTemplate": "github-releases",
-   "versioningTemplate": "semver-coerced"
-  }
- ]
+    "labels": [
+        "dependencies",
+        "renovate"
+    ],
+    "extends": [
+        "config:best-practices"
+    ],
+    "dependencyDashboard": true,
+    "semanticCommits": "enabled",
+    "rebaseWhen": "auto",
+    "branchConcurrentLimit": 0,
+    "prConcurrentLimit": 0,
+    "prHourlyLimit": 0,
+    "github-actions": {
+        "enabled": false
+    },
+    "postUpdateOptions": [
+        "gomodTidy"
+    ],
+    "customManagers": [
+        {
+            "customType": "regex",
+            "fileMatch": [
+                "^cue.mod/module.cue$"
+            ],
+            "matchStrings": [
+                "version: \"(?<currentValue>.*?)\""
+            ],
+            "depNameTemplate": "cue-lang/cue",
+            "versioningTemplate": "semver-coerced",
+            "datasourceTemplate": "github-releases"
+        },
+        {
+            "customType": "regex",
+            "fileMatch": [
+                "^cue.mod/module.cue$"
+            ],
+            "matchStrings": [
+                "\"(?<depName>.*?)?@.*?\": {\n\t\tv: \"(?<currentValue>.*?)\"\n\t}"
+            ],
+            "versioningTemplate": "semver-coerced",
+            "datasourceTemplate": "docker",
+            "registryUrlTemplate": "https://ghcr.io/kharf",
+            "packageNameTemplate": "ghcr.io/kharf/github.com/kharf/cuepkgs/modules/github"
+        },
+        {
+            "customType": "regex",
+            "fileMatch": [
+                "^(.*?).cue$"
+            ],
+            "matchStrings": [
+                "uses: \"(?<depName>.*?)@(?<currentValue>.*?)\""
+            ],
+            "datasourceTemplate": "github-tags",
+            "versioningTemplate": "semver-coerced"
+        },
+        {
+            "customType": "regex",
+            "fileMatch": [
+                "^(.*?).go$"
+            ],
+            "matchStrings": [
+                "From\\(\"(?<depName>.*?):(?<currentValue>.*?)\"\\)"
+            ],
+            "datasourceTemplate": "docker"
+        },
+        {
+            "customType": "regex",
+            "fileMatch": [
+                "^(.*?).go$"
+            ],
+            "matchStrings": [
+                "var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\""
+            ],
+            "datasourceTemplate": "go"
+        },
+        {
+            "customType": "regex",
+            "fileMatch": [
+                "^(.*?).go$",
+                "^(.*?).cue$"
+            ],
+            "matchStrings": [
+                "https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"
+            ],
+            "versioningTemplate": "semver-coerced",
+            "datasourceTemplate": "github-releases"
+        }
+    ]
 }

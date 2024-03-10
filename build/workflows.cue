@@ -1,6 +1,6 @@
 package build
 
-import "json.schemastore.org/github"
+import "github.com/kharf/cuepkgs/modules/github@v0"
 
 #workflow: {
 	_name: string

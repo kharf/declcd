@@ -15,11 +15,16 @@ func (_ WorkflowsGen) name() string {
 	return "Generate Workflows"
 }
 
+// when changed, the renovate customManager has also to be updated.
+var cueDep = "cuelang.org/go/cmd/cue@v0.8.0"
+
 func (workflow WorkflowsGen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	workflowsDir := ".github/workflows"
 	gen := request.container.
 		WithExec([]string{"mkdir", "-p", workflowsDir}).
-		WithExec([]string{"go", "install", "cuelang.org/go/cmd/cue@v0.8.0-alpha.3"}).
+		WithExec([]string{"go", "install", cueDep}).
+		WithEnvVariable("CUE_EXPERIMENT", "modules").
+		WithEnvVariable("CUE_REGISTRY", "ghcr.io/kharf").
 		WithWorkdir("build").
 		WithExec([]string{"../bin/cue", "cmd", "genyamlworkflows"}).
 		WithWorkdir(workDir)
