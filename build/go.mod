@@ -2,7 +2,7 @@ module github.com/kharf/declcd/build
 
 go 1.22.0
 
-require dagger.io/dagger v0.10.1
+require dagger.io/dagger v0.10.2
 
 require (
 	github.com/99designs/gqlgen v0.17.31 // indirect
