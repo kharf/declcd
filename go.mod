@@ -1,6 +1,6 @@
 module github.com/kharf/declcd
 
-go 1.22.0
+go 1.22.1
 
 require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20240229191153-7fc950808203
