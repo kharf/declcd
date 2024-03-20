@@ -1,4 +1,9 @@
 module: "github.com/kharf/declcd/build@v0"
 language: {
-	version: "v0.8.0-alpha.3"
+	version: "v0.8.0-alpha.5"
+}
+deps: {
+	"github.com/kharf/cuepkgs/modules/github@v0": {
+		v: "v0.0.3"
+	}
 }
