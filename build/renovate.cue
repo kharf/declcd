@@ -14,7 +14,7 @@ package build
 
 #cueModuleManager: #regexManager & {
 	fileMatch: [
-		"^cue.mod/module.cue$",
+		"^(.*?)cue.mod/module.cue$",
 	]
 	versioningTemplate: "semver-coerced"
 }

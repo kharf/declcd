@@ -22,7 +22,7 @@
         {
             "customType": "regex",
             "fileMatch": [
-                "^cue.mod/module.cue$"
+                "^(.*?)cue.mod/module.cue$"
             ],
             "matchStrings": [
                 "version: \"(?<currentValue>.*?)\""
@@ -34,7 +34,7 @@
         {
             "customType": "regex",
             "fileMatch": [
-                "^cue.mod/module.cue$"
+                "^(.*?)cue.mod/module.cue$"
             ],
             "matchStrings": [
                 "\"(?<depName>.*?)?@.*?\": {\n\t\tv: \"(?<currentValue>.*?)\"\n\t}"
