@@ -9,6 +9,7 @@ import (
 
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -22,7 +23,6 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-
 	kubeConfig, err := config.GetConfig()
 	if err != nil {
 		fmt.Println(err)
@@ -33,7 +33,6 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-
 	if err := root.Build().Execute(); err != nil {
 		fmt.Println(err)
 		return
@@ -41,6 +40,7 @@ func main() {
 }
 
 type RootCommandBuilder struct {
+	initCommandBuilder    InitCommandBuilder
 	installCommandBuilder InstallCommandBuilder
 	encryptCommandBuilder EncryptCommandBuilder
 }
@@ -50,13 +50,28 @@ func (builder RootCommandBuilder) Build() *cobra.Command {
 		Use:   "decl",
 		Short: "A GitOps Declarative Continuous Delivery toolkit",
 	}
-
-	installCmd := builder.installCommandBuilder.Build()
-	encryptCmd := builder.encryptCommandBuilder.Build()
-	rootCmd.AddCommand(installCmd)
-	rootCmd.AddCommand(encryptCmd)
-
+	rootCmd.AddCommand(builder.initCommandBuilder.Build())
+	rootCmd.AddCommand(builder.installCommandBuilder.Build())
+	rootCmd.AddCommand(builder.encryptCommandBuilder.Build())
 	return &rootCmd
+}
+
+type InitCommandBuilder struct{}
+
+func (builder InitCommandBuilder) Build() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Init a Declcd Repository in the current directory",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			return project.Init(args[0], cwd)
+		},
+	}
+	return cmd
 }
 
 type InstallCommandBuilder struct {
