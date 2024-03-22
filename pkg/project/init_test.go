@@ -54,7 +54,7 @@ func TestInit(t *testing.T) {
 				}
 				content, err := moduleFile.Format()
 				assert.NilError(t, err)
-				moduleDir := filepath.Join(path, "module.cue")
+				moduleDir := filepath.Join(path, "cue.mod")
 				err = os.MkdirAll(moduleDir, 0755)
 				assert.NilError(t, err)
 				err = os.WriteFile(filepath.Join(moduleDir, "module.cue"), content, 0666)
@@ -96,7 +96,7 @@ func assertModule(t *testing.T, path string, module string) {
 	info, err := os.Stat(path)
 	assert.NilError(t, err)
 	assert.Assert(t, info.IsDir())
-	moduleDir := filepath.Join(path, "module.cue")
+	moduleDir := filepath.Join(path, "cue.mod")
 	info, err = os.Stat(moduleDir)
 	assert.NilError(t, err)
 	assert.Assert(t, info.IsDir())

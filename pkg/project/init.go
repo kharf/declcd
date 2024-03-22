@@ -8,7 +8,7 @@ import (
 )
 
 func Init(module string, path string) error {
-	moduleDir := filepath.Join(path, "module.cue")
+	moduleDir := filepath.Join(path, "cue.mod")
 	_, err := os.Stat(moduleDir)
 	if err == nil {
 		return nil

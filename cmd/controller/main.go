@@ -122,6 +122,14 @@ func main() {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
+	if err = os.Setenv("CUE_EXPERIMENT", "modules"); err != nil {
+		setupLog.Error(err, "Unable to set CUE_EXPERIMENT environment variable")
+		os.Exit(1)
+	}
+	if err = os.Setenv("CUE_REGISTRY", "ghcr.io/kharf"); err != nil {
+		setupLog.Error(err, "Unable to set CUE_REGISTRY environment variable")
+		os.Exit(1)
+	}
 	componentBuilder := component.NewBuilder()
 	maxProcs := goRuntime.GOMAXPROCS(0)
 	projectManager := project.NewManager(componentBuilder, log, maxProcs)
