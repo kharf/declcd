@@ -38,7 +38,9 @@ type instanceResult struct {
 }
 
 // Load uses a given path to a project and returns the components as a directed acyclic dependency graph.
-func (manager *Manager) Load(projectPath string) (*component.DependencyGraph, error) {
+func (manager *Manager) Load(
+	projectPath string,
+) (*component.DependencyGraph, error) {
 	projectPath = strings.TrimSuffix(projectPath, "/")
 	if _, err := os.Stat(projectPath); errors.Is(err, fs.ErrNotExist) {
 		return nil, err

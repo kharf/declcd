@@ -15,7 +15,8 @@ import (
 func TestBuilder_Build(t *testing.T) {
 	testRoot, err := os.MkdirTemp("", "")
 	assert.NilError(t, err)
-	ocitest.StartCUERegistry(t, testRoot)
+	cueRegistry := ocitest.StartCUERegistry(t, testRoot)
+	defer cueRegistry.Close()
 	builder := NewBuilder()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)

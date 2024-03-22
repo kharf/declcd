@@ -88,11 +88,14 @@ func NewTLSRegistry() (*Registry, error) {
 	httpsServer.Listener = listener
 	httpsServer.StartTLS()
 	client := httpsServer.Client()
-	client.Transport = &http.Transport{
+	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 	}
+	client.Transport = transport
+	// set to to true globally as CUE for example uses the DefaultTransport
+	http.DefaultTransport = transport
 	ociClient := modregistry.NewClient(registry)
 	return &Registry{
 		httpsServer:    httpsServer,

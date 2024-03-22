@@ -10,7 +10,10 @@ import (
 	"cuelang.org/go/cue/load"
 )
 
-func BuildPackage(packagePath string, projectRoot string) (*cue.Value, error) {
+func BuildPackage(
+	packagePath string,
+	projectRoot string,
+) (*cue.Value, error) {
 	harmonizedPackagePath := packagePath
 	currentDirectoryPrefix := "./"
 	if !strings.HasPrefix(packagePath, currentDirectoryPrefix) {

@@ -228,7 +228,10 @@ func (enc Encrypter) writeSecretsStateFile(encryptedInstances []encryptedInstanc
 }
 
 func lookupState(projectRoot string) (*state, error) {
-	secretsPackageValue, err := internalCue.BuildPackage(SecretsStatePackage, projectRoot)
+	secretsPackageValue, err := internalCue.BuildPackage(
+		SecretsStatePackage,
+		projectRoot,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +594,10 @@ func NewDecrypter(
 // Decrypt reads the private decryption key from a Kubernetes secret and uses it
 // to decrypt every encrypted secret found in the secrets/secrets.cue file in the declcd gitops repository.
 // It returns the path to the decrypted declcd project.
-func (dec Decrypter) Decrypt(ctx context.Context, projectRoot string) (string, error) {
+func (dec Decrypter) Decrypt(
+	ctx context.Context,
+	projectRoot string,
+) (string, error) {
 	decryptedProjectPath := fmt.Sprintf("%s-%s", projectRoot, "dec")
 	eg := &errgroup.Group{}
 	eg.SetLimit(dec.workerPoolSize)

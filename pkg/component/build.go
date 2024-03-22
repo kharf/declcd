@@ -59,7 +59,10 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 	for _, opt := range opts {
 		opt(options)
 	}
-	value, err := internalCue.BuildPackage(options.componentPath, options.projectRoot)
+	value, err := internalCue.BuildPackage(
+		options.componentPath,
+		options.projectRoot,
+	)
 	if err != nil {
 		return nil, err
 	}

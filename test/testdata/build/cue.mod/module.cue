@@ -1,6 +1,6 @@
 module: "github.com/kharf/declcd/test/testdata/build@v0"
 language: {
-	version: "v0.8.0-alpha.4"
+	version: "v0.8.0"
 }
 deps: {
 	"github.com/kharf/declcd/schema@v0": {
