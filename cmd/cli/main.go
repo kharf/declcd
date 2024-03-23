@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/install"
+	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
@@ -41,6 +44,7 @@ func main() {
 
 type RootCommandBuilder struct {
 	initCommandBuilder    InitCommandBuilder
+	verifyCommandBuilder  VerifyCommandBuilder
 	installCommandBuilder InstallCommandBuilder
 	encryptCommandBuilder EncryptCommandBuilder
 }
@@ -51,6 +55,7 @@ func (builder RootCommandBuilder) Build() *cobra.Command {
 		Short: "A GitOps Declarative Continuous Delivery toolkit",
 	}
 	rootCmd.AddCommand(builder.initCommandBuilder.Build())
+	rootCmd.AddCommand(builder.verifyCommandBuilder.Build())
 	rootCmd.AddCommand(builder.installCommandBuilder.Build())
 	rootCmd.AddCommand(builder.encryptCommandBuilder.Build())
 	return &rootCmd
@@ -69,6 +74,30 @@ func (builder InitCommandBuilder) Build() *cobra.Command {
 				return err
 			}
 			return project.Init(args[0], cwd)
+		},
+	}
+	return cmd
+}
+
+type VerifyCommandBuilder struct{}
+
+func (builder VerifyCommandBuilder) Build() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify a Declcd Repository in the current directory, whether it contains valid code and can be compiled",
+		Args:  cobra.MinimumNArgs(0),
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			projectManager := project.NewManager(
+				component.NewBuilder(),
+				logr.Discard(),
+				runtime.GOMAXPROCS(0),
+			)
+			_, err = projectManager.Load(cwd)
+			return err
 		},
 	}
 	return cmd
