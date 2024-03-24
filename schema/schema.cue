@@ -2,45 +2,39 @@ package schema
 
 import "strings"
 
-#Component: {
-	if content._type == "HelmRelease" {
-		id: "\(content.name)_\(content.namespace)_\(content._type)"
-	}
-	if content._type == "Manifest" {
-		_groupVersion: strings.Split(content.apiVersion, "/")
-		_group:        string | *""
-		if len(_groupVersion) >= 2 {
-			_group: _groupVersion[0]
-		}
-		id: "\(content.metadata.name)_\(content.metadata.namespace)_\(_group)_\(content.kind)"
-	}
-	type:     content._type
-	content!: #Manifest | #HelmRelease
-	dependencies: [...string]
-}
-
 #Manifest: {
-	_type:       "Manifest"
-	apiVersion!: string
-	kind!:       string
-	metadata: {
-		namespace: string | *""
-		name!:     string
+	type:          "Manifest"
+	_groupVersion: strings.Split(content.apiVersion, "/")
+	_group:        string | *""
+	if len(_groupVersion) >= 2 {
+		_group: _groupVersion[0]
+	}
+	id: "\(content.metadata.name)_\(content.metadata.namespace)_\(_group)_\(content.kind)"
+	dependencies: [...string]
+	content: {
+		apiVersion!: string & strings.MinRunes(1)
+		kind!:       string & strings.MinRunes(1)
+		metadata: {
+			namespace: string | *""
+			name!:     string & strings.MinRunes(1)
+			...
+		}
 		...
 	}
-	...
-}
-
-#HelmChart: {
-	name!:    string
-	repoURL!: string
-	version!: string
 }
 
 #HelmRelease: {
-	_type:      "HelmRelease"
-	name!:      string
+	type: "HelmRelease"
+	id:   "\(name)_\(namespace)_\(type)"
+	dependencies: [...string]
+	name!:      string & strings.MinRunes(1)
 	namespace!: string
 	chart!:     #HelmChart
 	values: {...}
+}
+
+#HelmChart: {
+	name!:    string & strings.MinRunes(1)
+	repoURL!: string & strings.HasPrefix("oci://") | strings.HasPrefix("http://") | strings.HasPrefix("https://")
+	version!: string & strings.MinRunes(1)
 }
