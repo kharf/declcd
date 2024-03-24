@@ -74,14 +74,6 @@ func (opt projectOption) apply(opts *options) {
 	opts.project = opt
 }
 
-type kubernetesDisabled bool
-
-var _ Option = (*kubernetesDisabled)(nil)
-
-func (opt kubernetesDisabled) apply(opts *options) {
-	opts.enabled = bool(opt)
-}
-
 type decryptionKeyCreated bool
 
 var _ Option = (*decryptionKeyCreated)(nil)
@@ -108,10 +100,6 @@ type options struct {
 
 type Option interface {
 	apply(*options)
-}
-
-func WithKubernetesDisabled() kubernetesDisabled {
-	return false
 }
 
 func WithHelm(enabled bool, oci bool) helmOption {

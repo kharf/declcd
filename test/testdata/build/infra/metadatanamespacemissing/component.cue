@@ -13,11 +13,11 @@ import (
 	}
 }
 
-ns: schema.#Component & {
+ns: schema.#Manifest & {
 	content: #namespace
 }
 
-secret: schema.#Component & {
+secret: schema.#Manifest & {
 	dependencies: [
 		ns.id,
 	]
@@ -34,20 +34,18 @@ secret: schema.#Component & {
 	}
 }
 
-release: schema.#Component & {
+release: schema.#HelmRelease & {
 	dependencies: [
 		ns.id,
 	]
-	content: schema.#HelmRelease & {
-		name:      "{{.Name}}"
-		namespace: #namespace.metadata.name
-		chart: {
-			name:    "test"
-			repoURL: "{{.RepoUrl}}"
-			version: "{{.Version}}"
-		}
-		values: {
-			autoscaling: enabled: true
-		}
+	name:      "{{.Name}}"
+	namespace: #namespace.metadata.name
+	chart: {
+		name:    "test"
+		repoURL: "{{.RepoUrl}}"
+		version: "{{.Version}}"
+	}
+	values: {
+		autoscaling: enabled: true
 	}
 }

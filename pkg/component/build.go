@@ -10,8 +10,7 @@ import (
 )
 
 var (
-	ErrWrongComponentFormat = errors.New("Wrong component format")
-	ErrMissingField         = errors.New("Missing content field")
+	ErrMissingField = errors.New("Missing content field")
 )
 
 // Builder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
@@ -90,54 +89,18 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 				},
 			})
 		case "HelmRelease":
-			name, found := instance.Content["name"].(string)
-			if !found {
-				return nil, missingFieldError("name")
-			}
-			namespace, found := instance.Content["namespace"].(string)
-			if !found {
-				return nil, missingFieldError("namespace")
-			}
-			chart, ok := instance.Content["chart"].(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf(
-					"%w: %s field not found or wrong format",
-					ErrMissingField,
-					"chart",
-				)
-			}
-			chartName, found := chart["name"].(string)
-			if !found {
-				return nil, missingFieldError("chart.name")
-			}
-			chartRepoURL, found := chart["repoURL"].(string)
-			if !found {
-				return nil, missingFieldError("chart.repoURL")
-			}
-			chartVersion, found := chart["version"].(string)
-			if !found {
-				return nil, missingFieldError("chart.version")
-			}
-			values, ok := instance.Content["values"].(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf(
-					"%w: %s field not found or wrong format",
-					ErrMissingField,
-					"values",
-				)
-			}
 			instances = append(instances, &HelmRelease{
 				ID:           instance.ID,
 				Dependencies: instance.Dependencies,
 				Content: helm.ReleaseDeclaration{
-					Name:      name,
-					Namespace: namespace,
+					Name:      instance.Name,
+					Namespace: instance.Namespace,
 					Chart: helm.Chart{
-						Name:    chartName,
-						RepoURL: chartRepoURL,
-						Version: chartVersion,
+						Name:    instance.Chart.Name,
+						RepoURL: instance.Chart.RepoURL,
+						Version: instance.Chart.Version,
 					},
-					Values: values,
+					Values: instance.Values,
 				},
 			})
 		}
@@ -148,7 +111,7 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 func validateManifest(instance internalInstance) error {
 	_, found := instance.Content["apiVersion"]
 	if !found {
-		return missingFieldError("apiVersioin")
+		return missingFieldError("apiVersion")
 	}
 	_, found = instance.Content["kind"]
 	if !found {

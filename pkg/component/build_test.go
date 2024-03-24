@@ -64,14 +64,14 @@ func TestBuilder_Build(t *testing.T) {
 					Dependencies: []string{"prometheus___Namespace"},
 				},
 				&HelmRelease{
-					ID: "{{.Name}}_prometheus_HelmRelease",
+					ID: "test_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
 						Name:      "{{.Name}}",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
 							Name:    "test",
-							RepoURL: "{{.RepoUrl}}",
-							Version: "{{.Version}}",
+							RepoURL: "oci://test",
+							Version: "test",
 						},
 						Values: helm.Values{
 							"autoscaling": map[string]interface{}{
@@ -96,7 +96,7 @@ func TestBuilder_Build(t *testing.T) {
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			componentPath:     "./infra/metadatanameschemamissing",
 			expectedInstances: []Instance{},
-			expectedErr:       "secret.content.metadata.name: cannot convert non-concrete value string & string (and 1 more errors)",
+			expectedErr:       "secret.id: invalid interpolation: cannot reference optional field: name (and 1 more errors)",
 		},
 		{
 			name:              "MissingMetadataName",
@@ -120,46 +120,32 @@ func TestBuilder_Build(t *testing.T) {
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
-			name:              "MissingReleaseName",
+			name:              "EmptyReleaseNameWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/releasenamemissing",
+			componentPath:     "./infra/emptyreleasenamewithschema",
 			expectedInstances: []Instance{},
-			expectedErr:       ErrMissingField.Error(),
+			expectedErr:       "release.name: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
-			name:              "MissingReleaseNamespace",
+			name:              "EmptyReleaseChartNameWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/releasenamespacemissing",
+			componentPath:     "./infra/emptyreleasechartnamewithschema",
 			expectedInstances: []Instance{},
-			expectedErr:       ErrMissingField.Error(),
+			expectedErr:       "release.chart.name: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
-			name:              "MissingReleaseChart",
+			name:              "EmptyReleaseChartVersionWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/releasechartmissing",
+			componentPath:     "./infra/emptyreleasechartversionwithschema",
 			expectedInstances: []Instance{},
-			expectedErr:       ErrMissingField.Error(),
+			expectedErr:       "release.chart.version: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
-			name:              "MissingReleaseChartName",
+			name:              "WrongPrefixReleaseChartUrlWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/releasechartnamemissing",
+			componentPath:     "./infra/wrongprefixreleasecharturlwithschema",
 			expectedInstances: []Instance{},
-			expectedErr:       ErrMissingField.Error(),
-		},
-		{
-			name:              "MissingReleaseChartRepoURL",
-			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/releasechartrepourlmissing",
-			expectedInstances: []Instance{},
-			expectedErr:       ErrMissingField.Error(),
-		},
-		{
-			name:              "MissingReleaseChartVersion",
-			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/releasechartversionmissing",
-			expectedInstances: []Instance{},
-			expectedErr:       ErrMissingField.Error(),
+			expectedErr:       "release.chart.repoURL: 3 errors in empty disjunction: (and 3 more errors)",
 		},
 	}
 	for _, tc := range testCases {

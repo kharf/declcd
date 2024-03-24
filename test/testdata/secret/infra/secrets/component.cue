@@ -7,8 +7,8 @@ import (
 
 #Namespace: {
 	_name!: string
-	schema.#Component & {
-		content: schema.#Manifest & {
+	schema.#Manifest & {
+		content: corev1.#Namespace & {
 			apiVersion: "v1"
 			kind:       "Namespace"
 			metadata: {

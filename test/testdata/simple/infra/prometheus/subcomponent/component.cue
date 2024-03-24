@@ -5,7 +5,7 @@ import (
 	"github.com/kharf/declcd/test/testdata/simple/infra/prometheus"
 )
 
-deployment: schema.#Component & {
+deployment: schema.#Manifest & {
 	dependencies: [
 		prometheus.ns.id,
 	]
