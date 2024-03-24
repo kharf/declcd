@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
@@ -38,10 +39,16 @@ func TestManager_Load(t *testing.T) {
 	)
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithKubernetes(
-			kubetest.WithKubernetesDisabled(),
+			kubetest.WithHelm(false, false),
 		),
 	)
 	defer env.Stop()
+	helmtest.ReplaceTemplate(
+		t,
+		env.TestProject,
+		env.GitRepository,
+		"oci://empty",
+	)
 	logger := setUp()
 	root := env.TestProject
 	pm := project.NewManager(component.NewBuilder(), logger, runtime.GOMAXPROCS(0))
@@ -56,7 +63,7 @@ func TestManager_Load(t *testing.T) {
 	assert.Assert(t, linkerdManifest.Content.GetName() == "linkerd")
 	prometheus := dag.Get("prometheus___Namespace")
 	assert.Assert(t, prometheus != nil)
-	prometheusRelease := dag.Get("{{.Name}}_prometheus_HelmRelease")
+	prometheusRelease := dag.Get("test_prometheus_HelmRelease")
 	assert.Assert(t, prometheusRelease != nil)
 	subcomponent := dag.Get("mysubcomponent_prometheus_apps_Deployment")
 	assert.Assert(t, subcomponent != nil)

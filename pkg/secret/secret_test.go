@@ -42,8 +42,8 @@ import (
 
 #Namespace: {
 	_name!: string
-	schema.#Component & {
-		content: schema.#Manifest & {
+	schema.#Manifest & {
+		content: corev1.#Namespace & {
 			apiVersion: "v1"
 			kind:       "Namespace"
 			metadata: {
@@ -137,8 +137,8 @@ import (
 
 #Namespace: {
 	_name!: string
-	schema.#Component & {
-		content: schema.#Manifest & {
+	schema.#Manifest & {
+		content: corev1.#Namespace & {
 			apiVersion: "v1"
 			kind:       "Namespace"
 			metadata: {
@@ -272,7 +272,7 @@ _cSecretFar: 'bar'
 func TestEncrypter_EncryptPackage(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithProjectSource("secret"),
-		projecttest.WithKubernetes(kubetest.WithKubernetesDisabled()),
+		projecttest.WithKubernetes(kubetest.WithHelm(false, false)),
 	)
 	defer env.Stop()
 	privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"

@@ -24,6 +24,14 @@ type internalInstance struct {
 	Type         string                 `json:"type"`
 	Dependencies []string               `json:"dependencies"`
 	Content      map[string]interface{} `json:"content"`
+	Name         string                 `json:"name"`
+	Namespace    string                 `json:"namespace"`
+	Chart        struct {
+		Name    string `json:"name"`
+		RepoURL string `json:"repoURL"`
+		Version string `json:"version"`
+	} `json:"chart"`
+	Values map[string]interface{} `json:"values"`
 }
 
 // Manifest represents a Declcd component with its id, dependencies and content.

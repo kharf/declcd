@@ -152,7 +152,7 @@ func StartHelmEnv(t testing.TB, cfg *rest.Config, opts ...Option) Environment {
 		FieldManager:  "controller",
 	}
 	helmEnv = startHelmServer(t, options)
-	replaceTemplate(t, options, helmEnv.ChartServer.URL())
+	ReplaceTemplate(t, options.project.testProject, options.project.repo, helmEnv.ChartServer.URL())
 	// need to be always set, even though we dont test helm releases
 	helmEnv.HelmConfig = helmCfg
 	return helmEnv
@@ -297,9 +297,14 @@ func createChartArchive(t testing.TB, chart string, version string) *os.File {
 	return archive
 }
 
-func replaceTemplate(t testing.TB, options *options, repoURL string) {
+func ReplaceTemplate(
+	t testing.TB,
+	testProject string,
+	repo *gittest.LocalGitRepository,
+	repoURL string,
+) {
 	releasesFilePath := filepath.Join(
-		options.project.testProject,
+		testProject,
 		"infra",
 		"prometheus",
 		"releases.cue",
@@ -329,7 +334,7 @@ func replaceTemplate(t testing.TB, options *options, repoURL string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = options.project.repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
+	err = repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
 	if err != nil {
 		t.Fatal(err)
 	}
