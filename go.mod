@@ -10,7 +10,7 @@ require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/google/go-github/v60 v60.0.0
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.7
-	github.com/onsi/ginkgo/v2 v2.17.0
+	github.com/onsi/ginkgo/v2 v2.17.1
 	github.com/onsi/gomega v1.32.0
 	github.com/otiai10/copy v1.14.0
 	github.com/spf13/viper v1.18.2
