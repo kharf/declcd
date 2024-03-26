@@ -23,14 +23,14 @@ func TestBuilder_Build(t *testing.T) {
 	testCases := []struct {
 		name              string
 		projectRoot       string
-		componentPath     string
+		packagePath       string
 		expectedInstances []Instance
 		expectedErr       string
 	}{
 		{
-			name:          "Success",
-			projectRoot:   path.Join(cwd, "test", "testdata", "build"),
-			componentPath: "./infra/prometheus",
+			name:        "Success",
+			projectRoot: path.Join(cwd, "test", "testdata", "build"),
+			packagePath: "./infra/prometheus",
 			expectedInstances: []Instance{
 				&Manifest{
 					ID: "prometheus___Namespace",
@@ -87,63 +87,63 @@ func TestBuilder_Build(t *testing.T) {
 		{
 			name:              "MissingMetadata",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/metadatamissing",
+			packagePath:       "./infra/metadatamissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
 			name:              "MissingMetadataNameWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/metadatanameschemamissing",
+			packagePath:       "./infra/metadatanameschemamissing",
 			expectedInstances: []Instance{},
 			expectedErr:       "secret.id: invalid interpolation: cannot reference optional field: name (and 1 more errors)",
 		},
 		{
 			name:              "MissingMetadataName",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/metadatanamemissing",
+			packagePath:       "./infra/metadatanamemissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
 			name:              "MissingApiVersion",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/apiversionmissing",
+			packagePath:       "./infra/apiversionmissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
 			name:              "MissingKind",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/kindmissing",
+			packagePath:       "./infra/kindmissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
 			name:              "EmptyReleaseNameWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/emptyreleasenamewithschema",
+			packagePath:       "./infra/emptyreleasenamewithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.name: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
 			name:              "EmptyReleaseChartNameWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/emptyreleasechartnamewithschema",
+			packagePath:       "./infra/emptyreleasechartnamewithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.name: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
 			name:              "EmptyReleaseChartVersionWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/emptyreleasechartversionwithschema",
+			packagePath:       "./infra/emptyreleasechartversionwithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.version: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
 			name:              "WrongPrefixReleaseChartUrlWithSchema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
-			componentPath:     "./infra/wrongprefixreleasecharturlwithschema",
+			packagePath:       "./infra/wrongprefixreleasecharturlwithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.repoURL: 3 errors in empty disjunction: (and 3 more errors)",
 		},
@@ -152,7 +152,7 @@ func TestBuilder_Build(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			components, err := builder.Build(
 				WithProjectRoot(tc.projectRoot),
-				WithComponentPath(tc.componentPath),
+				WithPackagePath(tc.packagePath),
 			)
 			if tc.expectedErr != "" {
 				assert.ErrorContains(t, err, tc.expectedErr)

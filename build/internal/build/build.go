@@ -69,15 +69,51 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 	}, nil
 }
 
-func compile(ctx context.Context, cmd string, container *dagger.Container) (*dagger.Container, error) {
+func compile(
+	ctx context.Context,
+	cmd string,
+	container *dagger.Container,
+) (*dagger.Container, error) {
 	binary := fmt.Sprintf("bin/%s", cmd)
 	build := container.
 		WithEnvVariable("CGO_ENABLED", "0").
 		WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, fmt.Sprintf("cmd/%s/main.go", cmd)}).
 		WithExec([]string{"chmod", "+x", binary})
-	_, err := build.File(binary).Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: false})
+	_, err := build.File(binary).
+		Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: false})
 	if err != nil {
 		return nil, err
 	}
 	return build, nil
+}
+
+var ApiGen apigen = "apigen"
+
+type apigen string
+
+var _ step = (*apigen)(nil)
+
+func (g apigen) name() string {
+	return string(g)
+}
+
+// when changed, the renovate customManager has also to be updated.
+var controllerGenDep = "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0"
+
+func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	gen := request.container.
+		WithExec(
+			[]string{"go", "install", controllerGenDep},
+		).
+		WithExec([]string{"go", "install", cueDep}).
+		WithExec([]string{controllerGen, "crd", "paths=./api/v1/...", "output:crd:artifacts:config=internal/manifest"}).
+		WithExec([]string{"bin/cue", "import", "-f", "-o", "internal/manifest/crd.cue", "internal/manifest/gitops.declcd.io_gitopsprojects.yaml", "-l", "_crd:", "-p", "declcd"})
+	_, err := gen.File("internal/manifest/crd.cue").
+		Export(ctx, "internal/manifest/crd.cue", dagger.FileExportOpts{AllowParentDirPath: false})
+	if err != nil {
+		return nil, err
+	}
+	return &stepResult{
+		container: gen,
+	}, nil
 }

@@ -17,18 +17,18 @@ limitations under the License.
 package controller
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	goRuntime "runtime"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubectl/pkg/scheme"
 
+	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
@@ -37,8 +37,8 @@ import (
 
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
+	"github.com/kharf/declcd/pkg/vcs"
 
 	_ "github.com/kharf/declcd/test/workingdir"
 )
@@ -47,9 +47,11 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient client.Client
-	test      *testing.T
-	env       projecttest.Environment
+	k8sClient     client.Client
+	test          *testing.T
+	env           projecttest.Environment
+	httpClient    *http.Client
+	installAction install.Action
 )
 
 func TestAPIs(t *testing.T) {
@@ -67,23 +69,23 @@ var _ = BeforeSuite(func() {
 			kubetest.WithVCSSSHKeyCreated(),
 		),
 	)
+	var server *httptest.Server
+	server, httpClient = gittest.MockGitProvider(test, vcs.GitHub)
+	defer server.Close()
+	installAction = install.NewAction(
+		env.DynamicTestKubeClient,
+		httpClient,
+		env.TestProject,
+	)
 	logf.SetLogger(env.Log)
 	var err error
 	k8sClient, err = client.New(env.ControlPlane.Config, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
-	client, err := kube.NewDynamicClient(env.ControlPlane.Config)
-	Expect(err).NotTo(HaveOccurred())
-	crd := gitopsv1.CRD(map[string]string{})
-	unstrObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(crd)
-	Expect(err).NotTo(HaveOccurred())
-	unstr := &unstructured.Unstructured{Object: unstrObj}
-	err = client.Apply(env.Ctx, unstr, "controller")
-	Expect(err).NotTo(HaveOccurred())
 	chartReconciler := helm.ChartReconciler{
 		KubeConfig:            env.ControlPlane.Config,
 		Client:                env.DynamicTestKubeClient,
-		FieldManager:          "controller",
+		FieldManager:          project.ControllerName,
 		InventoryManager:      env.InventoryManager,
 		InsecureSkipTLSverify: true,
 		Log:                   env.Log,
@@ -104,7 +106,7 @@ var _ = BeforeSuite(func() {
 		Log:               env.Log,
 		GarbageCollector:  env.GarbageCollector,
 		Decrypter:         env.SecretManager.Decrypter,
-		FieldManager:      install.ControllerName,
+		FieldManager:      project.ControllerName,
 		WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
 	}
 	err = (&GitOpsProjectReconciler{

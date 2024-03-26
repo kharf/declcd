@@ -22,18 +22,18 @@ func NewBuilder() Builder {
 	return Builder{}
 }
 
-// BuildOptions defining what component is compiled and how it is done.
+// BuildOptions defining which package is compiled and how it is done.
 type BuildOptions struct {
-	componentPath string
-	projectRoot   string
+	packagePath string
+	projectRoot string
 }
 
 type buildOptions = func(opts *BuildOptions)
 
-// WithComponentPath provides component path configuration.
-func WithComponentPath(componentPath string) buildOptions {
+// WithPackagePath provides package path configuration.
+func WithPackagePath(packagePath string) buildOptions {
 	return func(opts *BuildOptions) {
-		opts.componentPath = componentPath
+		opts.packagePath = packagePath
 	}
 }
 
@@ -52,14 +52,14 @@ const (
 // and compiles it to a slice of component Instances.
 func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 	options := &BuildOptions{
-		componentPath: "",
-		projectRoot:   ProjectRootPath,
+		packagePath: "",
+		projectRoot: ProjectRootPath,
 	}
 	for _, opt := range opts {
 		opt(options)
 	}
 	value, err := internalCue.BuildPackage(
-		options.componentPath,
+		options.packagePath,
 		options.projectRoot,
 	)
 	if err != nil {

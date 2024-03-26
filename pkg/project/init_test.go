@@ -123,4 +123,13 @@ func assertModule(t *testing.T, path string, module string) {
 			Version: "v0.0.5",
 		},
 	)
+	declcdSystemFiles := []string{
+		"declcd/system.cue",
+		"declcd/crd.cue",
+	}
+	for _, file := range declcdSystemFiles {
+		_, err = os.Open(filepath.Join(path, file))
+		assert.NilError(t, err)
+
+	}
 }

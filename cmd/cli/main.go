@@ -111,7 +111,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	ctx := context.Background()
 	var branch string
 	var url string
-	var stage string
+	var name string
 	var token string
 	var interval int
 	cmd := &cobra.Command{
@@ -120,10 +120,10 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			if err := builder.action.Install(ctx,
-				install.Namespace(install.ControllerNamespace),
+				install.Namespace(project.ControllerNamespace),
 				install.URL(url),
 				install.Branch(branch),
-				install.Stage(stage),
+				install.Name(name),
 				install.Interval(interval),
 				install.Token(token),
 			); err != nil {
@@ -133,12 +133,13 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		},
 	}
 	cmd.Flags().
-		StringVarP(&branch, "branch", "b", "main", "The branch of the gitops repository containing the project configuration")
-	cmd.Flags().StringVarP(&url, "url", "u", "", "The url to the gitops repository")
-	cmd.Flags().StringVarP(&stage, "stage", "s", "", "The stage of the declcd configuration")
-	cmd.Flags().StringVarP(&token, "token", "t", "", "The access token used for authentication")
+		StringVarP(&branch, "branch", "b", "main", "Branch of a gitops repository containing project configuration")
+	cmd.Flags().StringVarP(&url, "url", "u", "", "Url to a gitops repository")
 	cmd.Flags().
-		IntVarP(&interval, "interval", "i", 30, "This defines how often declcd will reconcile the cluster state. The value is defined in seconds")
+		StringVarP(&name, "name", "", "", "Owner of a declcd configuration")
+	cmd.Flags().StringVarP(&token, "token", "t", "", "Access token used for authentication")
+	cmd.Flags().
+		IntVarP(&interval, "interval", "i", 30, "Definition of how often declcd will reconcile its cluster state. Value is defined in seconds")
 	return cmd
 }
 

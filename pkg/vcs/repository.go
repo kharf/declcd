@@ -228,35 +228,41 @@ func NewRepositoryConfigurator(
 	url string,
 	token string,
 ) (*RepositoryConfigurator, error) {
+	var provider string
+	var repoID string
 	urlParts := strings.Split(url, "@")
 	if len(urlParts) != 2 {
-		return nil, fmt.Errorf("%s: expected one '@' in url '%s'", ErrUnknownURLFormat, url)
+		provider = Generic
+		repoID = url
+	} else {
+		providerIdParts := strings.Split(urlParts[1], ":")
+		if len(providerIdParts) != 2 {
+			return nil, fmt.Errorf("%s: expected one ':' in url '%s'", ErrUnknownURLFormat, url)
+		}
+		providerParts := strings.Split(providerIdParts[0], ".")
+		if len(providerParts) != 2 {
+			return nil, fmt.Errorf(
+				"%s: expected one '.' in host '%s'",
+				ErrUnknownURLFormat,
+				providerIdParts[0],
+			)
+		}
+		provider = providerParts[0]
+		idSuffixParts := strings.Split(providerIdParts[1], ".")
+		if len(idSuffixParts) != 2 {
+			return nil, fmt.Errorf("%s: expected one '.' at end of url '%s'", ErrUnknownURLFormat, url)
+		}
+		repoID = idSuffixParts[0]
 	}
-	providerIdParts := strings.Split(urlParts[1], ":")
-	if len(providerIdParts) != 2 {
-		return nil, fmt.Errorf("%s: expected one ':' in url '%s'", ErrUnknownURLFormat, url)
-	}
-	providerParts := strings.Split(providerIdParts[0], ".")
-	if len(providerParts) != 2 {
-		return nil, fmt.Errorf(
-			"%s: expected one '.' in host '%s'",
-			ErrUnknownURLFormat,
-			providerIdParts[0],
-		)
-	}
-	idSuffixParts := strings.Split(providerIdParts[1], ".")
-	if len(idSuffixParts) != 2 {
-		return nil, fmt.Errorf("%s: expected one '.' at end of url '%s'", ErrUnknownURLFormat, url)
-	}
-	provider, err := getProviderClient(httpClient, Provider(providerParts[0]), token)
+	providerClient, err := getProviderClient(httpClient, provider, token)
 	if err != nil {
 		return nil, err
 	}
 	return &RepositoryConfigurator{
 		controllerNamespace: controllerNamespace,
 		kubeClient:          kubeClient,
-		provider:            provider,
-		repoID:              idSuffixParts[0],
+		provider:            providerClient,
+		repoID:              repoID,
 		token:               token,
 	}, nil
 }
@@ -278,20 +284,22 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 	if err != nil {
 		return err
 	}
-	unstr := &unstructured.Unstructured{}
-	unstr.SetName(K8sSecretName)
-	unstr.SetNamespace(config.controllerNamespace)
-	unstr.SetKind("Secret")
-	unstr.SetAPIVersion("v1")
-	unstr.Object["data"] = map[string][]byte{
-		SSHKey:                []byte(depKey.privateKeyOpenSSH),
-		SSHPubKey:             []byte(depKey.publicKeyOpenSSH),
-		K8sSecretDataAuthType: []byte(K8sSecretDataAuthTypeSSH),
-		SSHKnownHosts:         []byte(config.provider.GetHostPublicSSHKey()),
-	}
-	err = config.kubeClient.Apply(ctx, unstr, fieldManager)
-	if err != nil {
-		return err
+	if depKey != nil {
+		unstr := &unstructured.Unstructured{}
+		unstr.SetName(K8sSecretName)
+		unstr.SetNamespace(config.controllerNamespace)
+		unstr.SetKind("Secret")
+		unstr.SetAPIVersion("v1")
+		unstr.Object["data"] = map[string][]byte{
+			SSHKey:                []byte(depKey.privateKeyOpenSSH),
+			SSHPubKey:             []byte(depKey.publicKeyOpenSSH),
+			K8sSecretDataAuthType: []byte(K8sSecretDataAuthTypeSSH),
+			SSHKnownHosts:         []byte(config.provider.GetHostPublicSSHKey()),
+		}
+		err = config.kubeClient.Apply(ctx, unstr, fieldManager)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
