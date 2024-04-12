@@ -1,6 +1,6 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-cuelabs.dev/go/oci/ociregistry v0.0.0-20240322111546-43b81f425031 h1:Iw9zo1TyTHIdGlbNaaFl6MmyQl8EWGeGijLlj+B219c=
-cuelabs.dev/go/oci/ociregistry v0.0.0-20240322111546-43b81f425031/go.mod h1:pK23AUVXuNzzTpfMCA06sxZGeVQ/75FdVtW249de9Uo=
+cuelabs.dev/go/oci/ociregistry v0.0.0-20240411121146-4dc200d12d3f h1:4w6MDLsICUwZBS7MZG9NUoK/itToWPh4mwC3MBgHXlU=
+cuelabs.dev/go/oci/ociregistry v0.0.0-20240411121146-4dc200d12d3f/go.mod h1:pK23AUVXuNzzTpfMCA06sxZGeVQ/75FdVtW249de9Uo=
 cuelang.org/go v0.8.0 h1:fO1XPe/SUGtc7dhnGnTPbpIDoQm/XxhDtoSF7jzO01c=
 cuelang.org/go v0.8.0/go.mod h1:CoDbYolfMms4BhWUlhD+t5ORnihR7wvjcfgyO9lL5FI=
 dario.cat/mergo v1.0.0 h1:AGCNq9Evsj31mOgNPcLyXc+4PNABt905YmuqPYYpBWk=
