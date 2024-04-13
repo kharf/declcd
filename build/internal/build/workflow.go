@@ -16,7 +16,7 @@ func (_ WorkflowsGen) name() string {
 }
 
 // when changed, the renovate customManager has also to be updated.
-var cueDep = "cuelang.org/go/cmd/cue@v0.8.0"
+var cueDep = "cuelang.org/go/cmd/cue@v0.8.1"
 
 func (workflow WorkflowsGen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	workflowsDir := ".github/workflows"
