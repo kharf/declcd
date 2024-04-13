@@ -5,65 +5,49 @@ import (
 	"time"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
+	"github.com/kharf/declcd/internal/install"
+	"github.com/kharf/declcd/pkg/project"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Define utility constants for object names and testing timeouts/durations and intervals.
+const (
+	GitOpsProjectName      = "test"
+	GitOpsProjectNamespace = "default"
+
+	duration                = time.Second * 30
+	intervalInSeconds       = 5
+	assertionInterval       = (intervalInSeconds + 1) * time.Second
+	projectCreationTimeout  = time.Second * 20
+	projectCreationInterval = 1
+)
+
 var _ = Describe("GitOpsProject controller", func() {
-	// Define utility constants for object names and testing timeouts/durations and intervals.
-	const (
-		GitOpsProjectName      = "test"
-		GitOpsProjectNamespace = "default"
-
-		duration                = time.Second * 30
-		intervalInSeconds       = 5
-		assertionInterval       = (intervalInSeconds + 1) * time.Second
-		projectCreationTimeout  = time.Second * 20
-		projectCreationInterval = 1
-	)
-
 	When("Creating GitOpsProject", func() {
-		var (
-			gitOpsProject gitopsv1.GitOpsProject
-			suspend       bool
-		)
-
-		BeforeEach(func() {
-			suspend := false
-			gitOpsProject = gitopsv1.GitOpsProject{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: gitopsv1.GroupVersion.String(),
-					Kind:       "GitOpsProject",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      GitOpsProjectName,
-					Namespace: GitOpsProjectNamespace,
-				},
-				Spec: gitopsv1.GitOpsProjectSpec{
-					URL:                 env.TestProject,
-					PullIntervalSeconds: intervalInSeconds,
-					Suspend:             &suspend,
-					Branch:              "main",
-					Stage:               "dev",
-				},
-			}
-		})
-
 		When("The pull interval is less than 5 seconds", func() {
 			It("Should not allow a pull interval less than 5 seconds", func() {
-				ctx := context.Background()
-				gitOpsProject.Spec.PullIntervalSeconds = 0
 				Eventually(func() string {
-					if err := k8sClient.Create(ctx, &gitOpsProject); err != nil {
+					if err := project.Init("github.com/kharf/declcd/controller", env.TestProject); err != nil {
+						return err.Error()
+					}
+					if err := installAction.Install(
+						env.Ctx,
+						install.Namespace(GitOpsProjectNamespace),
+						install.URL(env.TestProject),
+						install.Branch("main"),
+						install.Name(GitOpsProjectName),
+						install.Interval(0),
+						install.Token("abcd"),
+					); err != nil {
 						return err.Error()
 					}
 					return ""
-				}, projectCreationTimeout, projectCreationInterval).Should(Equal("GitOpsProject.gitops.declcd.io \"test\" " +
+				}, projectCreationTimeout, projectCreationInterval).Should(Equal("GitOpsProject.gitops.declcd.io \"" + GitOpsProjectName + "\" " +
 					"is invalid: spec.pullIntervalSeconds: " +
 					"Invalid value: 0: spec.pullIntervalSeconds in body should be greater than or equal to 5",
 				))
@@ -91,11 +75,35 @@ var _ = Describe("GitOpsProject controller", func() {
 				func() {
 					ctx := context.Background()
 					Eventually(func() error {
-						return k8sClient.Create(ctx, &gitOpsProject)
+						if err := project.Init("github.com/kharf/declcd/controller", env.TestProject); err != nil {
+							return err
+						}
+						return installAction.Install(
+							env.Ctx,
+							install.Namespace(GitOpsProjectNamespace),
+							install.URL(env.TestProject),
+							install.Branch("main"),
+							install.Name(GitOpsProjectName),
+							install.Interval(intervalInSeconds),
+							install.Token("abcd"),
+						)
 					}, projectCreationTimeout, projectCreationInterval).Should(BeNil())
-					Expect(gitOpsProject.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
-					Expect(gitOpsProject.Spec.Suspend).To(Equal(&suspend))
-					Expect(gitOpsProject.Spec.URL).To(Equal(env.TestProject))
+					Eventually(func(g Gomega) {
+						var project gitopsv1.GitOpsProject
+						err := k8sClient.Get(
+							ctx,
+							types.NamespacedName{
+								Name:      GitOpsProjectName,
+								Namespace: GitOpsProjectNamespace,
+							},
+							&project,
+						)
+						g.Expect(err).ToNot(HaveOccurred())
+						g.Expect(project.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
+						suspend := false
+						g.Expect(project.Spec.Suspend).To(Equal(&suspend))
+						g.Expect(project.Spec.URL).To(Equal(env.TestProject))
+					}, duration, assertionInterval).Should(Succeed())
 					By(
 						"Cloning a decl gitops repository, building manifests and applying them onto the cluster",
 					)

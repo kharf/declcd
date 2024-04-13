@@ -130,11 +130,6 @@ type request struct {
 	Title string `json:"title"`
 }
 
-type response struct {
-	Key   string `json:"key"`
-	Title string `json:"title"`
-}
-
 func MockGitProvider(t *testing.T, provider vcs.Provider) (*httptest.Server, *http.Client) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, err := io.ReadAll(r.Body)

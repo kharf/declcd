@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	gitopsv1 "github.com/kharf/declcd/api/v1"
-	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
@@ -52,7 +51,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
 		Decrypter:         env.SecretManager.Decrypter,
-		FieldManager:      install.ControllerName,
+		FieldManager:      project.ControllerName,
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false
@@ -203,7 +202,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
 		Decrypter:         env.SecretManager.Decrypter,
-		FieldManager:      install.ControllerName,
+		FieldManager:      project.ControllerName,
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := true
@@ -265,7 +264,7 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
 		Decrypter:         env.SecretManager.Decrypter,
-		FieldManager:      install.ControllerName,
+		FieldManager:      project.ControllerName,
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false

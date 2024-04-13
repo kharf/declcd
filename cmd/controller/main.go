@@ -21,6 +21,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
@@ -41,9 +42,10 @@ import (
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	goRuntime "runtime"
+
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/controller"
-	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
@@ -52,7 +54,6 @@ import (
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
-	goRuntime "runtime"
 )
 
 var (
@@ -134,7 +135,7 @@ func main() {
 	maxProcs := goRuntime.GOMAXPROCS(0)
 	projectManager := project.NewManager(componentBuilder, log, maxProcs)
 	//TODO: downward api read controller from file
-	helmKube.ManagedFieldsManager = install.ControllerName
+	helmKube.ManagedFieldsManager = project.ControllerName
 	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
 	if err != nil {
 		setupLog.Error(err, "Unable to setup Kubernetes client")
@@ -147,7 +148,7 @@ func main() {
 	chartReconciler := helm.ChartReconciler{
 		KubeConfig:            cfg,
 		Client:                kubeDynamicClient,
-		FieldManager:          install.ControllerName,
+		FieldManager:          project.ControllerName,
 		InventoryManager:      inventoryManager,
 		InsecureSkipTLSverify: false,
 		Log:                   log,
@@ -181,7 +182,7 @@ func main() {
 				WorkerPoolSize:   maxProcs,
 			},
 			Decrypter:      secret.NewDecrypter(string(namespace), kubeDynamicClient, maxProcs),
-			FieldManager:   install.ControllerName,
+			FieldManager:   project.ControllerName,
 			WorkerPoolSize: maxProcs,
 		},
 		ReconciliationHistogram: reconciliationHisto,

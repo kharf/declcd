@@ -87,7 +87,7 @@ type Storage struct {
 	items map[string]Item
 }
 
-// Components returns all stored Declcd items.
+// Items returns all stored Declcd items.
 func (inv Storage) Items() map[string]Item {
 	return inv.items
 }

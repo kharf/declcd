@@ -68,7 +68,7 @@ func (manager *Manager) Load(
 					eg.Go(func() error {
 						instances, err := manager.componentBuilder.Build(
 							component.WithProjectRoot(projectPath),
-							component.WithComponentPath(relativePath),
+							component.WithPackagePath(relativePath),
 						)
 						if err != nil {
 							return err

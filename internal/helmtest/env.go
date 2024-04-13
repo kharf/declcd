@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/project"
 	"gotest.tools/v3/assert"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -133,7 +133,7 @@ func StartHelmEnv(t testing.TB, cfg *rest.Config, opts ...Option) Environment {
 	}
 	helmCfg := action.Configuration{}
 	var helmEnv Environment
-	helmKube.ManagedFieldsManager = install.ControllerName
+	helmKube.ManagedFieldsManager = project.ControllerName
 	k8sClient, err := kube.NewDynamicClient(cfg)
 	if err != nil {
 		t.Fatal(err)

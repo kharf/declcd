@@ -133,20 +133,14 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 		expectedErr error
 	}{
 		{
-			name: "Missing@",
-			url:  "github.com:kharf/declcd.git",
-			expectedErr: fmt.Errorf(
-				"%w: expected one '@' in url 'github.com:kharf/declcd.git'",
-				vcs.ErrUnknownURLFormat,
-			),
+			name:        "No@",
+			url:         "github.com:kharf/declcd.git",
+			expectedErr: nil,
 		},
 		{
-			name: "Multiple@",
-			url:  "git@@github.com:kharf/declcd.git",
-			expectedErr: fmt.Errorf(
-				"%w: expected one '@' in url 'git@@github.com:kharf/declcd.git'",
-				vcs.ErrUnknownURLFormat,
-			),
+			name:        "Multiple@",
+			url:         "git@@github.com:kharf/declcd.git",
+			expectedErr: nil,
 		},
 		{
 			name: "Missing:",
@@ -183,7 +177,7 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 		{
 			name:        "UnknownProvider",
 			url:         "git@gitthub.com:kharf/declcd.git",
-			expectedErr: fmt.Errorf("%w: 'gitthub'", vcs.ErrUnknownProvider),
+			expectedErr: nil,
 		},
 		{
 			name:        "GitLab",

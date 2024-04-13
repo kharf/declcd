@@ -40,15 +40,16 @@ type providerClient interface {
 type Provider string
 
 const (
-	GitHub = "github"
-	GitLab = "gitlab"
+	GitHub  = "github"
+	GitLab  = "gitlab"
+	Generic = "generic"
 )
 
-var (
-	ErrUnknownProvider = errors.New("Unknown git provider")
-)
-
-func getProviderClient(httpClient *http.Client, provider Provider, token string) (providerClient, error) {
+func getProviderClient(
+	httpClient *http.Client,
+	provider string,
+	token string,
+) (providerClient, error) {
 	switch provider {
 	case GitHub:
 		client := NewGithubClient(httpClient, token)
@@ -59,8 +60,25 @@ func getProviderClient(httpClient *http.Client, provider Provider, token string)
 			return nil, err
 		}
 		return client, nil
+	default:
+		return &GenericProviderClient{}, nil
 	}
-	return nil, fmt.Errorf("%w: '%s'", ErrUnknownProvider, provider)
+}
+
+type GenericProviderClient struct{}
+
+var _ providerClient = (*GenericProviderClient)(nil)
+
+func (*GenericProviderClient) CreateDeployKey(
+	ctx context.Context,
+	repoID string,
+	opts ...deployKeyOption,
+) (*deployKey, error) {
+	return nil, nil
+}
+
+func (*GenericProviderClient) GetHostPublicSSHKey() string {
+	return ""
 }
 
 type deployKey struct {
@@ -93,7 +111,11 @@ func genDeployKey(opts ...deployKeyOption) (*deployKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	publicKeyString := fmt.Sprintf("%s %s", sshPublicKey.Type(), base64.StdEncoding.EncodeToString(sshPublicKey.Marshal()))
+	publicKeyString := fmt.Sprintf(
+		"%s %s",
+		sshPublicKey.Type(),
+		base64.StdEncoding.EncodeToString(sshPublicKey.Marshal()),
+	)
 	title := "declcd"
 	if deployKeyOpts.keySuffix != "" {
 		title = fmt.Sprintf("%s-%s", title, deployKeyOpts.keySuffix)

@@ -1,23 +1,37 @@
 package install_test
 
 import (
+	"bytes"
 	"context"
-	"github.com/google/go-cmp/cmp"
+	"html/template"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+
 	gitopsv1 "github.com/kharf/declcd/api/v1"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/install"
+	"github.com/kharf/declcd/internal/manifest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+)
+
+const (
+	name              = "test"
+	namespace         = "default"
+	intervalInSeconds = 5
+	url               = "git@github.com:kharf/declcd.git"
+	branch            = "main"
 )
 
 func TestAction_Install(t *testing.T) {
@@ -63,10 +77,10 @@ func TestAction_Install(t *testing.T) {
 				err := action.Install(
 					ctx,
 					install.Namespace(nsName),
-					install.Branch("main"),
-					install.Interval(5),
-					install.Stage("dev"),
-					install.URL("git@github.com:kharf/declcd.git"),
+					install.Branch(branch),
+					install.Interval(intervalInSeconds),
+					install.Name(name),
+					install.URL(url),
 					install.Token("aaaa"),
 				)
 				assert.NilError(t, err)
@@ -86,20 +100,21 @@ func TestAction_Install(t *testing.T) {
 			ctx := context.Background()
 			kubeClient, err := kube.NewDynamicClient(env.ControlPlane.Config)
 			assert.NilError(t, err)
+			err = project.Init("github.com/kharf/declcd/installation", env.TestProject)
+			assert.NilError(t, err)
 			action := install.NewAction(kubeClient, client, env.TestProject)
-			nsName := install.ControllerNamespace
 			err = action.Install(
 				ctx,
-				install.Namespace(nsName),
-				install.Branch("main"),
-				install.Interval(5),
-				install.Stage("dev"),
-				install.URL("git@github.com:kharf/declcd.git"),
+				install.Namespace(namespace),
+				install.Branch(branch),
+				install.Interval(intervalInSeconds),
+				install.Name(name),
+				install.URL(url),
 				install.Token("aaaa"),
 			)
 			assert.NilError(t, err)
-			tc.assertion(env, nsName)
-			tc.post(env, action, nsName)
+			tc.assertion(env, namespace)
+			tc.post(env, action, namespace)
 		})
 	}
 }
@@ -112,15 +127,15 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 	var statefulSet appsv1.StatefulSet
 	err = env.TestKubeClient.Get(
 		ctx,
-		types.NamespacedName{Name: "gitops-controller", Namespace: nsName},
+		types.NamespacedName{Name: project.ControllerName, Namespace: project.ControllerNamespace},
 		&statefulSet,
 	)
 	assert.NilError(t, err)
-	var project gitopsv1.GitOpsProject
+	var gitOpsProject gitopsv1.GitOpsProject
 	err = env.TestKubeClient.Get(
 		ctx,
-		types.NamespacedName{Name: "dev", Namespace: nsName},
-		&project,
+		types.NamespacedName{Name: name, Namespace: nsName},
+		&gitOpsProject,
 	)
 	assert.NilError(t, err)
 	var decKey v1.Secret
@@ -130,6 +145,22 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 		&decKey,
 	)
 	assert.NilError(t, err)
+	projectFile, err := os.Open(filepath.Join(env.TestProject, "declcd/project.cue"))
+	assert.NilError(t, err)
+	projectContent, err := io.ReadAll(projectFile)
+	assert.NilError(t, err)
+	var projectBuf bytes.Buffer
+	projectTmpl, err := template.New("").Parse(manifest.Project)
+	assert.NilError(t, err)
+	err = projectTmpl.Execute(&projectBuf, map[string]interface{}{
+		"Name":                name,
+		"Namespace":           namespace,
+		"Branch":              branch,
+		"PullIntervalSeconds": intervalInSeconds,
+		"Url":                 url,
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, string(projectContent), projectBuf.String())
 	_, err = os.Open(filepath.Join(env.TestProject, "secrets/recipients.cue"))
 	assert.NilError(t, err)
 	var vcsKey v1.Secret
@@ -142,7 +173,7 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 	var service v1.Service
 	err = env.TestKubeClient.Get(
 		ctx,
-		types.NamespacedName{Name: "gitops-controller", Namespace: nsName},
+		types.NamespacedName{Name: project.ControllerName, Namespace: project.ControllerNamespace},
 		&service,
 	)
 	assert.NilError(t, err)
