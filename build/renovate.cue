@@ -85,7 +85,10 @@ customManagers: [
 		fileMatch: [
 			"^(.*?).go$",
 		]
-		matchStrings: ["var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\""]
+		matchStrings: [
+			"var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
+			"var controllerGenDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
+		]
 		datasourceTemplate: "go"
 	},
 	_githubReleaseManager,

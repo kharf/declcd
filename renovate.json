@@ -71,7 +71,7 @@
                 "^(.*?).go$"
             ],
             "matchStrings": [
-                "var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\""
+                "var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
                 "var controllerGenDep = \"(?<depName>.*?)@(?<currentValue>.*?)\""
             ],
             "datasourceTemplate": "go"
