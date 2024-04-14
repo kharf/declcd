@@ -25,15 +25,6 @@ _cueModuleVersionManager: #cueModuleManager & {
 	datasourceTemplate: "github-releases"
 }
 
-_cueModuleDepManager: #cueModuleManager & {
-	matchStrings: [
-		"\"(?<depName>.*?)?@.*?\": {\n\t\tv: \"(?<currentValue>.*?)\"\n\t}",
-	]
-	registryUrlTemplate: "https://ghcr.io/kharf"
-	packageNameTemplate: "ghcr.io/kharf/github.com/kharf/cuepkgs/modules/github"
-	datasourceTemplate:  "docker"
-}
-
 _githubReleaseManager: #regexManager & {
 	fileMatch: [
 		"^(.*?).go$",
@@ -63,7 +54,6 @@ postUpdateOptions: [
 ]
 customManagers: [
 	_cueModuleVersionManager,
-	_cueModuleDepManager,
 	{
 		customType: "regex"
 		fileMatch: [
