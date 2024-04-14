@@ -185,7 +185,8 @@ func (act Action) install(
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
 		return err
 	}
-	if unstr.GetKind() == "CustomResourceDefinition" {
+	kind, _ := unstr.Object["kind"].(string)
+	if kind == "CustomResourceDefinition" {
 		// clear cache because we just introduced a new crd
 		if err := act.kubeClient.Invalidate(); err != nil {
 			return err
