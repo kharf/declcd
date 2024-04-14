@@ -28,7 +28,7 @@ func run() error {
 		From("renovate/renovate:37.270-full").
 		WithDefaultArgs([]string{"kharf/declcd"}).
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).
-		WithEnvVariable("LOG_LEVEL", "DEBUG").
+		WithEnvVariable("LOG_LEVEL", "INFO").
 		WithSecretVariable("RENOVATE_TOKEN", pat)
 	output, err := updateContainer.Stderr(ctx)
 	if err != nil {
