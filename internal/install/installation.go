@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/kharf/declcd/internal/manifest"
 	"github.com/kharf/declcd/pkg/component"
@@ -147,7 +149,7 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 		if !ok {
 			return ErrHelmInstallationUnsupported
 		}
-		if err := act.install(ctx, &manifest.Content, project.ControllerName); err != nil {
+		if err := act.installObject(ctx, &manifest.Content, project.ControllerName); err != nil {
 			return err
 		}
 	}
@@ -171,7 +173,7 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	return nil
 }
 
-func (act Action) install(
+func (act Action) installObject(
 	ctx context.Context,
 	unstr *unstructured.Unstructured,
 	fieldManager string,
@@ -182,10 +184,29 @@ func (act Action) install(
 			return err
 		}
 	}
+	kind, _ := unstr.Object["kind"].(string)
+	if kind == "GitOpsProject" {
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		for {
+			select {
+			case <-timeoutCtx.Done():
+				return fmt.Errorf("%w: %w", ctx.Err(), err)
+			default:
+			}
+			err = act.kubeClient.Apply(ctx, unstr, fieldManager)
+			if err == nil {
+				return nil
+			}
+			if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
+				return err
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
 		return err
 	}
-	kind, _ := unstr.Object["kind"].(string)
 	if kind == "CustomResourceDefinition" {
 		// clear cache because we just introduced a new crd
 		if err := act.kubeClient.Invalidate(); err != nil {

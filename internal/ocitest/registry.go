@@ -56,6 +56,12 @@ func (r *Registry) Close() {
 	}
 }
 
+type nullLogger struct{}
+
+var _ mockdns.Logger = (*nullLogger)(nil)
+
+func (l nullLogger) Printf(f string, args ...interface{}) {}
+
 func NewTLSRegistry() (*Registry, error) {
 	// Helm uses Docker under the hood to handle OCI
 	// and Docker defaults to HTTP when it detects that the registry host
@@ -63,11 +69,14 @@ func NewTLSRegistry() (*Registry, error) {
 	// In order to test OCI with a HTTPS server, we have to supply a "fake" host.
 	// We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
 	// All OCI tests have to use declcd.io as host.
-	dnsServer, err := mockdns.NewServer(map[string]mockdns.Zone{
+	dnsServer, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
 		"declcd.io.": {
 			A: []string{"127.0.0.1"},
 		},
-	}, false)
+	},
+		nullLogger{},
+		false,
+	)
 	if err != nil {
 		return nil, err
 	}
