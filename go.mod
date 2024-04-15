@@ -4,7 +4,7 @@ go 1.22.2
 
 require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20240411121146-4dc200d12d3f
-	cuelang.org/go v0.8.0
+	cuelang.org/go v0.8.1
 	filippo.io/age v1.1.1
 	github.com/foxcpp/go-mockdns v1.1.0
 	github.com/go-git/go-git/v5 v5.12.0
