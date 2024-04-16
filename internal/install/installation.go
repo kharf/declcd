@@ -178,16 +178,15 @@ func (act Action) installObject(
 	unstr *unstructured.Unstructured,
 	fieldManager string,
 ) error {
-	_, err := act.kubeClient.Get(ctx, unstr)
-	if err != nil {
-		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
-			return err
-		}
-	}
 	kind, _ := unstr.Object["kind"].(string)
 	if kind == "GitOpsProject" {
-		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		// clear cache because we just introduced a new crd
+		if err := act.kubeClient.Invalidate(); err != nil {
+			return err
+		}
+		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
+		var err error
 		for {
 			select {
 			case <-timeoutCtx.Done():
@@ -206,12 +205,6 @@ func (act Action) installObject(
 	}
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
 		return err
-	}
-	if kind == "CustomResourceDefinition" {
-		// clear cache because we just introduced a new crd
-		if err := act.kubeClient.Invalidate(); err != nil {
-			return err
-		}
 	}
 	return nil
 }
