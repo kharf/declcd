@@ -15,7 +15,7 @@ const (
 	ControllerName      = "gitops-controller"
 )
 
-func Init(module string, path string) error {
+func Init(module string, path string, version string) error {
 	moduleDir := filepath.Join(path, "cue.mod")
 	_, err := os.Stat(moduleDir)
 	if err != nil && !os.IsNotExist(err) {
@@ -59,7 +59,8 @@ func Init(module string, path string) error {
 		}
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, map[string]string{
-			"Name": ControllerName,
+			"Name":    ControllerName,
+			"Version": version,
 		}); err != nil {
 			return err
 		}

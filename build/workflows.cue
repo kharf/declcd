@@ -80,7 +80,7 @@ workflows: [
 		}
 	},
 	#workflow & {
-		_name: "main-build"
+		_name: "build"
 		workflow: github.#Workflow & {
 			on: {
 				push: {
@@ -100,6 +100,38 @@ workflows: [
 					#pipeline & {
 						name: "Build Pipeline"
 						run:  "go run cmd/build/main.go"
+						env: {
+							GITHUB_TOKEN: "${{ secrets.PAT }}"
+						}
+					},
+				]
+			}
+		}
+	},
+	#workflow & {
+		_name: "publish"
+		workflow: github.#Workflow & {
+			on: {
+				workflow_dispatch: {
+					branches: [
+						"main",
+					]
+					inputs: {
+						version: {
+							description: "version to be released"
+							required:    true
+						}
+					}
+				}
+			}
+
+			jobs: "\(_name)": {
+				steps: [
+					#checkoutCode,
+					#setupGo,
+					#pipeline & {
+						name: "Publish Pipeline"
+						run:  "go run cmd/publish/main.go ${{ inputs.version }}"
 						env: {
 							GITHUB_TOKEN: "${{ secrets.PAT }}"
 						}

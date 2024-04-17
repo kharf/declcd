@@ -59,6 +59,7 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+	Version  = "development"
 )
 
 func init() {
