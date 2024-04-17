@@ -15,12 +15,16 @@ package build
 #cueModuleManager: #regexManager & {
 	fileMatch: [
 		"^(.*?)cue.mod/module.cue$",
+		"^(.*?)project/init.go$",
 	]
 	versioningTemplate: "semver-coerced"
 }
 
 _cueModuleVersionManager: #cueModuleManager & {
-	matchStrings: ["version: \"(?<currentValue>.*?)\""]
+	matchStrings: [
+		"version: \"(?<currentValue>.*?)\"",
+		"Version: \"(?<currentValue>.*?)\"",
+	]
 	depNameTemplate:    "cue-lang/cue"
 	datasourceTemplate: "github-releases"
 }
