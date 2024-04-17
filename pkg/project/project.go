@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/secret"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -57,8 +58,24 @@ func (manager *Manager) Load(
 					return err
 				}
 				if dirEntry.IsDir() {
-					componentFilePath := filepath.Join(path, component.FileName)
-					if _, err := os.Stat(componentFilePath); errors.Is(err, fs.ErrNotExist) {
+					// TODO implement a dynamic way for ignoring directories
+					if path == filepath.Join(projectPath, secret.SecretsStatePackage) ||
+						path == filepath.Join(projectPath, "cue.mod") ||
+						path == filepath.Join(projectPath, ".git") {
+						return filepath.SkipDir
+					}
+					hasCUE := false
+					entries, err := os.ReadDir(path)
+					if err != nil {
+						return err
+					}
+					for _, entry := range entries {
+						if strings.HasSuffix(entry.Name(), ".cue") {
+							hasCUE = true
+							break
+						}
+					}
+					if !hasCUE {
 						return nil
 					}
 					relativePath, err := filepath.Rel(projectPath, path)

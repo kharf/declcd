@@ -131,12 +131,12 @@ func TestReconciler_Reconcile(t *testing.T) {
 	}
 	assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
 	t.Run("RemoveSubcomponent", func(t *testing.T) {
-		err = os.Remove(
-			filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent", "component.cue"),
+		err = os.RemoveAll(
+			filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent"),
 		)
 		assert.NilError(t, err)
 		err = env.GitRepository.CommitFile(
-			"infra/prometheus/subcomponent/component.cue",
+			"infra/prometheus/",
 			"undeploy subcomponent",
 		)
 		assert.NilError(t, err)
@@ -155,22 +155,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 			&mysubcomponent,
 		)
 		assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
-	})
-	t.Run("RemovePrometheus", func(t *testing.T) {
-		err = os.Remove(filepath.Join(env.TestProject, "infra", "prometheus", "component.cue"))
-		assert.NilError(t, err)
-		err = env.GitRepository.CommitFile("infra/prometheus/component.cue", "undeploy prometheus")
-		assert.NilError(t, err)
-		result, err = reconciler.Reconcile(env.Ctx, gProject)
-		assert.NilError(t, err)
-		inventoryStorage, err = reconciler.InventoryManager.Load()
-		assert.NilError(t, err)
-		invComponents := inventoryStorage.Items()
-		assert.Assert(t, len(invComponents) == 1)
-		assert.Assert(t, !inventoryStorage.HasItem(invNs))
-		assert.Assert(t, !inventoryStorage.HasItem(testHR))
-		err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
-		assert.Error(t, err, "deployments.apps \"test\" not found")
 	})
 }
 

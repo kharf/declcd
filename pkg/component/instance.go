@@ -5,10 +5,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const (
-	FileName = "component.cue"
-)
-
 // Instance represents a Declcd component with its id, dependencies and content.
 // It is the Go equivalent of the CUE definition the user interacts with.
 // ID is constructed based on the content of the component.
