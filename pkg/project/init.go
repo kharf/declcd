@@ -31,9 +31,6 @@ func Init(module string, path string) error {
 				"github.com/kharf/declcd/schema@v0": {
 					Version: "v0.9.1",
 				},
-				"github.com/kharf/cuepkgs/modules/k8s@v0": {
-					Version: "v0.0.5",
-				},
 			},
 		}
 		content, err := moduleFile.Format()

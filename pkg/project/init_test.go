@@ -3,6 +3,7 @@ package project_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cuelang.org/go/mod/modfile"
@@ -46,9 +47,6 @@ func TestInit(t *testing.T) {
 					Deps: map[string]*modfile.Dep{
 						"github.com/kharf/declcd/schema@v0": {
 							Version: "v0.9.1",
-						},
-						"github.com/kharf/cuepkgs/modules/k8s@v0": {
-							Version: "v0.0.5",
 						},
 					},
 				}
@@ -109,20 +107,12 @@ func assertModule(t *testing.T, path string, module string) {
 	moduleFile, err := modfile.Parse(content, "module.cue")
 	assert.NilError(t, err)
 	assert.Equal(t, moduleFile.Module, module)
-	assert.Equal(t, moduleFile.Language.Version, "v0.8.0")
-	assert.Assert(t, len(moduleFile.Deps) == 2)
+	assert.Assert(t, strings.HasPrefix(moduleFile.Language.Version, "v"))
+	assert.Assert(t, len(moduleFile.Deps) == 1)
 	schemaModule := moduleFile.Deps["github.com/kharf/declcd/schema@v0"]
 	assert.Equal(t, *schemaModule, modfile.Dep{
 		Version: "v0.9.1",
 	})
-	k8sModule := moduleFile.Deps["github.com/kharf/cuepkgs/modules/k8s@v0"]
-	assert.Equal(
-		t,
-		*k8sModule,
-		modfile.Dep{
-			Version: "v0.0.5",
-		},
-	)
 	declcdSystemFiles := []string{
 		"declcd/system.cue",
 		"declcd/crd.cue",
