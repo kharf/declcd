@@ -32,7 +32,7 @@ var _ = Describe("GitOpsProject controller", func() {
 		When("The pull interval is less than 5 seconds", func() {
 			It("Should not allow a pull interval less than 5 seconds", func() {
 				Eventually(func() string {
-					if err := project.Init("github.com/kharf/declcd/controller", env.TestProject); err != nil {
+					if err := project.Init("github.com/kharf/declcd/controller", env.TestProject, "v1.0.0"); err != nil {
 						return err.Error()
 					}
 					if err := installAction.Install(
@@ -75,7 +75,7 @@ var _ = Describe("GitOpsProject controller", func() {
 				func() {
 					ctx := context.Background()
 					Eventually(func() error {
-						if err := project.Init("github.com/kharf/declcd/controller", env.TestProject); err != nil {
+						if err := project.Init("github.com/kharf/declcd/controller", env.TestProject, "v1.0.0"); err != nil {
 							return err
 						}
 						return installAction.Install(

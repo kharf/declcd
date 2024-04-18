@@ -223,7 +223,7 @@ statefulSet: schema.#Manifest & {
 					containers: [
 						{
 							name:  _name
-							image: "ghcr.io/kharf/declcd:latest"
+							image: "ghcr.io/kharf/declcd:${{.Version}}"
 							command: [
 								"/controller",
 							]

@@ -4,39 +4,67 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"dagger.io/dagger"
 )
 
-type build string
-
 var (
-	Tidy    = build("tidy")
-	Build   = build("build")
-	Publish = build("publish")
+	Build = func(version string) build {
+		return build{
+			bType:   "build",
+			version: version,
+		}
+	}
+	Publish = func(version string) build {
+		return build{
+			bType:   "publish",
+			version: version,
+		}
+	}
+	Tidy = build{
+		bType: "tidy",
+	}
 )
+
+type build struct {
+	bType   string
+	version string
+}
 
 var _ step = (*build)(nil)
 
 func (b build) name() string {
-	return string(b)
+	return b.bType
 }
 
+// when changed, the renovate customManager has also to be updated.
+var cueDep = "cuelang.org/go/cmd/cue@v0.8.1"
+
 func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	var prefixedVersion string
+	var version string
+	if !strings.HasPrefix(b.version, "v") {
+		prefixedVersion = "v" + b.version
+		version = b.version
+	} else {
+		prefixedVersion = b.version
+		version, _ = strings.CutPrefix(b.version, "v")
+	}
 	var build *dagger.Container
-	switch b {
-	case Build:
+	switch b.bType {
+	case "build":
 		var err error
-		build, err = compile(ctx, "controller", request.container)
+		build, err = compile(ctx, "controller", prefixedVersion, request.container)
 		if err != nil {
 			return nil, err
 		}
-		build, err = compile(ctx, "cli", build)
+		build, err = compile(ctx, "cli", prefixedVersion, build)
 		if err != nil {
 			return nil, err
 		}
-	case Publish:
+	case "publish":
 		token := request.client.SetSecret("token", os.Getenv("GITHUB_TOKEN"))
 		ref, err := request.container.
 			Directory(".").
@@ -45,12 +73,30 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 			WithLabel("org.opencontainers.image.title", "declcd").
 			WithLabel("org.opencontainers.image.created", time.Now().String()).
 			WithLabel("org.opencontainers.image.source", "https://github.com/kharf/declcd").
-			Publish(ctx, "ghcr.io/kharf/declcd:latest")
+			Publish(ctx, "ghcr.io/kharf/declcd:"+version)
 		if err != nil {
 			return nil, err
 		}
 		fmt.Printf("Published image to: %s\n", ref)
-	case Tidy:
+		build = request.container.
+			WithExec([]string{"go", "install", cueDep}).
+			WithEnvVariable("CUE_EXPERIMENT", "modules").
+			WithEnvVariable("CUE_REGISTRY", "ghcr.io/kharf").
+			WithWorkdir("schema").
+			WithExec([]string{"../bin/cue", "mod", "publish", prefixedVersion}).
+			WithExec(
+				[]string{
+					"curl",
+					"-L",
+					"https://github.com/kharf/monoreleaser/releases/download/v0.0.12/monoreleaser-linux-amd64",
+					"--output",
+					"monoreleaser",
+				},
+			).
+			WithExec([]string{"chmod", "+x", "monoreleaser"}).
+			WithSecretVariable("MR_GITHUB_TOKEN", token).
+			WithExec([]string{"./monoreleaser", "release", ".", "v" + version})
+	case "tidy":
 		sum := "go.sum"
 		mod := "go.mod"
 		build = request.container.
@@ -72,12 +118,13 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 func compile(
 	ctx context.Context,
 	cmd string,
+	version string,
 	container *dagger.Container,
 ) (*dagger.Container, error) {
 	binary := fmt.Sprintf("bin/%s", cmd)
 	build := container.
 		WithEnvVariable("CGO_ENABLED", "0").
-		WithExec([]string{"go", "build", "-ldflags=-s -w", "-o", binary, fmt.Sprintf("cmd/%s/main.go", cmd)}).
+		WithExec([]string{"go", "build", "-ldflags= -X main.Version=" + version + " -s" + " -w", "-o", binary, fmt.Sprintf("cmd/%s/main.go", cmd)}).
 		WithExec([]string{"chmod", "+x", binary})
 	_, err := build.File(binary).
 		Export(ctx, binary, dagger.FileExportOpts{AllowParentDirPath: false})

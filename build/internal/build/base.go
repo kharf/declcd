@@ -44,6 +44,7 @@ func RunWith(steps ...step) error {
 	base := client.Container().
 		From("golang:1.22.2-alpine").
 		WithExec([]string{"apk", "add", "--no-cache", "git"}).
+		WithExec([]string{"apk", "add", "--no-cache", "curl"}).
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
 			Include: []string{
 				".git",

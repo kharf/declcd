@@ -20,6 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
+var Version = "development"
+
 func main() {
 	cfg, err := initCliConfig()
 	if err != nil {
@@ -73,7 +75,7 @@ func (builder InitCommandBuilder) Build() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return project.Init(args[0], cwd)
+			return project.Init(args[0], cwd, Version)
 		},
 	}
 	return cmd

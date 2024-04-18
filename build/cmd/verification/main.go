@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if err := build.RunWith(
-		build.WorkflowsGen{Export: false},
+		build.WorkflowsGen{Export: true},
 		build.CommitWorkflows,
 		build.TestAll,
 	); err != nil {
