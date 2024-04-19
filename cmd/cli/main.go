@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-var Version = "development"
+var Version string
 
 func main() {
 	cfg, err := initCliConfig()
