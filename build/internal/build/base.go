@@ -45,11 +45,13 @@ func RunWith(steps ...step) error {
 		From("golang:1.22.2-alpine").
 		WithExec([]string{"apk", "add", "--no-cache", "git"}).
 		WithExec([]string{"apk", "add", "--no-cache", "curl"}).
+		WithExec([]string{"apk", "add", "--no-cache", "docker"}).
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
 			Include: []string{
 				".git",
 				".gitignore",
 				".github",
+				".monoreleaser.yaml",
 				"cmd",
 				"pkg",
 				"internal",
