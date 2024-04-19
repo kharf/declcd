@@ -16,7 +16,6 @@ import (
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -28,12 +27,7 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	kubeConfig, err := config.GetConfig()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	root, err := initCli(cfg, kubeConfig)
+	root, err := initCli(cfg)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -105,9 +99,7 @@ func (builder VerifyCommandBuilder) Build() *cobra.Command {
 	return cmd
 }
 
-type InstallCommandBuilder struct {
-	action install.Action
-}
+type InstallCommandBuilder struct{}
 
 func (builder InstallCommandBuilder) Build() *cobra.Command {
 	ctx := context.Background()
@@ -121,7 +113,21 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		Short: "Install Declcd on a Kubernetes Cluster",
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			if err := builder.action.Install(ctx,
+			kubeConfig, err := config.GetConfig()
+			if err != nil {
+				return err
+			}
+			client, err := kube.NewDynamicClient(kubeConfig)
+			if err != nil {
+				return err
+			}
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			httpClient := http.DefaultClient
+			action := install.NewAction(client, httpClient, wd)
+			if err := action.Install(ctx,
 				install.Namespace(project.ControllerNamespace),
 				install.URL(url),
 				install.Branch(branch),
@@ -171,18 +177,11 @@ func initCliConfig() (*viper.Viper, error) {
 	return config, nil
 }
 
-func initCli(cliConfig *viper.Viper, kubeConfig *rest.Config) (*RootCommandBuilder, error) {
-	client, err := kube.NewDynamicClient(kubeConfig)
-	if err != nil {
-		return nil, err
-	}
+func initCli(cliConfig *viper.Viper) (*RootCommandBuilder, error) {
+	installCmd := InstallCommandBuilder{}
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
-	}
-	httpClient := http.DefaultClient
-	installCmd := InstallCommandBuilder{
-		action: install.NewAction(client, httpClient, wd),
 	}
 	encryptCommand := EncryptCommandBuilder{
 		secretEncrypter: secret.NewEncrypter(wd),
