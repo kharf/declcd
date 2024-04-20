@@ -131,10 +131,10 @@ clusterRole: schema.#Manifest & {
 				]
 			},
 			{
-				apiGroups: [""]
-				resources: [""]
+				apiGroups: ["*"]
+				resources: ["*"]
 				verbs: [
-					"",
+					"*",
 				]
 			},
 		]
@@ -223,7 +223,7 @@ statefulSet: schema.#Manifest & {
 					containers: [
 						{
 							name:  _name
-							image: "ghcr.io/kharf/declcd:${{.Version}}"
+							image: "ghcr.io/kharf/declcd:{{.Version}}"
 							command: [
 								"/controller",
 							]

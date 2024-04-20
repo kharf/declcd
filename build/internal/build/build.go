@@ -97,7 +97,7 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 				ctx,
 				"cli",
 				dist.binaryName(),
-				prefixedVersion,
+				version,
 				build,
 			)
 			if err != nil {
@@ -147,7 +147,7 @@ func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error
 			).
 			WithExec([]string{"chmod", "+x", "monoreleaser"}).
 			WithSecretVariable("MR_GITHUB_TOKEN", token).
-			WithExec([]string{"./monoreleaser", "release", ".", "v" + version, "--artifacts=" + strings.Join(artifacts, ",")})
+			WithExec([]string{"./monoreleaser", "release", ".", prefixedVersion, "--artifacts=" + strings.Join(artifacts, ",")})
 	case "tidy":
 		sum := "go.sum"
 		mod := "go.mod"

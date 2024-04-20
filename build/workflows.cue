@@ -80,7 +80,7 @@ workflows: [
 		}
 	},
 	#workflow & {
-		_name: "build"
+		_name: "test"
 		workflow: github.#Workflow & {
 			on: {
 				push: {
@@ -98,8 +98,8 @@ workflows: [
 					#checkoutCode,
 					#setupGo,
 					#pipeline & {
-						name: "Build Pipeline"
-						run:  "go run cmd/build/main.go"
+						name: "Test Pipeline"
+						run:  "go run cmd/test/main.go"
 						env: {
 							GITHUB_TOKEN: "${{ secrets.PAT }}"
 						}
