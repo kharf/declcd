@@ -47,7 +47,7 @@ type RootCommandBuilder struct {
 
 func (builder RootCommandBuilder) Build() *cobra.Command {
 	rootCmd := cobra.Command{
-		Use:   "decl",
+		Use:   "declcd",
 		Short: "A GitOps Declarative Continuous Delivery toolkit",
 	}
 	rootCmd.AddCommand(builder.initCommandBuilder.Build())
@@ -144,10 +144,10 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		StringVarP(&branch, "branch", "b", "main", "Branch of a gitops repository containing project configuration")
 	cmd.Flags().StringVarP(&url, "url", "u", "", "Url to a gitops repository")
 	cmd.Flags().
-		StringVarP(&name, "name", "", "", "Owner of a declcd configuration")
+		StringVarP(&name, "name", "", "", "Name of the GitOpsProject")
 	cmd.Flags().StringVarP(&token, "token", "t", "", "Access token used for authentication")
 	cmd.Flags().
-		IntVarP(&interval, "interval", "i", 30, "Definition of how often declcd will reconcile its cluster state. Value is defined in seconds")
+		IntVarP(&interval, "interval", "i", 30, "Definition of how often Declcd will reconcile its cluster state. Value is defined in seconds")
 	return cmd
 }
 
@@ -172,7 +172,7 @@ func (builder EncryptCommandBuilder) Build() *cobra.Command {
 
 func initCliConfig() (*viper.Viper, error) {
 	config := viper.New()
-	config.SetEnvPrefix("decl")
+	config.SetEnvPrefix("declcd")
 	config.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	return config, nil
 }

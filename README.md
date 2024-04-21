@@ -1,10 +1,7 @@
-# declcd - A Declarative Continuous Delivery Toolkit For Kubernetes
-
-`declcd` is a GitOps toolkit designed for Kubernetes, utilizing the power of Cue instead of YAML for configuration. It allows you to define and maintain the desired state of your Kubernetes cluster in a concise and expressive manner using Cue's declarative syntax.
+# Declcd - A Declarative Continuous Delivery Toolkit For Kubernetes
 
 ## Table of Contents
 - [Introduction](#introduction)
-- [Features](#features)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
 - [Contributions](#contributions)
@@ -12,45 +9,81 @@
 
 ## Introduction
 
-Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. `declcd` leverages Cue, a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
-
-## Features
-
-- **Declarative Syntax:** Define the desired state of your Kubernetes cluster using Cue's declarative syntax, enhancing readability and maintainability.
-- **Kubernetes Integration:** Seamless integration with Kubernetes, allowing you to manage your applications and configurations effortlessly.
-- **Scalability:** Handle complex cluster state scenarios with ease, thanks to Cue's expressive and composable nature.
-- **Extensibility:** Easily extend and customize your desired cluster state definitions to fit your specific requirements.
+Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. `Declcd` leverages [CUE](https://cuelang.org/), a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
 
 ## Getting Started
 
-Follow these steps to get started with `declcd`:
+Follow these steps to get started with `Declcd`:
 
-1. **Installation:**
+### Installation
 
-2. **Initialize a GitOps Repository:**
+Currently we don't maintain our binaries in any package manager.
+
+Linux(x86_64):
+
 ```bash
-    declcd init mygitops
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-linux-amd64
+chmod +x declcd
+./declcd -h
+```
+
+MacOS(x86_64):
+
+```bash
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-darwin-amd64
+chmod +x declcd
+./declcd -h
+```
+
+MacOS(arm64):
+
+```bash
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-darwin-arm64
+chmod +x declcd
+./declcd -h
+```
+
+Windows(x86_64):
+
+```bash
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-windows-amd64
+```
+
+### Initialize a GitOps Repository
+
+```bash
+    mkdir mygitops
     cd mygitops
+    git init
+    # init Declcd gitops repository as a CUE module
+    declcd init github.com/user/repo@v0
 ```
+See [CUE module reference](https://cuelang.org/docs/reference/modules/#module-path) for valid CUE module paths.
 
-3. **Define Desired Cluster State:**
-Edit the declcd.cue file to describe the desired state of your Kubernetes cluster using Cue syntax.
+## Usage
+Describe Declcd usage here (Declcd packages and components).
 
-4. **Apply Changes:**
-```bash
-git add declcd.cue
-```
 For more detailed instructions and examples, refer to the documentation.
 
 ## Contributions
 
-We welcome contributions! To contribute to declcd, follow these steps:
+We welcome contributions! To contribute to Declcd, follow these steps:
 
 1. Fork the repository.
 2. Create a new branch for your feature or bug fix.
-3. Make your changes and submit a pull request.
-4. Ensure that your code passes the CI/CD checks.
-For more information, see CONTRIBUTING.md.
+3. Make your changes.
+4. Create tests and run them in a containerized environment via Dagger with:
+    ```bash
+    cd build/
+    # Run all tests
+    go run cmd/test/main.go
+
+    # Or run a specific test
+    go run cmd/test/main.go MyTest pkg/mypackage
+    ```
+5. Create a PR.
+6. Ensure that your code passes the CI/CD checks.
+For more information, see [CONTRIBUTING.md]().
 
 ## License
 
