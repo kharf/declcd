@@ -198,7 +198,7 @@ func (g apigen) name() string {
 }
 
 // when changed, the renovate customManager has also to be updated.
-var controllerGenDep = "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.14.0"
+var controllerGenDep = "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0"
 
 func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	gen := request.container.
