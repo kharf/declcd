@@ -2,27 +2,24 @@
 
 ## Table of Contents
 - [Introduction](#introduction)
+- [Installation](#installation)
 - [Getting Started](#getting-started)
-- [Usage](#usage)
 - [Contributions](#contributions)
 - [License](#license)
 
 ## Introduction
 
-Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. `Declcd` leverages [CUE](https://cuelang.org/), a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
+Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. Declcd leverages [CUE](https://cuelang.org/), a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
 
-## Getting Started
+## Installation
 
-Follow these steps to get started with `Declcd`:
-
-### Installation
-
-Currently we don't maintain our binaries in any package manager.
+> [!IMPORTANT]
+> Currently we don't maintain our binaries in any package manager.
 
 Linux(x86_64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-linux-amd64
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-linux-amd64
 chmod +x declcd
 ./declcd -h
 ```
@@ -30,7 +27,7 @@ chmod +x declcd
 MacOS(x86_64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-darwin-amd64
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-darwin-amd64
 chmod +x declcd
 ./declcd -h
 ```
@@ -38,7 +35,7 @@ chmod +x declcd
 MacOS(arm64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-darwin-arm64
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-darwin-arm64
 chmod +x declcd
 ./declcd -h
 ```
@@ -46,8 +43,26 @@ chmod +x declcd
 Windows(x86_64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declcd-windows-amd64
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-windows-amd64
 ```
+
+## Getting Started
+
+> [!TIP]
+> It is strongly recommended to familiarize yourself with [CUE](https://cuelang.org/) before you begin, as it is one of the cornerstones of Declcd.
+
+### Basics of Declcd
+
+While Declcd does not enforce any kind of repository structure, there is one constraint for the declaration of the cluster state.
+Every top-level CUE value in a package, which is not hidden and not a [Definition](https://cuelang.org/docs/tour/basics/definitions/), has to be what Declcd calls a *Component*.
+Declcd Components effectively describe the desired cluster state and currently exist in two forms: *Manifests* and *HelmReleases*.
+A *Manifest* is a typical [Kubernetes Object](https://kubernetes.io/docs/concepts/overview/working-with-objects/), which you would normally describe in yaml format.
+A *HelmRelease* is an instance of a [Helm](https://helm.sh/docs/intro/using_helm/) Chart.
+All Components share the attribute to specify Dependencies to other Components. This helps Declcd to identify the correct order in which to apply all objects onto a Kubernetes cluster.
+
+> [!IMPORTANT]
+> Dependency relationships are represented in the form of a Directed Acyclic Graph, thus cyclic dependencies lead to errors.
+
 
 ### Initialize a GitOps Repository
 
@@ -59,11 +74,6 @@ curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.9.8/declc
     declcd init github.com/user/repo@v0
 ```
 See [CUE module reference](https://cuelang.org/docs/reference/modules/#module-path) for valid CUE module paths.
-
-## Usage
-Describe Declcd usage here (Declcd packages and components).
-
-For more detailed instructions and examples, refer to the documentation.
 
 ## Contributions
 
