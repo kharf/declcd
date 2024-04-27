@@ -13,7 +13,7 @@ Traditional GitOps tools often rely on YAML for configuration, which can lead to
 
 ## Installation
 
-> [!IMPORTANT]
+> [!NOTE]
 > Currently we don't maintain our binaries in any package manager.
 
 Linux(x86_64):
@@ -48,7 +48,7 @@ curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/decl
 
 ## Getting Started
 
-> [!TIP]
+> [!IMPORTANT]
 > It is strongly recommended to familiarize yourself with [CUE](https://cuelang.org/) before you begin, as it is one of the cornerstones of Declcd.
 
 ### Basics of Declcd
@@ -59,21 +59,60 @@ Declcd Components effectively describe the desired cluster state and currently e
 A *Manifest* is a typical [Kubernetes Object](https://kubernetes.io/docs/concepts/overview/working-with-objects/), which you would normally describe in yaml format.
 A *HelmRelease* is an instance of a [Helm](https://helm.sh/docs/intro/using_helm/) Chart.
 All Components share the attribute to specify Dependencies to other Components. This helps Declcd to identify the correct order in which to apply all objects onto a Kubernetes cluster.
+See [schema](schema/schema.cue).
 
 > [!IMPORTANT]
 > Dependency relationships are represented in the form of a Directed Acyclic Graph, thus cyclic dependencies lead to errors.
 
+### From Start to Finish
 
-### Initialize a GitOps Repository
+> [!NOTE]
+> For the purpose of demonstration this guide uses [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/) to create a Kubernetes cluster and Github.
+> We recommend that beginners follow along with both.
+
+> [!IMPORTANT]
+> Requirements:
+> - Declcd
+> - Git
+> - Go
+> - An empty git repository
+> - A GitHub personal access token with repo permissions
+
+#### Create Kind Cluster
+
+```bash
+    kind create cluster --name declcd
+```
+
+#### Initialize a Declcd GitOps Repository
 
 ```bash
     mkdir mygitops
     cd mygitops
     git init
+    git remote add origin git@github.com:user/mygitops.git
     # init Declcd gitops repository as a CUE module
-    declcd init github.com/user/repo@v0
+    export CUE_EXPERIMENT=modules
+    declcd init github.com/user/mygitops@v0
+    go mod init mygitops
+    declcd verify
+    git add .
+    git commit -m "Init declcd"
+    git push -u origin main
 ```
 See [CUE module reference](https://cuelang.org/docs/reference/modules/#module-path) for valid CUE module paths.
+
+#### Install Declcd onto your Kubernetes Cluster
+
+```bash
+    declcd install \
+    -u git@github.com:user/mygitops.git \
+    -b main \
+    --name dev \
+    -t <token>
+    git add .
+    git commit -m "Install declcd"
+```
 
 ## Contributions
 
