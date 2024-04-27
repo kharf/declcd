@@ -87,31 +87,31 @@ See [schema](schema/schema.cue).
 #### Initialize a Declcd GitOps Repository
 
 ```bash
-    mkdir mygitops
-    cd mygitops
-    git init
-    git remote add origin git@github.com:user/mygitops.git
-    # init Declcd gitops repository as a CUE module
-    export CUE_EXPERIMENT=modules
-    declcd init github.com/user/mygitops@v0
-    go mod init mygitops
-    declcd verify
-    git add .
-    git commit -m "Init declcd"
-    git push -u origin main
+mkdir mygitops
+cd mygitops
+git init
+git remote add origin git@github.com:user/mygitops.git
+# init Declcd gitops repository as a CUE module
+export CUE_EXPERIMENT=modules
+declcd init github.com/user/mygitops@v0
+go mod init mygitops
+declcd verify
+git add .
+git commit -m "Init declcd"
+git push -u origin main
 ```
 See [CUE module reference](https://cuelang.org/docs/reference/modules/#module-path) for valid CUE module paths.
 
 #### Install Declcd onto your Kubernetes Cluster
 
 ```bash
-    declcd install \
-    -u git@github.com:user/mygitops.git \
-    -b main \
-    --name dev \
-    -t <token>
-    git add .
-    git commit -m "Install declcd"
+declcd install \
+  -u git@github.com:user/mygitops.git \
+  -b main \
+  --name dev \
+  -t <token>
+git add .
+git commit -m "Install declcd"
 ```
 
 ## Contributions
