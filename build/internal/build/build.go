@@ -50,7 +50,7 @@ func (dist distribution) binaryName() string {
 }
 
 // when changed, the renovate customManager has also to be updated.
-var cueDep = "cuelang.org/go/cmd/cue@v0.8.1"
+var cueDep = "cuelang.org/go/cmd/cue@v0.8.2"
 
 func (b build) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	var prefixedVersion string
