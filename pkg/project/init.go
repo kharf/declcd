@@ -25,7 +25,7 @@ func Init(module string, path string, version string) error {
 		moduleFile := modfile.File{
 			Module: module,
 			Language: &modfile.Language{
-				Version: "v0.8.1",
+				Version: "v0.8.2",
 			},
 			Deps: map[string]*modfile.Dep{
 				"github.com/kharf/declcd/schema@v0": {
