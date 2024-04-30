@@ -11,7 +11,7 @@ require (
 	github.com/google/go-github/v61 v61.0.0
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.7
 	github.com/onsi/ginkgo/v2 v2.17.2
-	github.com/onsi/gomega v1.33.0
+	github.com/onsi/gomega v1.33.1
 	github.com/otiai10/copy v1.14.0
 	github.com/spf13/viper v1.18.2
 	github.com/xanzy/go-gitlab v0.103.0
