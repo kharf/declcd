@@ -29,7 +29,7 @@ func Init(module string, path string, version string) error {
 			},
 			Deps: map[string]*modfile.Dep{
 				"github.com/kharf/declcd/schema@v0": {
-					Version: "v0.9.1",
+					Version: "v" + version,
 				},
 			},
 		}

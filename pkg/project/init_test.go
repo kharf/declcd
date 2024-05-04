@@ -46,7 +46,7 @@ func TestInit(t *testing.T) {
 					},
 					Deps: map[string]*modfile.Dep{
 						"github.com/kharf/declcd/schema@v0": {
-							Version: "v0.9.1",
+							Version: "v0.1.0",
 						},
 					},
 				}
@@ -79,7 +79,7 @@ func TestInit(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := tc.pre()
-			err := project.Init(tc.module, path, "v1.0.0")
+			err := project.Init(tc.module, path, "0.1.0")
 			if tc.expectedErr != "" {
 				assert.Error(t, err, tc.expectedErr)
 			} else {
@@ -111,7 +111,7 @@ func assertModule(t *testing.T, path string, module string) {
 	assert.Assert(t, len(moduleFile.Deps) == 1)
 	schemaModule := moduleFile.Deps["github.com/kharf/declcd/schema@v0"]
 	assert.Equal(t, *schemaModule, modfile.Dep{
-		Version: "v0.9.1",
+		Version: "v0.1.0",
 	})
 	declcdSystemFiles := []string{
 		"declcd/system.cue",

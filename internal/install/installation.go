@@ -163,7 +163,6 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	if err != nil {
 		return err
 	}
-	// TODO save encrypted deploy key in git repo
 	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, project.ControllerName); err != nil {
 		return err
 	}
