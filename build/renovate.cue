@@ -23,9 +23,18 @@ package build
 _cueModuleVersionManager: #cueModuleManager & {
 	matchStrings: [
 		"version: \"(?<currentValue>.*?)\"",
-		"Version: \"(?<currentValue>.*?)\"",
+		"Language: &modfile.Language{\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)}",
 	]
 	depNameTemplate:    "cue-lang/cue"
+	datasourceTemplate: "github-releases"
+}
+
+_cueModuleDepVersionManager: #cueModuleManager & {
+	matchStrings: [
+		"\"github.com/kharf/declcd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",
+		"Deps: map[string]*modfile.Dep{\n(\t*)\"github.com/kharf/declcd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n",
+	]
+	depNameTemplate:    "kharf/declcd"
 	datasourceTemplate: "github-releases"
 }
 
@@ -58,6 +67,7 @@ postUpdateOptions: [
 ]
 customManagers: [
 	_cueModuleVersionManager,
+	_cueModuleDepVersionManager,
 	{
 		customType: "regex"
 		fileMatch: [
