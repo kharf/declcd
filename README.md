@@ -40,12 +40,6 @@ chmod +x declcd
 ./declcd -h
 ```
 
-Windows(x86_64):
-
-```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-windows-amd64
-```
-
 ## Getting Started
 
 > [!IMPORTANT]
@@ -81,7 +75,7 @@ See [schema](schema/schema.cue).
 #### Create Kind Cluster
 
 ```bash
-    kind create cluster --name declcd
+kind create cluster --name declcd
 ```
 
 #### Initialize a Declcd GitOps Repository
@@ -93,6 +87,7 @@ git init
 git remote add origin git@github.com:user/mygitops.git
 # init Declcd gitops repository as a CUE module
 export CUE_EXPERIMENT=modules
+export CUE_REGISTRY=ghcr.io/kharf
 declcd init github.com/user/mygitops@v0
 go mod init mygitops
 declcd verify
@@ -112,6 +107,74 @@ declcd install \
   -t <token>
 git add .
 git commit -m "Install declcd"
+```
+
+### Deploy a Manifest and a HelmRelease
+
+Get Go Kubernetes Structs and Import them as CUE schemas.
+
+> [!TIP]
+> Use CUE modules and provide these CUE schemas as OCI container.
+
+```bash
+go get k8s.io/api/core/v1
+cue get go k8s.io/api/core/v1
+cue get go k8s.io/apimachinery/pkg/api/resource
+cue get go k8s.io/apimachinery/pkg/apis/meta/v1
+cue get go k8s.io/apimachinery/pkg/runtime
+cue get go k8s.io/apimachinery/pkg/types
+cue get go k8s.io/apimachinery/pkg/watch
+cue get go k8s.io/apimachinery/pkg/util/intstr
+mkdir infrastructure
+touch infrastructur/prometheus.cue
+```
+
+Edit `infrastructure/prometheus.cue` and add:
+
+```CUE
+package infrastructure
+
+import (
+	"github.com/kharf/declcd/schema@v0"
+	corev1 "k8s.io/api/core/v1"
+)
+
+// Public Declcd Manifest Component
+ns: schema.#Manifest & {
+	content: corev1.#Namespace & {
+		apiVersion: "v1"
+		kind:       "Namespace"
+		metadata: {
+			name: "monitoring"
+		}
+	}
+}
+
+// Public Declcd HelmRelease Component
+prometheusStack: schema.#HelmRelease & {
+	dependencies: [
+    // Declcd automatically generates ids for Components, which are used for dependency constraints.
+		ns.id,
+	]
+	name:      "prometheus-stack"
+  // Use namespace name Component reference to reduce redundancy
+	namespace: ns.content.metadata.name
+	chart: {
+		name:    "kube-prometheus-stack"
+		repoURL: "https://prometheus-community.github.io/helm-charts"
+		version: "58.2.1"
+	}
+	values: {
+		prometheus: prometheusSpec: serviceMonitorSelectorNilUsesHelmValues: false
+	}
+}
+```
+See [getting-started](./examples/getting-started/infrastructure/prometheus.cue) example.
+
+```bash
+declcd verify
+git add .
+git commit -m "feat: install kube-prometheus-stack"
 ```
 
 ## Contributions
