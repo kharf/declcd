@@ -111,7 +111,7 @@ git commit -m "Install declcd"
 
 #### Deploy a Manifest and a HelmRelease
 
-Get Go Kubernetes Structs and Import them as CUE schemas.
+Get Go Kubernetes Structs and import them as CUE schemas.
 
 > [!TIP]
 > Use CUE modules and provide these CUE schemas as OCI container.

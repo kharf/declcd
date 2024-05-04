@@ -105,10 +105,11 @@ func TestRepositoryManager_Load(t *testing.T) {
 				assert.Assert(t, dirInfo.IsDir())
 				assert.Assert(t, repository.Path == localRepository)
 				newFile := "test2"
-				err = remoteRepository.CommitNewFile(newFile, "second commit")
+				commitHash, err := remoteRepository.CommitNewFile(newFile, "second commit")
 				assert.NilError(t, err)
-				err = repository.Pull()
+				pulledCommitHash, err := repository.Pull()
 				assert.NilError(t, err)
+				assert.Equal(t, pulledCommitHash, commitHash)
 				fileInfo, err := os.Stat(filepath.Join(localRepository, newFile))
 				assert.NilError(t, err)
 				assert.Assert(t, !fileInfo.IsDir())

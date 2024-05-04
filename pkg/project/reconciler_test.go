@@ -135,7 +135,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 			filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent"),
 		)
 		assert.NilError(t, err)
-		err = env.GitRepository.CommitFile(
+		_, err = env.GitRepository.CommitFile(
 			"infra/prometheus/",
 			"undeploy subcomponent",
 		)

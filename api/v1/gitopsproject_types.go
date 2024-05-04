@@ -45,8 +45,15 @@ type GitOpsProjectSpec struct {
 	Suspend *bool `json:"suspend,omitempty"`
 }
 
+type GitOpsProjectRevision struct {
+	CommitHash    string      `json:"commitHash,omitempty"`
+	ReconcileTime metav1.Time `json:"reconcileTime,omitempty"`
+}
+
 // GitOpsProjectStatus defines the observed state of GitOpsProject
 type GitOpsProjectStatus struct {
+	// +optional
+	Revision GitOpsProjectRevision `json:"revision,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
