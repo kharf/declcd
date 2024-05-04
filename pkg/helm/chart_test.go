@@ -264,7 +264,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					Version: "2.0.0",
 				})
 				assert.NilError(t, err)
-				err = env.GitRepository.CommitFile(
+				_, err = env.GitRepository.CommitFile(
 					"infra/prometheus/releases.cue",
 					"update chart to v2",
 				)

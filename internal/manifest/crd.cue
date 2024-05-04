@@ -4,7 +4,7 @@ _crd: {
 	apiVersion: "apiextensions.k8s.io/v1"
 	kind:       "CustomResourceDefinition"
 	metadata: {
-		annotations: "controller-gen.kubebuilder.io/version": "v0.14.0"
+		annotations: "controller-gen.kubebuilder.io/version": "v0.15.0"
 		name: "gitopsprojects.gitops.declcd.io"
 	}
 	spec: {
@@ -86,9 +86,10 @@ _crd: {
 					}
 					status: {
 						description: "GitOpsProjectStatus defines the observed state of GitOpsProject"
-						properties: conditions: {
-							items: {
-								description: """
+						properties: {
+							conditions: {
+								items: {
+									description: """
 		Condition contains details for one aspect of the current state of this API Resource.
 		---
 		This struct is intended for direct use as an array at the field path .status.conditions.  For example,
@@ -108,38 +109,38 @@ _crd: {
 		\t}
 		"""
 
-								properties: {
-									lastTransitionTime: {
-										description: """
+									properties: {
+										lastTransitionTime: {
+											description: """
 		lastTransitionTime is the last time the condition transitioned from one status to another.
 		This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
 		"""
 
-										format: "date-time"
-										type:   "string"
-									}
-									message: {
-										description: """
+											format: "date-time"
+											type:   "string"
+										}
+										message: {
+											description: """
 		message is a human readable message indicating details about the transition.
 		This may be an empty string.
 		"""
 
-										maxLength: 32768
-										type:      "string"
-									}
-									observedGeneration: {
-										description: """
+											maxLength: 32768
+											type:      "string"
+										}
+										observedGeneration: {
+											description: """
 		observedGeneration represents the .metadata.generation that the condition was set based upon.
 		For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
 		with respect to the current state of the instance.
 		"""
 
-										format:  "int64"
-										minimum: 0
-										type:    "integer"
-									}
-									reason: {
-										description: """
+											format:  "int64"
+											minimum: 0
+											type:    "integer"
+										}
+										reason: {
+											description: """
 		reason contains a programmatic identifier indicating the reason for the condition's last transition.
 		Producers of specific condition types may define expected values and meanings for this field,
 		and whether the values are considered a guaranteed API.
@@ -147,22 +148,22 @@ _crd: {
 		This field may not be empty.
 		"""
 
-										maxLength: 1024
-										minLength: 1
-										pattern:   "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$"
-										type:      "string"
-									}
-									status: {
-										description: "status of the condition, one of True, False, Unknown."
-										enum: [
-											"True",
-											"False",
-											"Unknown",
-										]
-										type: "string"
-									}
-									type: {
-										description: """
+											maxLength: 1024
+											minLength: 1
+											pattern:   "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$"
+											type:      "string"
+										}
+										status: {
+											description: "status of the condition, one of True, False, Unknown."
+											enum: [
+												"True",
+												"False",
+												"Unknown",
+											]
+											type: "string"
+										}
+										type: {
+											description: """
 		type of condition in CamelCase or in foo.example.com/CamelCase.
 		---
 		Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
@@ -170,21 +171,32 @@ _crd: {
 		The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
 		"""
 
-										maxLength: 316
-										pattern:   "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$"
-										type:      "string"
+											maxLength: 316
+											pattern:   "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$"
+											type:      "string"
+										}
+									}
+									required: [
+										"lastTransitionTime",
+										"message",
+										"reason",
+										"status",
+										"type",
+									]
+									type: "object"
+								}
+								type: "array"
+							}
+							revision: {
+								properties: {
+									commitHash: type: "string"
+									reconcileTime: {
+										format: "date-time"
+										type:   "string"
 									}
 								}
-								required: [
-									"lastTransitionTime",
-									"message",
-									"reason",
-									"status",
-									"type",
-								]
 								type: "object"
 							}
-							type: "array"
 						}
 						type: "object"
 					}

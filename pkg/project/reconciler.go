@@ -41,7 +41,8 @@ type Reconciler struct {
 }
 
 type ReconcileResult struct {
-	Suspended bool
+	Suspended  bool
+	CommitHash string
 }
 
 // Reconcile clones, pulls and loads a GitOps Git repository containing the desired cluster state,
@@ -55,7 +56,6 @@ func (reconciler Reconciler) Reconcile(
 	if *gProject.Spec.Suspend {
 		return &ReconcileResult{Suspended: true}, nil
 	}
-	reconcileResult := &ReconcileResult{Suspended: false}
 	repositoryUID := string(gProject.GetUID())
 	repositoryDir := filepath.Join(os.TempDir(), "declcd", repositoryUID)
 	repository, err := reconciler.RepositoryManager.Load(
@@ -72,9 +72,10 @@ func (reconciler Reconciler) Reconcile(
 			"repository",
 			gProject.Spec.URL,
 		)
-		return reconcileResult, err
+		return nil, err
 	}
-	if err := repository.Pull(); err != nil {
+	commitHash, err := repository.Pull()
+	if err != nil {
 		log.Error(
 			err,
 			"Unable to pull gitops project repository",
@@ -83,31 +84,35 @@ func (reconciler Reconciler) Reconcile(
 			"repository",
 			gProject.Spec.URL,
 		)
-		return reconcileResult, err
+		return nil, err
 	}
 	repositoryDir, err = reconciler.Decrypter.Decrypt(ctx, repositoryDir)
 	if err != nil {
 		log.Error(err, "Unable to decrypt secrets", "project", gProject.GetName())
-		return reconcileResult, err
+		return nil, err
 	}
 	dependencyGraph, err := reconciler.ProjectManager.Load(repositoryDir)
 	if err != nil {
 		log.Error(err, "Unable to load declcd project", "project", gProject.GetName())
-		return reconcileResult, err
+		return nil, err
 	}
 	componentInstances, err := dependencyGraph.TopologicalSort()
 	if err != nil {
 		log.Error(err, "Unable to resolve dependencies", "project", gProject.GetName())
-		return reconcileResult, err
+		return nil, err
 	}
 	if err := reconciler.GarbageCollector.Collect(ctx, dependencyGraph); err != nil {
-		return reconcileResult, err
+		return nil, err
 	}
 	if err := reconciler.reconcileComponents(ctx, componentInstances, repositoryDir); err != nil {
 		log.Error(err, "Unable to reconcile components", "project", gProject.GetName())
-		return reconcileResult, err
+		return nil, err
 	}
-	return reconcileResult, nil
+
+	return &ReconcileResult{
+		Suspended:  false,
+		CommitHash: commitHash,
+	}, nil
 }
 
 func (reconciler Reconciler) reconcileComponents(

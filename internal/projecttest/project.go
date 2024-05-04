@@ -1,7 +1,6 @@
 package projecttest
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -84,7 +83,6 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	err = copy.Copy(filepath.Join("test/testdata", options.projectSource), testProject)
 	assert.NilError(t, err)
 	logOpts := ctrlZap.Options{
-		DestWriter:  io.Discard,
 		Development: false,
 		Level:       zapcore.Level(-1),
 	}

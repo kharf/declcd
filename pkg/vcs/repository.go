@@ -36,13 +36,13 @@ type Repository struct {
 	pull PullFunc
 }
 
-type PullFunc = func() error
+type PullFunc = func() (string, error)
 
 func NewRepository(path string, pull PullFunc) Repository {
 	return Repository{Path: path, pull: pull}
 }
 
-func (repository *Repository) Pull() error {
+func (repository *Repository) Pull() (string, error) {
 	return repository.pull()
 }
 
@@ -174,14 +174,18 @@ func (manager RepositoryManager) Load(
 	if err != nil {
 		return nil, err
 	}
-	pullFunc := func() error {
+	pullFunc := func() (string, error) {
 		err := worktree.Pull(&git.PullOptions{
 			Auth: authMethod,
 		})
-		if err == git.NoErrAlreadyUpToDate {
-			return nil
+		if err != nil && err != git.NoErrAlreadyUpToDate {
+			return "", err
 		}
-		return err
+		ref, err := gitRepository.Head()
+		if err != nil {
+			return "", err
+		}
+		return ref.Hash().String(), nil
 	}
 	repository := NewRepository(targetPath, pullFunc)
 	return &repository, nil

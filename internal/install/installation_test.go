@@ -100,7 +100,7 @@ func TestAction_Install(t *testing.T) {
 			ctx := context.Background()
 			kubeClient, err := kube.NewDynamicClient(env.ControlPlane.Config)
 			assert.NilError(t, err)
-			err = project.Init("github.com/kharf/declcd/installation", env.TestProject, "v1.0.0")
+			err = project.Init("github.com/kharf/declcd/installation", env.TestProject, "1.0.0")
 			assert.NilError(t, err)
 			action := install.NewAction(kubeClient, client, env.TestProject)
 			err = action.Install(

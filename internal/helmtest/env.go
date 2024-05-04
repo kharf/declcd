@@ -334,7 +334,7 @@ func ReplaceTemplate(
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
+	_, err = repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
 	if err != nil {
 		t.Fatal(err)
 	}

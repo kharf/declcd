@@ -68,12 +68,16 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(
 		log.Error(err, "Unable to update GitOpsProject status condition to 'Running'")
 		return requeueResult, nil
 	}
-	_, err := reconciler.Reconciler.Reconcile(ctx, gProject)
+	result, err := reconciler.Reconciler.Reconcile(ctx, gProject)
 	if err != nil {
 		log.Error(err, "Reconciling failed")
 		return requeueResult, nil
 	}
 	reconciledTime := v1.Now()
+	gProject.Status.Revision = gitopsv1.GitOpsProjectRevision{
+		CommitHash:    result.CommitHash,
+		ReconcileTime: reconciledTime,
+	}
 	if err := reconciler.updateCondition(ctx, &gProject, v1.Condition{
 		Type:               "Finished",
 		Reason:             "Success",
