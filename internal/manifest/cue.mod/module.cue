@@ -4,6 +4,6 @@ language: {
 }
 deps: {
 	"github.com/kharf/declcd/schema@v0": {
-		v: "v0.9.2"
+		v: "v0.10.0"
 	}
 }
