@@ -109,7 +109,7 @@ git add .
 git commit -m "Install declcd"
 ```
 
-### Deploy a Manifest and a HelmRelease
+#### Deploy a Manifest and a HelmRelease
 
 Get Go Kubernetes Structs and Import them as CUE schemas.
 
