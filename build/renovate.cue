@@ -32,7 +32,7 @@ _cueModuleVersionManager: #cueModuleManager & {
 _cueModuleDepVersionManager: #cueModuleManager & {
 	matchStrings: [
 		"\"github.com/kharf/declcd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",
-		"Deps: map[string]*modfile.Dep{\n(\t*)\"github.com/kharf/declcd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n",
+		"\"github.com/kharf/declcd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)},",
 	]
 	depNameTemplate:    "kharf/declcd"
 	datasourceTemplate: "github-releases"
