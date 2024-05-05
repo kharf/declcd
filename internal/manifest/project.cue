@@ -9,7 +9,7 @@ _projectName: "{{.Name}}"
 project: schema.#Manifest & {
 	dependencies: [crd.id]
 	content: {
-		apiVersion: "gitops.declcd.io/v1"
+		apiVersion: "gitops.declcd.io/v1beta1"
 		kind:       "GitOpsProject"
 		metadata: {
 			name:      _projectName

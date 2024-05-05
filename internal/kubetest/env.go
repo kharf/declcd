@@ -11,7 +11,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/helmtest"
 	corev1 "k8s.io/api/core/v1"
@@ -155,7 +155,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = gitopsv1.AddToScheme(scheme.Scheme)
+	err = gitops.AddToScheme(scheme.Scheme)
 	if err != nil {
 		t.Fatal(err)
 	}

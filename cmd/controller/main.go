@@ -44,7 +44,7 @@ import (
 
 	goRuntime "runtime"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/controller"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
@@ -64,7 +64,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(gitopsv1.AddToScheme(scheme))
+	utilruntime.Must(gitops.AddToScheme(scheme))
 }
 
 func main() {

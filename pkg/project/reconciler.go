@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-logr/logr"
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
@@ -50,7 +50,7 @@ type ReconcileResult struct {
 // It stores objects in the inventory and collects dangling objects.
 func (reconciler Reconciler) Reconcile(
 	ctx context.Context,
-	gProject gitopsv1.GitOpsProject,
+	gProject gitops.GitOpsProject,
 ) (*ReconcileResult, error) {
 	log := reconciler.Log
 	if *gProject.Spec.Suspend {

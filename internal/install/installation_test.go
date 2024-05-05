@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/manifest"
@@ -131,7 +131,7 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 		&statefulSet,
 	)
 	assert.NilError(t, err)
-	var gitOpsProject gitopsv1.GitOpsProject
+	var gitOpsProject gitops.GitOpsProject
 	err = env.TestKubeClient.Get(
 		ctx,
 		types.NamespacedName{Name: name, Namespace: nsName},

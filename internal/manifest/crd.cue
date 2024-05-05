@@ -17,7 +17,7 @@ _crd: {
 		}
 		scope: "Namespaced"
 		versions: [{
-			name: "v1"
+			name: "v1beta1"
 			schema: openAPIV3Schema: {
 				description: "GitOpsProject is the Schema for the gitopsprojects API"
 				properties: {
