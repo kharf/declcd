@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
@@ -55,7 +55,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false
-	gProject := gitopsv1.GitOpsProject{
+	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
 			APIVersion: "gitops.declcd.io/v1",
 			Kind:       "GitOpsProject",
@@ -65,7 +65,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 			Namespace: "default",
 			UID:       "reconcile-test",
 		},
-		Spec: gitopsv1.GitOpsProjectSpec{
+		Spec: gitops.GitOpsProjectSpec{
 			URL:                 env.TestProject,
 			PullIntervalSeconds: 5,
 			Suspend:             &suspend,
@@ -190,7 +190,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := true
-	result, err := reconciler.Reconcile(env.Ctx, gitopsv1.GitOpsProject{
+	result, err := reconciler.Reconcile(env.Ctx, gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
 			APIVersion: "gitops.declcd.io/v1",
 			Kind:       "GitOpsProject",
@@ -200,7 +200,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 			Namespace: "default",
 			UID:       "reconcile-test",
 		},
-		Spec: gitopsv1.GitOpsProjectSpec{
+		Spec: gitops.GitOpsProjectSpec{
 			URL:                 env.TestProject,
 			PullIntervalSeconds: 5,
 			Suspend:             &suspend,
@@ -252,7 +252,7 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}
 	suspend := false
-	gProject := gitopsv1.GitOpsProject{
+	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
 			APIVersion: "gitops.declcd.io/v1",
 			Kind:       "GitOpsProject",
@@ -262,7 +262,7 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 			Namespace: "default",
 			UID:       "reconcile-test",
 		},
-		Spec: gitopsv1.GitOpsProjectSpec{
+		Spec: gitops.GitOpsProjectSpec{
 			URL:                 env.TestProject,
 			PullIntervalSeconds: 5,
 			Suspend:             &suspend,

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/project"
 	. "github.com/onsi/ginkgo/v2"
@@ -55,7 +55,7 @@ var _ = Describe("GitOpsProject controller", func() {
 			AfterEach(func() {
 				err := k8sClient.DeleteAllOf(
 					env.Ctx,
-					&gitopsv1.GitOpsProject{},
+					&gitops.GitOpsProject{},
 					client.InNamespace(GitOpsProjectNamespace),
 				)
 				Expect(err).NotTo(HaveOccurred())
@@ -89,7 +89,7 @@ var _ = Describe("GitOpsProject controller", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					Eventually(func(g Gomega) {
-						var project gitopsv1.GitOpsProject
+						var project gitops.GitOpsProject
 						err := k8sClient.Get(
 							ctx,
 							types.NamespacedName{
@@ -126,7 +126,7 @@ var _ = Describe("GitOpsProject controller", func() {
 					}, duration, assertionInterval).Should(Equal("mysubcomponent"))
 
 					Eventually(func(g Gomega) {
-						var updatedGitOpsProject gitopsv1.GitOpsProject
+						var updatedGitOpsProject gitops.GitOpsProject
 						err := k8sClient.Get(
 							ctx,
 							types.NamespacedName{

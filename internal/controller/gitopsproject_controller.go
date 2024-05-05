@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	gitopsv1 "github.com/kharf/declcd/api/v1"
+	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -49,7 +49,7 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(
 	triggerTime := v1.Now()
 	log := log.FromContext(ctx)
 	log.Info("Reconciling")
-	var gProject gitopsv1.GitOpsProject
+	var gProject gitops.GitOpsProject
 	if err := reconciler.Reconciler.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
 		log.Error(err, "Unable to fetch GitOpsProject resource from cluster")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -74,7 +74,7 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(
 		return requeueResult, nil
 	}
 	reconciledTime := v1.Now()
-	gProject.Status.Revision = gitopsv1.GitOpsProjectRevision{
+	gProject.Status.Revision = gitops.GitOpsProjectRevision{
 		CommitHash:    result.CommitHash,
 		ReconcileTime: reconciledTime,
 	}
@@ -98,7 +98,7 @@ func (reconciler *GitOpsProjectReconciler) Reconcile(
 
 func (reconciler *GitOpsProjectReconciler) updateCondition(
 	ctx context.Context,
-	gProject *gitopsv1.GitOpsProject,
+	gProject *gitops.GitOpsProject,
 	condition v1.Condition,
 ) error {
 	gProject.Status.Conditions = append(gProject.Status.Conditions, condition)
@@ -111,7 +111,7 @@ func (reconciler *GitOpsProjectReconciler) updateCondition(
 // SetupWithManager sets up the controller with the Manager.
 func (reconciler *GitOpsProjectReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&gitopsv1.GitOpsProject{}).
+		For(&gitops.GitOpsProject{}).
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(reconciler)
 }

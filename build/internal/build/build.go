@@ -206,7 +206,7 @@ func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, erro
 			[]string{"go", "install", controllerGenDep},
 		).
 		WithExec([]string{"go", "install", cueDep}).
-		WithExec([]string{controllerGen, "crd", "paths=./api/v1/...", "output:crd:artifacts:config=internal/manifest"}).
+		WithExec([]string{controllerGen, "crd", "paths=./api/v1beta1/...", "output:crd:artifacts:config=internal/manifest"}).
 		WithExec([]string{"bin/cue", "import", "-f", "-o", "internal/manifest/crd.cue", "internal/manifest/gitops.declcd.io_gitopsprojects.yaml", "-l", "_crd:", "-p", "declcd"})
 	_, err := gen.File("internal/manifest/crd.cue").
 		Export(ctx, "internal/manifest/crd.cue", dagger.FileExportOpts{AllowParentDirPath: false})
