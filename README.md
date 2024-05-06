@@ -126,7 +126,7 @@ cue get go k8s.io/apimachinery/pkg/types
 cue get go k8s.io/apimachinery/pkg/watch
 cue get go k8s.io/apimachinery/pkg/util/intstr
 mkdir infrastructure
-touch infrastructur/prometheus.cue
+touch infrastructure/prometheus.cue
 ```
 
 Edit `infrastructure/prometheus.cue` and add:
