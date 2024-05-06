@@ -1,3 +1,6 @@
+[![test](https://github.com/kharf/declcd/actions/workflows/test.yaml/badge.svg?branch=main)](https://github.com/kharf/declcd/actions/workflows/test.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kharf/declcd)](https://goreportcard.com/report/github.com/kharf/declcd)
+
 # Declcd - A Declarative Continuous Delivery Toolkit For Kubernetes
 
 ## Table of Contents
