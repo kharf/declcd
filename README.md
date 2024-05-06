@@ -11,6 +11,8 @@
 
 Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. Declcd leverages [CUE](https://cuelang.org/), a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
 
+![Overview](./docs/declcd-flow.png)
+
 ## Installation
 
 > [!NOTE]
