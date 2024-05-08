@@ -54,6 +54,7 @@ func (env Environment) Stop() {
 type helmOption struct {
 	enabled bool
 	oci     bool
+	private bool
 }
 
 var _ Option = (*helmOption)(nil)
@@ -102,10 +103,11 @@ type Option interface {
 	apply(*options)
 }
 
-func WithHelm(enabled bool, oci bool) helmOption {
+func WithHelm(enabled bool, oci bool, private bool) helmOption {
 	return helmOption{
 		enabled: enabled,
 		oci:     oci,
+		private: private,
 	}
 }
 
@@ -135,6 +137,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 		helm: helmOption{
 			enabled: false,
 			oci:     false,
+			private: false,
 		},
 		enabled:              true,
 		decryptionKeyCreated: false,
@@ -179,6 +182,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 			t,
 			cfg,
 			helmtest.WithOCI(options.helm.oci),
+			helmtest.WithPrivate(options.helm.private),
 			helmtest.WithProject(
 				options.project.repo,
 				options.project.testProject,

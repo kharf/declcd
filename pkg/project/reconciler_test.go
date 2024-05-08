@@ -26,7 +26,7 @@ import (
 func TestReconciler_Reconcile(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(true, false),
+			kubetest.WithHelm(true, false, false),
 			kubetest.WithDecryptionKeyCreated(),
 			kubetest.WithVCSSSHKeyCreated(),
 		),
@@ -162,7 +162,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	env := projecttest.StartProjectEnv(
 		t,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(true, false),
+			kubetest.WithHelm(true, false, false),
 			kubetest.WithDecryptionKeyCreated(),
 		),
 	)
@@ -223,7 +223,7 @@ var reconcileResult *project.ReconcileResult
 func BenchmarkReconciler_Reconcile(b *testing.B) {
 	env := projecttest.StartProjectEnv(b,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(true, false),
+			kubetest.WithHelm(true, false, false),
 			kubetest.WithDecryptionKeyCreated(),
 			kubetest.WithVCSSSHKeyCreated(),
 		),

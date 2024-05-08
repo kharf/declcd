@@ -29,7 +29,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithHelm(false, false),
+						kubetest.WithHelm(false, false, false),
 						kubetest.WithVCSSSHKeyCreated(),
 					),
 				)
@@ -49,7 +49,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithHelm(false, false),
+						kubetest.WithHelm(false, false, false),
 						kubetest.WithVCSSSHKeyCreated(),
 					),
 				)
@@ -75,7 +75,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithHelm(false, false),
+						kubetest.WithHelm(false, false, false),
 					),
 				)
 				defer env.Stop()
@@ -217,7 +217,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			pre: func() projecttest.Environment {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithProjectSource("empty"),
-					projecttest.WithKubernetes(kubetest.WithHelm(false, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(false, false, false)),
 				)
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
@@ -238,7 +238,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			pre: func() projecttest.Environment {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithProjectSource("empty"),
-					projecttest.WithKubernetes(kubetest.WithHelm(false, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(false, false, false)),
 				)
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,

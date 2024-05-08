@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,22 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+var (
+	ErrEmptyAuthSecret         = errors.New("auth secret is empty")
+	ErrAuthSecretValueNotFound = errors.New("auth secret value not found")
+)
+
+// SecretRef is the reference to the secret containing the repository/registry authentication.
+type SecretRef struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+}
+
+// Auth contains secret references for repository/registry authentication.
+type Auth struct {
+	SecretRef SecretRef `json:"secretRef"`
+}
+
 // A Helm package that contains information
 // sufficient for installing a set of Kubernetes resources into a Kubernetes cluster.
 type Chart struct {
@@ -39,6 +56,8 @@ type Chart struct {
 	// URL of the repository where the Helm chart is hosted.
 	RepoURL string `json:"repoURL"`
 	Version string `json:"version"`
+	// Authentication information for private repositories.
+	Auth *Auth `json:"auth,omitempty"`
 }
 
 // ChartReconciler reads Helm Packages with their desired state
@@ -68,13 +87,15 @@ func (c *ChartReconciler) Reconcile(
 	if desiredRelease.Namespace == "" {
 		desiredRelease.Namespace = "default"
 	}
+
 	// Need to init on every reconcile in order to override the fallback namespace, which is taken from the kube config
 	// when templates have no metadata.namespace defined.
 	helmCfg, err := Init(desiredRelease.Namespace, c.KubeConfig, c.Client, c.FieldManager)
 	if err != nil {
 		return nil, err
 	}
-	installedRelease, err := c.doReconcile(
+
+	installedRelease, err := c.installOrUpgrade(
 		ctx,
 		desiredRelease,
 		releaseID,
@@ -83,6 +104,7 @@ func (c *ChartReconciler) Reconcile(
 	if err != nil {
 		return nil, err
 	}
+
 	invRelease := &inventory.HelmReleaseItem{
 		Name:      installedRelease.Name,
 		Namespace: installedRelease.Namespace,
@@ -127,7 +149,7 @@ func Init(
 	return helmCfg, nil
 }
 
-func (c *ChartReconciler) doReconcile(
+func (c *ChartReconciler) installOrUpgrade(
 	ctx context.Context,
 	desiredRelease ReleaseDeclaration,
 	releaseID string,
@@ -146,10 +168,12 @@ func (c *ChartReconciler) doReconcile(
 		desiredRelease.Namespace,
 	}
 	c.Log.Info("Loading chart", logArgs...)
-	chrt, err := c.load(desiredRelease.Chart, logArgs, helmConfig)
+
+	chrt, err := c.load(ctx, desiredRelease.Chart, logArgs, helmConfig)
 	if err != nil {
 		return nil, err
 	}
+
 	histClient := action.NewHistory(helmConfig)
 	histClient.Max = 2
 	releases, err := histClient.Run(desiredRelease.Name)
@@ -167,6 +191,7 @@ func (c *ChartReconciler) doReconcile(
 			return c.install(desiredRelease, chrt, logArgs, helmConfig)
 		}
 	}
+
 	driftType, err := c.diff(ctx, desiredRelease, releaseID, chrt, logArgs, helmConfig)
 	if err != nil {
 		release := releases[len(releases)-1]
@@ -189,6 +214,7 @@ func (c *ChartReconciler) doReconcile(
 			Version:   latestInternalRelease.Version,
 		}, nil
 	}
+
 	upgrade := action.NewUpgrade(helmConfig)
 	upgrade.PlainHTTP = false
 	upgrade.Wait = false
@@ -233,10 +259,12 @@ func (c *ChartReconciler) diff(
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.DryRun = true
+
 	release, err := upgrade.Run(desiredRelease.Name, loadedChart, desiredRelease.Values)
 	if err != nil {
 		return "", err
 	}
+
 	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
 	for {
 		var unstr map[string]interface{}
@@ -249,6 +277,7 @@ func (c *ChartReconciler) diff(
 		if len(unstr) == 0 {
 			continue
 		}
+
 		newManifest := &unstructured.Unstructured{Object: unstr}
 		// manifests with no namespace are set to the release namespace on installation/upgrade.
 		// Kube client checks whether the manifest is namespaced or not,
@@ -278,6 +307,7 @@ func (c *ChartReconciler) diff(
 			return driftTypeConflict, nil
 		}
 	}
+
 	contentReader, err := c.InventoryManager.GetItem(
 		&inventory.HelmReleaseItem{
 			Name:      desiredRelease.Name,
@@ -293,6 +323,7 @@ func (c *ChartReconciler) diff(
 		return "", err
 	}
 	defer contentReader.Close()
+
 	storedRelease := Release{}
 	if err := json.NewDecoder(contentReader).Decode(&storedRelease); err != nil {
 		return "", err
@@ -384,6 +415,7 @@ func (c *ChartReconciler) reset(
 }
 
 func (c *ChartReconciler) load(
+	ctx context.Context,
 	chartRequest Chart,
 	logArgs []interface{},
 	helmConfig *action.Configuration,
@@ -395,7 +427,7 @@ func (c *ChartReconciler) load(
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
 			c.Log.Info("Pulling chart", logArgs...)
-			if err := c.pull(chartRequest, archivePath.dir, helmConfig); err != nil {
+			if err := c.pull(ctx, chartRequest, archivePath.dir, helmConfig); err != nil {
 				return nil, err
 			}
 			chart, err := loader.Load(archivePath.fullPath)
@@ -410,49 +442,145 @@ func (c *ChartReconciler) load(
 }
 
 func (c *ChartReconciler) pull(
+	ctx context.Context,
 	chartRequest Chart,
 	chartDestPath string,
 	helmConfig *action.Configuration,
 ) error {
 	pull := action.NewPullWithOpts(action.WithConfig(helmConfig))
-	pull.PlainHTTP = false
-	pull.InsecureSkipTLSverify = c.InsecureSkipTLSverify
 	pull.DestDir = chartDestPath
-	var chartRef string
-	if registry.IsOCI(chartRequest.RepoURL) {
-		chartRef = fmt.Sprintf("%s/%s", chartRequest.RepoURL, chartRequest.Name)
-	} else {
-		pull.RepoURL = chartRequest.RepoURL
-		chartRef = chartRequest.Name
-	}
-	pull.Settings = cli.New()
-	pull.Version = chartRequest.Version
-	err := os.MkdirAll(chartDestPath, 0700)
-	if err != nil {
-		return err
-	}
+
 	httpClient := http.DefaultClient
 	httpClient.Transport = &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: c.InsecureSkipTLSverify,
 		},
 	}
-	opts := []registry.ClientOption{
-		registry.ClientOptDebug(false),
-		registry.ClientOptEnableCache(true),
-		registry.ClientOptWriter(os.Stderr),
-		registry.ClientOptHTTPClient(httpClient),
+	pull.PlainHTTP = false
+	pull.InsecureSkipTLSverify = c.InsecureSkipTLSverify
+
+	var chartRef string
+	if registry.IsOCI(chartRequest.RepoURL) {
+		opts := []registry.ClientOption{
+			registry.ClientOptDebug(false),
+			registry.ClientOptEnableCache(true),
+			registry.ClientOptWriter(os.Stderr),
+			registry.ClientOptHTTPClient(httpClient),
+		}
+		registryClient, err := registry.NewClient(opts...)
+		if err != nil {
+			return err
+		}
+		pull.SetRegistryClient(registryClient)
+
+		if chartRequest.Auth != nil {
+			creds, err := c.retrieveCredentials(ctx, chartRequest, false)
+			if err != nil {
+				return err
+			}
+			if err := registryClient.Login(
+				creds.host,
+				registry.LoginOptBasicAuth(creds.username, creds.password),
+			); err != nil {
+				return err
+			}
+		}
+
+		chartRef = fmt.Sprintf("%s/%s", chartRequest.RepoURL, chartRequest.Name)
+	} else {
+		if chartRequest.Auth != nil {
+			creds, err := c.retrieveCredentials(ctx, chartRequest, true)
+			if err != nil {
+				return err
+			}
+			pull.Username = creds.username
+			pull.Password = creds.password
+		}
+
+		pull.RepoURL = chartRequest.RepoURL
+		chartRef = chartRequest.Name
 	}
-	registryClient, err := registry.NewClient(opts...)
+
+	pull.Settings = cli.New()
+	pull.Version = chartRequest.Version
+	err := os.MkdirAll(chartDestPath, 0700)
 	if err != nil {
 		return err
 	}
-	pull.SetRegistryClient(registryClient)
+
 	_, err = pull.Run(chartRef)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+type creds struct {
+	username string
+	password string
+	host     string
+}
+
+func (c *ChartReconciler) retrieveCredentials(
+	ctx context.Context,
+	chartRequest Chart,
+	optionalHost bool,
+) (*creds, error) {
+	secretReq := &unstructured.Unstructured{}
+	secretReq.SetKind("Secret")
+	secretReq.SetAPIVersion("v1")
+	secretReq.SetName(chartRequest.Auth.SecretRef.Name)
+	secretReq.SetNamespace(chartRequest.Auth.SecretRef.Namespace)
+	secret, err := c.Client.Get(ctx, secretReq)
+	if err != nil {
+		return nil, err
+	}
+
+	data, found := secret.Object["data"].(map[string]interface{})
+	var username, password, host string
+	if found {
+		username, err = getSecretValue(data, "username", false)
+		if err != nil {
+			return nil, err
+		}
+		password, err = getSecretValue(data, "password", false)
+		if err != nil {
+			return nil, err
+		}
+		host, err = getSecretValue(data, "host", optionalHost)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		stringData, found := secret.Object["stringData"].(map[string]string)
+		if !found {
+			return nil, err
+		}
+		username = stringData["username"]
+		password = stringData["password"]
+		host = stringData["host"]
+	}
+
+	return &creds{
+		username: username,
+		password: password,
+		host:     host,
+	}, nil
+}
+
+func getSecretValue(data map[string]interface{}, key string, isOptional bool) (string, error) {
+	value := data[key]
+	if value == nil {
+		if isOptional {
+			return "", nil
+		}
+		return "", fmt.Errorf("%w: %s is empty", ErrAuthSecretValueNotFound, key)
+	}
+	bytes, err := base64.StdEncoding.DecodeString(value.(string))
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
 // Remove removes the locally stored Helm Chart from the file system, but does not uninstall the Chart/Release.

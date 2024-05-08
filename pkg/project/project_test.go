@@ -39,7 +39,7 @@ func TestManager_Load(t *testing.T) {
 	)
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(false, false),
+			kubetest.WithHelm(false, false, false),
 		),
 	)
 	defer env.Stop()

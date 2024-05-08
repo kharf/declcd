@@ -62,7 +62,7 @@ var _ mockdns.Logger = (*nullLogger)(nil)
 
 func (l nullLogger) Printf(f string, args ...interface{}) {}
 
-func NewTLSRegistry() (*Registry, error) {
+func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 	// Helm uses Docker under the hood to handle OCI
 	// and Docker defaults to HTTP when it detects that the registry host
 	// is localhost or 127.0.0.1.
@@ -92,7 +92,29 @@ func NewTLSRegistry() (*Registry, error) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	addr := "declcd.io:" + strconv.Itoa(port)
 	registry := ocimem.New()
-	httpsServer := httptest.NewUnstartedServer(ociserver.New(registry, nil))
+	ociHandler := ociserver.New(registry, nil)
+	httpsServer := httptest.NewUnstartedServer(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// login endpoint
+			// chart reconciler makes sure that this endpoint gets called when hr auth config is set
+			if private {
+				if r.URL.Path == "/v2/" {
+					auth, found := r.Header["Authorization"]
+					if !found {
+						w.Header().Set("WWW-Authenticate", "Basic realm=\"test\"")
+						w.WriteHeader(401)
+						return
+					}
+					assert.Assert(t, found)
+					assert.Assert(t, len(auth) == 1)
+					// declcd:abcd
+					assert.Equal(t, auth[0], "Basic ZGVjbGNkOmFiY2Q=")
+				}
+			}
+
+			ociHandler.ServeHTTP(w, r)
+		}),
+	)
 	httpsServer.Config.Addr = addr
 	httpsServer.Listener = listener
 	httpsServer.StartTLS()
@@ -118,7 +140,7 @@ func StartCUERegistry(
 	t testing.TB,
 	testRoot string,
 ) *Registry {
-	cueModuleRegistry, err := NewTLSRegistry()
+	cueModuleRegistry, err := NewTLSRegistry(t, false)
 	assert.NilError(t, err)
 	ociClient := cueModuleRegistry.OCIClient()
 	modDir, err := os.MkdirTemp(testRoot, "")
