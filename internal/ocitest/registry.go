@@ -159,14 +159,17 @@ func StartCUERegistry(
 	ociClient := cueModuleRegistry.OCIClient()
 	modDir, err := os.MkdirTemp(testRoot, "")
 	assert.NilError(t, err)
-	modDirSrc := "test/mod/cue/"
-	err = copy.Copy(modDirSrc, modDir)
+	schemaSrc := "schema"
+	err = copy.Copy(schemaSrc, filepath.Join(modDir, schemaSrc))
 	assert.NilError(t, err)
 	ctx := context.Background()
 	m, err := module.NewVersion("github.com/kharf/declcd/schema", "v0.9.1")
 	assert.NilError(t, err)
 	schemaModuleReader, schemaLen := createImage(t, m, modDir, "schema")
 	err = ociClient.PutModule(ctx, m, schemaModuleReader, schemaLen)
+	assert.NilError(t, err)
+	modDirSrc := "test/mod/cue/k8s"
+	err = copy.Copy(modDirSrc, filepath.Join(modDir, "k8s"))
 	assert.NilError(t, err)
 	m, err = module.NewVersion("github.com/kharf/cuepkgs/modules/k8s", "v0.0.5")
 	assert.NilError(t, err)

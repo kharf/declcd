@@ -220,7 +220,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					Values{},
 				)
 				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-					assert.Error(t, reconcileErr, "auth secret value not found: host is empty")
+					assert.Error(t, reconcileErr, "Auth secret value not found: host is empty")
 				}
 			},
 			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {

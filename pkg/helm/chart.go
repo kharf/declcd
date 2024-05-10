@@ -48,8 +48,8 @@ import (
 )
 
 var (
-	ErrEmptyAuthSecret         = errors.New("auth secret is empty")
-	ErrAuthSecretValueNotFound = errors.New("auth secret value not found")
+	ErrEmptyAuthSecret         = errors.New("Auth secret is empty")
+	ErrAuthSecretValueNotFound = errors.New("Auth secret value not found")
 )
 
 // SecretRef is the reference to the secret containing the repository/registry authentication.

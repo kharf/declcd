@@ -37,10 +37,12 @@ import "strings"
 	name!:    string & strings.MinRunes(1)
 	repoURL!: string & strings.HasPrefix("oci://") | strings.HasPrefix("http://") | strings.HasPrefix("https://")
 	version!: string & strings.MinRunes(1)
-	auth: {
-		secretRef: {
-			name!:      string & strings.MinRunes(1)
-			namespace!: string & strings.MinRunes(1)
-		}
+	auth?:    #Auth
+}
+
+#Auth: {
+	secretRef!: {
+		name:      string & strings.MinRunes(1)
+		namespace: string & strings.MinRunes(1)
 	}
 }
