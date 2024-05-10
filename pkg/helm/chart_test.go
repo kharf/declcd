@@ -2,6 +2,7 @@ package helm_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,153 +44,232 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+type assertFunc func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName string, namespace string)
+
+func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
+	return func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+		assert.NilError(t, reconcileErr)
+		assertChartv1(t, env, liveName, namespace)
+		assert.Equal(t, actualRelease.Version, 1)
+		assert.Equal(t, actualRelease.Name, release.Name)
+		assert.Equal(t, actualRelease.Namespace, release.Namespace)
+	}
+}
+
 func TestChartReconciler_Reconcile(t *testing.T) {
 	testCases := []struct {
 		name string
-		pre  func() (projecttest.Environment, fixture)
-		post func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture)
+		pre  func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc)
+		post func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration)
 	}{
 		{
-			name: "Default",
-			pre: func() (projecttest.Environment, fixture) {
+			name: "HTTP",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				vals := Values{
-					"autoscaling": map[string]interface{}{
-						"enabled": true,
-					},
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    vals,
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{
+						"autoscaling": map[string]interface{}{
+							"enabled": true,
+						},
+					})
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 				var hpa autoscalingv2.HorizontalPodAutoscaler
 				err := env.TestKubeClient.Get(
 					env.Ctx,
 					types.NamespacedName{
-						Name:      fixture.expectedReleaseName,
-						Namespace: fixture.expectedNamespace,
+						Name:      releaseDeclaration.Name,
+						Namespace: releaseDeclaration.Namespace,
 					},
 					&hpa,
 				)
 				assert.NilError(t, err)
-				assert.Equal(t, hpa.Name, fixture.expectedReleaseName)
-				assert.Equal(t, hpa.Namespace, fixture.expectedNamespace)
+				assert.Equal(t, hpa.Name, releaseDeclaration.Name)
+				assert.Equal(t, hpa.Namespace, releaseDeclaration.Namespace)
+			},
+		},
+		{
+			name: "HTTP-AuthSecretNotFound",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+				)
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					&Auth{
+						SecretRef: SecretRef{
+							Name:      "repauth",
+							Namespace: "default",
+						},
+					},
+					Values{},
+				)
+				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assert.Error(t, reconcileErr, "secrets \"repauth\" not found")
+				}
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "HTTP-Auth",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, true)),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					applyRepoAuthSecret(t, env, false),
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 			},
 		},
 		{
 			name: "OCI",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, true)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, true, false)),
 				)
-				// has to be declcd.io, because of Docker defaulting to HTTP, when localhost is detected.
-				// more info in internal/kubetest/env.go#startHelmServer
-				repoURL := strings.Replace(
-					env.HelmEnv.ChartServer.URL(),
-					"https://127.0.0.1",
-					"oci://declcd.io",
-					1,
+
+				release := createReleaseDeclaration(
+					"default",
+					replaceOCIHost(env),
+					"1.0.0",
+					nil,
+					Values{},
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: repoURL,
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
+				return env, release, defaultAssertionFunc(release)
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "OCI-AuthSecretNotFound",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, true, false)),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					replaceOCIHost(env),
+					"1.0.0",
+					&Auth{
+						SecretRef: SecretRef{
+							Name:      "regauth",
+							Namespace: "default",
+						},
 					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
+					Values{},
+				)
+				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assert.Error(t, reconcileErr, "secrets \"regauth\" not found")
 				}
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "OCI-AuthSecretEmptyHost",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, true, true)),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					replaceOCIHost(env),
+					"1.0.0",
+					applyRepoAuthSecret(t, env, false),
+					Values{},
+				)
+				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assert.Error(t, reconcileErr, "auth secret value not found: host is empty")
+				}
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "OCI-Auth",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, true, true)),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					replaceOCIHost(env),
+					"1.0.0",
+					applyRepoAuthSecret(t, env, true),
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
 		},
 		{
 			name: "Namespaced",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "mynamespace",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test_mynamespace_HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "mynamespace",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+
+				release := createReleaseDeclaration(
+					"mynamespace",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
 		},
 		{
-			name: "Cache",
-			pre: func() (projecttest.Environment, fixture) {
+			name: "Cached",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          false,
-				}
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 				env.HelmEnv.ChartServer.Close()
 				ctx := context.Background()
 				err := env.TestKubeClient.Delete(ctx, &appsv1.Deployment{
@@ -206,39 +286,39 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					&deployment,
 				)
 				assert.Error(t, err, "deployments.apps \"test\" not found")
-				fixture.cleanChart = true
-				fixture.expectedVersion = 2
-				fixture.testReconcile(t, reconciler, assertChartv1)
+				actualRelease, err := reconciler.Reconcile(
+					ctx,
+					releaseDeclaration,
+					fmt.Sprintf(
+						"%s_%s_%s",
+						releaseDeclaration.Name,
+						releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+				)
+				assert.NilError(t, err)
+				assertChartv1(t, env.Environment, actualRelease.Name, actualRelease.Namespace)
+				assert.Equal(t, actualRelease.Version, 2)
 			},
 		},
 		{
 			name: "Upgrade",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 				releasesFilePath := filepath.Join(
 					env.TestProject,
 					"infra",
@@ -274,71 +354,72 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					RepoURL: env.HelmEnv.ChartServer.URL(),
 					Version: "2.0.0",
 				}
-				fixture.cleanChart = true
-				fixture.release.Chart = chart
-				fixture.expectedVersion = 2
-				fixture.testReconcile(t, reconciler, assertChartv2)
+				releaseDeclaration.Chart = chart
+				actualRelease, err := reconciler.Reconcile(
+					env.Ctx,
+					releaseDeclaration,
+					fmt.Sprintf(
+						"%s_%s_%s",
+						releaseDeclaration.Name,
+						releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+				)
+				assert.NilError(t, err)
+				assertChartv2(t, env.Environment, actualRelease.Name, actualRelease.Namespace)
+				assert.Equal(t, actualRelease.Version, 2)
 			},
 		},
 		{
 			name: "NoUpgrade",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
-				fixture.testReconcile(t, reconciler, assertChartv1)
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+				actualRelease, err := reconciler.Reconcile(
+					env.Ctx,
+					releaseDeclaration,
+					fmt.Sprintf(
+						"%s_%s_%s",
+						releaseDeclaration.Name,
+						releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+				)
+				assert.NilError(t, err)
+				assertChartv1(t, env.Environment, actualRelease.Name, actualRelease.Namespace)
+				assert.Equal(t, actualRelease.Version, 1)
 			},
 		},
 		{
 			name: "Conflict",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 				unstr := unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
@@ -359,38 +440,39 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					kube.Force(true),
 				)
 				assert.NilError(t, err)
-				fixture.expectedVersion = 2
-				fixture.testReconcile(t, reconciler, assertChartv1)
+				actualRelease, err := reconciler.Reconcile(
+					env.Ctx,
+					releaseDeclaration,
+					fmt.Sprintf(
+						"%s_%s_%s",
+						releaseDeclaration.Name,
+						releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+				)
+				assert.NilError(t, err)
+				assertChartv1(t, env.Environment, actualRelease.Name, actualRelease.Namespace)
+				assert.Equal(t, actualRelease.Version, 2)
 			},
 		},
 		{
 			name: "PendingUpgradeRecovery",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 				helmGet := action.NewGet(&env.HelmEnv.HelmConfig)
 				rel, err := helmGet.Run("test")
 				assert.NilError(t, err)
@@ -398,53 +480,68 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				rel.Version = 2
 				err = env.HelmEnv.HelmConfig.Releases.Create(rel)
 				assert.NilError(t, err)
-				fixture.expectedVersion = 2
-				fixture.testReconcile(t, reconciler, assertChartv1)
+				actualRelease, err := reconciler.Reconcile(
+					env.Ctx,
+					releaseDeclaration,
+					fmt.Sprintf(
+						"%s_%s_%s",
+						releaseDeclaration.Name,
+						releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+				)
+				assert.NilError(t, err)
+				assertChartv1(t, env.Environment, actualRelease.Name, actualRelease.Namespace)
+				assert.Equal(t, actualRelease.Version, 2)
 			},
 		},
 		{
 			name: "PendingInstallRecovery",
-			pre: func() (projecttest.Environment, fixture) {
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 				)
-				chart := Chart{
-					Name:    "test",
-					RepoURL: env.HelmEnv.ChartServer.URL(),
-					Version: "1.0.0",
-				}
-				return env, fixture{
-					env: env.Environment,
-					release: helm.ReleaseDeclaration{
-						Name:      "test",
-						Namespace: "",
-						Chart:     chart,
-						Values:    Values{},
-					},
-					releaseID:           "test__HelmRelease",
-					expectedReleaseName: "test",
-					expectedNamespace:   "default",
-					expectedVersion:     1,
-					cleanChart:          true,
-				}
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
 			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, fixture fixture) {
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
 				helmGet := action.NewGet(&env.HelmEnv.HelmConfig)
 				rel, err := helmGet.Run("test")
 				assert.NilError(t, err)
 				rel.Info.Status = release.StatusPendingInstall
 				err = env.HelmEnv.HelmConfig.Releases.Update(rel)
 				assert.NilError(t, err)
-				fixture.testReconcile(t, reconciler, assertChartv1)
+				actualRelease, err := reconciler.Reconcile(
+					env.Ctx,
+					releaseDeclaration,
+					fmt.Sprintf(
+						"%s_%s_%s",
+						releaseDeclaration.Name,
+						releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+				)
+				assert.NilError(t, err)
+				assertChartv1(t, env.Environment, actualRelease.Name, actualRelease.Namespace)
+				assert.Equal(t, actualRelease.Version, 1)
 			},
 		},
 	}
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			env, fixture := tc.pre()
+			env, releaseDeclaration, assertFunc := tc.pre()
 			defer env.Stop()
+			err := Remove(releaseDeclaration.Chart)
+			assert.NilError(t, err)
 			chartReconciler := helm.ChartReconciler{
 				KubeConfig:            env.ControlPlane.Config,
 				Client:                env.DynamicTestKubeClient,
@@ -453,10 +550,97 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				InsecureSkipTLSverify: true,
 				Log:                   env.Log,
 			}
-			fixture.testReconcile(t, chartReconciler, assertChartv1)
-			tc.post(env, chartReconciler, fixture)
+			release, err := chartReconciler.Reconcile(
+				env.Ctx,
+				releaseDeclaration,
+				fmt.Sprintf(
+					"%s_%s_%s",
+					releaseDeclaration.Name,
+					releaseDeclaration.Namespace,
+					"HelmRelease",
+				),
+			)
+			assertFunc(
+				t,
+				env.Environment,
+				err,
+				release,
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+			)
+			tc.post(env, chartReconciler, releaseDeclaration)
+			err = Remove(releaseDeclaration.Chart)
+			assert.NilError(t, err)
 		})
 	}
+}
+
+// has to be declcd.io, because of Docker defaulting to HTTP, when localhost is detected.
+// more info in internal/kubetest/env.go#startHelmServer
+func replaceOCIHost(env projecttest.Environment) string {
+	repoURL := strings.Replace(
+		env.HelmEnv.ChartServer.URL(),
+		"https://127.0.0.1",
+		"oci://declcd.io",
+		1,
+	)
+	return repoURL
+}
+
+func applyRepoAuthSecret(t *testing.T, env projecttest.Environment, withHost bool) *Auth {
+	name := "repauth"
+	namespace := "default"
+	unstr := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Secret",
+			"metadata": map[string]interface{}{
+				"name":      name,
+				"namespace": namespace,
+			},
+			"data": map[string][]byte{
+				"username": []byte("declcd"),
+				"password": []byte("abcd"),
+			},
+		},
+	}
+	if withHost {
+		data := unstr.Object["data"].(map[string][]byte)
+		data["host"] = []byte(env.HelmEnv.ChartServer.URL())
+	}
+	err := env.DynamicTestKubeClient.Apply(
+		env.Ctx,
+		&unstr,
+		"charttest",
+	)
+	assert.NilError(t, err)
+	return &Auth{
+		SecretRef: SecretRef{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+}
+
+func createReleaseDeclaration(
+	namespace string,
+	url string,
+	version string,
+	auth *Auth,
+	values Values,
+) ReleaseDeclaration {
+	release := helm.ReleaseDeclaration{
+		Name:      "test",
+		Namespace: namespace,
+		Chart: Chart{
+			Name:    "test",
+			RepoURL: url,
+			Version: "1.0.0",
+			Auth:    auth,
+		},
+		Values: values,
+	}
+	return release
 }
 
 func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
@@ -524,34 +708,4 @@ func assertChartv2(t *testing.T, env *kubetest.Environment, liveName string, nam
 		&svcAcc,
 	)
 	assert.Error(t, err, "serviceaccounts \"test\" not found")
-}
-
-type fixture struct {
-	env                 *kubetest.Environment
-	release             helm.ReleaseDeclaration
-	releaseID           string
-	expectedReleaseName string
-	expectedNamespace   string
-	expectedVersion     int
-	cleanChart          bool
-}
-
-func (f fixture) testReconcile(
-	t *testing.T,
-	reconciler ChartReconciler,
-	assertion func(t *testing.T, env *kubetest.Environment, liveName string, namespace string),
-) {
-	if f.cleanChart {
-		defer Remove(f.release.Chart)
-	}
-	release, err := reconciler.Reconcile(
-		f.env.Ctx,
-		f.release,
-		f.releaseID,
-	)
-	assert.NilError(t, err)
-	assert.Equal(t, release.Version, f.expectedVersion)
-	assert.Equal(t, release.Name, f.expectedReleaseName)
-	assert.Equal(t, release.Namespace, f.expectedNamespace)
-	assertion(t, f.env, f.expectedReleaseName, f.expectedNamespace)
 }

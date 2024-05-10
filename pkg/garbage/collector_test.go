@@ -27,7 +27,7 @@ import (
 func TestCollector_Collect(t *testing.T) {
 	env := projecttest.StartProjectEnv(
 		t,
-		projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+		projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 	)
 	defer env.Stop()
 	nsA := &inventory.ManifestItem{
@@ -294,7 +294,7 @@ var errResult error
 func BenchmarkCollector_Collect(b *testing.B) {
 	env := projecttest.StartProjectEnv(
 		b,
-		projecttest.WithKubernetes(kubetest.WithHelm(true, false)),
+		projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
 	)
 	defer env.Stop()
 	dag := component.NewDependencyGraph()

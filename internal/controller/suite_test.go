@@ -64,7 +64,7 @@ func TestAPIs(t *testing.T) {
 var _ = BeforeSuite(func() {
 	env = projecttest.StartProjectEnv(test,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(true, false),
+			kubetest.WithHelm(true, false, false),
 			kubetest.WithDecryptionKeyCreated(),
 			kubetest.WithVCSSSHKeyCreated(),
 		),

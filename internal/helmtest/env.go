@@ -50,8 +50,17 @@ func (opt oci) apply(opts *options) {
 	opts.oci = bool(opt)
 }
 
+type private bool
+
+var _ Option = (*private)(nil)
+
+func (opt private) apply(opts *options) {
+	opts.private = bool(opt)
+}
+
 type options struct {
 	oci     bool
+	private bool
 	project projectOption
 }
 
@@ -61,6 +70,10 @@ type Option interface {
 
 func WithOCI(enabled bool) oci {
 	return oci(enabled)
+}
+
+func WithPrivate(enabled bool) private {
+	return private(enabled)
 }
 
 func WithProject(
@@ -163,7 +176,7 @@ func startHelmServer(t testing.TB, options *options) Environment {
 	v2Archive := createChartArchive(t, "testv2", "2.0.0")
 	var chartServer Server
 	if options.oci {
-		ociServer, err := ocitest.NewTLSRegistry()
+		ociServer, err := ocitest.NewTLSRegistry(t, options.private)
 		assert.NilError(t, err)
 		helmOpts := []helmRegistry.ClientOption{
 			helmRegistry.ClientOptDebug(true),
@@ -185,6 +198,14 @@ func startHelmServer(t testing.TB, options *options) Environment {
 		}
 	} else {
 		httpsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if options.private {
+				auth, found := r.Header["Authorization"]
+				assert.Assert(t, found)
+				assert.Assert(t, len(auth) == 1)
+				// declcd:abcd
+				assert.Equal(t, auth[0], "Basic ZGVjbGNkOmFiY2Q=")
+			}
+
 			if strings.HasSuffix(r.URL.Path, "index.yaml") {
 				index := &repo.IndexFile{
 					APIVersion: "v1",

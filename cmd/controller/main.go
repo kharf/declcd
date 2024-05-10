@@ -22,6 +22,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 
+	"cuelang.org/go/pkg/strings"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
@@ -72,6 +73,8 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var logLevel int
+	var inventoryPath string
+	var namespacePodinfoPath string
 	flag.StringVar(
 		&metricsAddr,
 		"metrics-bind-address",
@@ -88,6 +91,18 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.IntVar(&logLevel, "log-level", 0, "The verbosity level. Higher means chattier.")
+	flag.StringVar(
+		&inventoryPath,
+		"inventory-path",
+		"/inventory",
+		"The directory the inventory uses to store cluster state items",
+	)
+	flag.StringVar(
+		&namespacePodinfoPath,
+		"namespace-podinfo-path",
+		"/podinfo/namespace",
+		"The file which holds the controller namespace",
+	)
 	flag.Parse()
 	opts := ctrlZap.Options{
 		Development: false,
@@ -144,7 +159,7 @@ func main() {
 	}
 	inventoryManager := &inventory.Manager{
 		Log:  log,
-		Path: "/inventory",
+		Path: inventoryPath,
 	}
 	chartReconciler := helm.ChartReconciler{
 		KubeConfig:            cfg,
@@ -154,11 +169,13 @@ func main() {
 		InsecureSkipTLSverify: false,
 		Log:                   log,
 	}
-	namespace, err := os.ReadFile("/podinfo/namespace")
+	namespaceBytes, err := os.ReadFile(namespacePodinfoPath)
 	if err != nil {
 		setupLog.Error(err, "Unable to read current namespace")
 		os.Exit(1)
 	}
+
+	namespace := strings.TrimSpace(string(namespaceBytes))
 	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "declcd",
 		Name:      "reconciliation_duration_seconds",
@@ -171,7 +188,7 @@ func main() {
 			Client:            mgr.GetClient(),
 			DynamicClient:     kubeDynamicClient,
 			ComponentBuilder:  componentBuilder,
-			RepositoryManager: vcs.NewRepositoryManager(string(namespace), kubeDynamicClient, log),
+			RepositoryManager: vcs.NewRepositoryManager(namespace, kubeDynamicClient, log),
 			ProjectManager:    projectManager,
 			ChartReconciler:   chartReconciler,
 			InventoryManager:  inventoryManager,
@@ -182,7 +199,7 @@ func main() {
 				InventoryManager: inventoryManager,
 				WorkerPoolSize:   maxProcs,
 			},
-			Decrypter:      secret.NewDecrypter(string(namespace), kubeDynamicClient, maxProcs),
+			Decrypter:      secret.NewDecrypter(namespace, kubeDynamicClient, maxProcs),
 			FieldManager:   project.ControllerName,
 			WorkerPoolSize: maxProcs,
 		},
