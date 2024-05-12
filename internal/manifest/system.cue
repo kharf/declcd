@@ -206,7 +206,11 @@ statefulSet: schema.#Manifest & {
 				}
 				spec: {
 					serviceAccountName: _name
-					securityContext: runAsNonRoot: true
+					securityContext: {
+						runAsNonRoot:        true
+						fsGroup:             65532
+						fsGroupChangePolicy: "OnRootMismatch"
+					}
 					volumes: [
 						{
 							name: "podinfo"
