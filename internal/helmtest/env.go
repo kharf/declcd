@@ -30,6 +30,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/kharf/declcd/internal/cloudtest"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/kube"
@@ -137,14 +138,18 @@ func (r *yamlBasedRepository) URL() string {
 }
 
 type Environment struct {
-	HelmConfig    action.Configuration
-	ChartServer   Server
-	chartArchives []*os.File
+	HelmConfig       action.Configuration
+	ChartServer      Server
+	CloudEnvironment *cloudtest.Environment
+	chartArchives    []*os.File
 }
 
 func (env Environment) Close() {
 	if env.ChartServer != nil {
 		env.ChartServer.Close()
+	}
+	if env.CloudEnvironment != nil {
+		env.CloudEnvironment.Close()
 	}
 	for _, f := range env.chartArchives {
 		os.Remove(f.Name())
@@ -189,9 +194,12 @@ func startHelmServer(t testing.TB, options *options) Environment {
 	v1Archive := createChartArchive(t, "test", "1.0.0")
 	v2Archive := createChartArchive(t, "testv2", "2.0.0")
 	var chartServer Server
+	var cloudEnvironment *cloudtest.Environment
 	if options.oci {
+		var err error
 		ociServer, err := ocitest.NewTLSRegistry(t, options.private)
 		assert.NilError(t, err)
+		cloudEnvironment = cloudtest.StartCloudEnvironment(t)
 		helmOpts := []helmRegistry.ClientOption{
 			helmRegistry.ClientOptDebug(true),
 			helmRegistry.ClientOptWriter(os.Stderr),
@@ -271,8 +279,9 @@ func startHelmServer(t testing.TB, options *options) Environment {
 		}
 	}
 	return Environment{
-		ChartServer:   chartServer,
-		chartArchives: []*os.File{v1Archive, v2Archive},
+		ChartServer:      chartServer,
+		CloudEnvironment: cloudEnvironment,
+		chartArchives:    []*os.File{v1Archive, v2Archive},
 	}
 }
 

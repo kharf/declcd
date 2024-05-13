@@ -15,12 +15,15 @@
 package projecttest
 
 import (
+	"crypto/tls"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/ocitest"
@@ -41,6 +44,7 @@ type Environment struct {
 	Log            logr.Logger
 	*kubetest.Environment
 	CUEModuleRegistry *ocitest.Registry
+	DNSServer         *dnstest.DNSServer
 }
 
 func (env *Environment) Stop() {
@@ -49,6 +53,9 @@ func (env *Environment) Stop() {
 	}
 	if env.CUEModuleRegistry != nil {
 		env.CUEModuleRegistry.Close()
+	}
+	if env.DNSServer != nil {
+		env.DNSServer.Close()
 	}
 	os.Setenv("CUE_REGISTRY", "")
 }
@@ -104,9 +111,22 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	repo, err := gittest.InitGitRepository(testProject)
 	assert.NilError(t, err)
 	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
+
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	// set to to true globally as CUE for example uses the DefaultTransport
+	http.DefaultTransport = transport
+
 	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
 	projectManager := project.NewManager(component.NewBuilder(), log, runtime.GOMAXPROCS(0))
 	cueModuleRegistry := ocitest.StartCUERegistry(t, testRoot)
+
 	return Environment{
 		ProjectManager:    projectManager,
 		GitRepository:     repo,
@@ -114,6 +134,7 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 		TestProject:       testProject,
 		Environment:       env,
 		CUEModuleRegistry: cueModuleRegistry,
+		DNSServer:         dnsServer,
 		Log:               log,
 	}
 }

@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -25,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"cuelabs.dev/go/oci/ociregistry/ocimem"
@@ -34,14 +37,12 @@ import (
 	"cuelang.org/go/mod/modzip"
 	"gotest.tools/v3/assert"
 
-	"github.com/foxcpp/go-mockdns"
 	"github.com/otiai10/copy"
 )
 
 type Registry struct {
 	httpsServer    *httptest.Server
 	client         *http.Client
-	dnsServer      *mockdns.Server
 	registryClient *modregistry.Client
 }
 
@@ -65,36 +66,17 @@ func (r *Registry) Close() {
 	if r.httpsServer != nil {
 		r.httpsServer.Close()
 	}
-	if r.dnsServer != nil {
-		r.dnsServer.Close()
-	}
 }
 
-type nullLogger struct{}
-
-var _ mockdns.Logger = (*nullLogger)(nil)
-
-func (l nullLogger) Printf(f string, args ...interface{}) {}
-
+// Creates an OCI registry to test tls/https.
+//
+// Note: Helm uses Docker under the hood to handle OCI
+// and Docker defaults to HTTP when it detects that the registry host
+// is localhost or 127.0.0.1.
+// In order to test OCI with a HTTPS server, we have to supply a "fake" host.
+// We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
+// All OCI tests have to use declcd.io as host.
 func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
-	// Helm uses Docker under the hood to handle OCI
-	// and Docker defaults to HTTP when it detects that the registry host
-	// is localhost or 127.0.0.1.
-	// In order to test OCI with a HTTPS server, we have to supply a "fake" host.
-	// We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
-	// All OCI tests have to use declcd.io as host.
-	dnsServer, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
-		"declcd.io.": {
-			A: []string{"127.0.0.1"},
-		},
-	},
-		nullLogger{},
-		false,
-	)
-	if err != nil {
-		return nil, err
-	}
-	dnsServer.PatchNet(net.DefaultResolver)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
 	if err != nil {
 		return nil, err
@@ -110,7 +92,6 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 	httpsServer := httptest.NewUnstartedServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// login endpoint
-			// chart reconciler makes sure that this endpoint gets called when hr auth config is set
 			if private {
 				if r.URL.Path == "/v2/" {
 					auth, found := r.Header["Authorization"]
@@ -121,8 +102,16 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 					}
 					assert.Assert(t, found)
 					assert.Assert(t, len(auth) == 1)
-					// declcd:abcd
-					assert.Equal(t, auth[0], "Basic ZGVjbGNkOmFiY2Q=")
+					credsBase64, found := strings.CutPrefix(auth[0], "Basic ")
+					assert.Assert(t, found)
+					credsBytes, err := base64.StdEncoding.DecodeString(credsBase64)
+					assert.NilError(t, err)
+					creds := string(credsBytes)
+					if strings.HasPrefix(creds, "oauth2accesstoken:") {
+						assert.Equal(t, creds, "oauth2accesstoken:aaaa")
+					} else {
+						assert.Equal(t, creds, "declcd:abcd")
+					}
 				}
 			}
 
@@ -132,6 +121,7 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 	httpsServer.Config.Addr = addr
 	httpsServer.Listener = listener
 	httpsServer.StartTLS()
+	fmt.Println("TLS registry listening on ", httpsServer.URL)
 	client := httpsServer.Client()
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -139,13 +129,18 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 		},
 	}
 	client.Transport = transport
-	// set to to true globally as CUE for example uses the DefaultTransport
-	http.DefaultTransport = transport
 	ociClient := modregistry.NewClient(registry)
+
+	httpsServer.URL = strings.Replace(
+		httpsServer.URL,
+		"https://127.0.0.1",
+		"oci://declcd.io",
+		1,
+	)
+
 	return &Registry{
 		httpsServer:    httpsServer,
 		client:         client,
-		dnsServer:      dnsServer,
 		registryClient: ociClient,
 	}, nil
 }

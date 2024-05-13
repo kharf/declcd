@@ -41,7 +41,11 @@ import "strings"
 }
 
 #Auth: {
-	secretRef!: {
+	workloadIdentity: {
+		provider: "gcp" | "aws" | "azure"
+	}
+} | {
+	secretRef: {
 		name:      string & strings.MinRunes(1)
 		namespace: string & strings.MinRunes(1)
 	}

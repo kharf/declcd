@@ -27,9 +27,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"gopkg.in/yaml.v3"
@@ -58,9 +60,15 @@ type SecretRef struct {
 	Namespace string `json:"namespace"`
 }
 
-// Auth contains secret references for repository/registry authentication.
+// WorkloadIdentity is a keyless approach used for repository/registry authentication.
+type WorkloadIdentity struct {
+	Provider string `json:"provider"`
+}
+
+// Auth contains methods for repository/registry authentication.
 type Auth struct {
-	SecretRef SecretRef `json:"secretRef"`
+	SecretRef        *SecretRef        `json:"secretRef"`
+	WorkloadIdentity *WorkloadIdentity `json:"workloadIdentity"`
 }
 
 // A Helm package that contains information
@@ -488,15 +496,34 @@ func (c *ChartReconciler) pull(
 		pull.SetRegistryClient(registryClient)
 
 		if chartRequest.Auth != nil {
-			creds, err := c.retrieveCredentials(ctx, chartRequest, false)
-			if err != nil {
-				return err
-			}
-			if err := registryClient.Login(
-				creds.host,
-				registry.LoginOptBasicAuth(creds.username, creds.password),
-			); err != nil {
-				return err
+			if chartRequest.Auth.WorkloadIdentity != nil {
+				var creds *cloud.Credentials
+				switch chartRequest.Auth.WorkloadIdentity.Provider {
+				case "gcp":
+					provider := &cloud.GoogleProvider{}
+					creds, err = provider.FetchCredentials()
+					if err != nil {
+						return err
+					}
+				}
+				host, _ := strings.CutPrefix(chartRequest.RepoURL, "oci://")
+				if err := registryClient.Login(
+					host,
+					registry.LoginOptBasicAuth(creds.Username, creds.Password),
+				); err != nil {
+					return err
+				}
+			} else {
+				creds, err := c.retrieveCredentials(ctx, chartRequest, false)
+				if err != nil {
+					return err
+				}
+				if err := registryClient.Login(
+					creds.host,
+					registry.LoginOptBasicAuth(creds.username, creds.password),
+				); err != nil {
+					return err
+				}
 			}
 		}
 
