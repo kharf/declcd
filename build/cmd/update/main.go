@@ -38,7 +38,7 @@ func run() error {
 	defer client.Close()
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
 	updateContainer := client.Container().
-		From("renovate/renovate:37.353-full").
+		From("renovate/renovate:37.356-full").
 		WithDefaultArgs([]string{"kharf/declcd"}).
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithSecretVariable("RENOVATE_TOKEN", pat)
