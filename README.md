@@ -1,9 +1,7 @@
 <br>
 <div align="center">
-	<picture>
-		<source media="(prefers-color-scheme: dark)" srcset="./docs/declcd.png">
-		<img alt="" src="./docs/declcd-light.png">
-	</picture>
+	<img src="./docs/declcd-light.png#gh-light-mode-only">
+	<img src="/docs/declcd.png#gh-dark-mode-only">
   <p align="center">
 		<strong>A Declarative Continuous Delivery Toolkit For Kubernetes</strong>
   </p>
