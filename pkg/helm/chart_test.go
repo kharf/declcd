@@ -123,7 +123,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
 					&Auth{
-						SecretRef: SecretRef{
+						SecretRef: &SecretRef{
 							Name:      "repauth",
 							Namespace: "default",
 						},
@@ -167,7 +167,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				release := createReleaseDeclaration(
 					"default",
-					replaceOCIHost(env),
+					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
 					nil,
 					Values{},
@@ -187,10 +187,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				release := createReleaseDeclaration(
 					"default",
-					replaceOCIHost(env),
+					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
 					&Auth{
-						SecretRef: SecretRef{
+						SecretRef: &SecretRef{
 							Name:      "regauth",
 							Namespace: "default",
 						},
@@ -214,7 +214,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				release := createReleaseDeclaration(
 					"default",
-					replaceOCIHost(env),
+					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
 					applyRepoAuthSecret(t, env, false),
 					Values{},
@@ -227,7 +227,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "OCI-Auth",
+			name: "OCI-SecretAuth",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
@@ -236,9 +236,33 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				release := createReleaseDeclaration(
 					"default",
-					replaceOCIHost(env),
+					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
 					applyRepoAuthSecret(t, env, true),
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "OCI-GCPWorkloadIdentityAuth",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(kubetest.WithHelm(true, true, true)),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					&Auth{
+						WorkloadIdentity: &WorkloadIdentity{
+							Provider: "gcp",
+						},
+					},
 					Values{},
 				)
 				return env, release, defaultAssertionFunc(release)
@@ -589,18 +613,6 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 	}
 }
 
-// has to be declcd.io, because of Docker defaulting to HTTP, when localhost is detected.
-// more info in internal/kubetest/env.go#startHelmServer
-func replaceOCIHost(env projecttest.Environment) string {
-	repoURL := strings.Replace(
-		env.HelmEnv.ChartServer.URL(),
-		"https://127.0.0.1",
-		"oci://declcd.io",
-		1,
-	)
-	return repoURL
-}
-
 func applyRepoAuthSecret(t *testing.T, env projecttest.Environment, withHost bool) *Auth {
 	name := "repauth"
 	namespace := "default"
@@ -619,8 +631,9 @@ func applyRepoAuthSecret(t *testing.T, env projecttest.Environment, withHost boo
 		},
 	}
 	if withHost {
+		host, _ := strings.CutPrefix(env.HelmEnv.ChartServer.URL(), "oci://")
 		data := unstr.Object["data"].(map[string][]byte)
-		data["host"] = []byte(env.HelmEnv.ChartServer.URL())
+		data["host"] = []byte(host)
 	}
 	err := env.DynamicTestKubeClient.Apply(
 		env.Ctx,
@@ -629,7 +642,7 @@ func applyRepoAuthSecret(t *testing.T, env projecttest.Environment, withHost boo
 	)
 	assert.NilError(t, err)
 	return &Auth{
-		SecretRef: SecretRef{
+		SecretRef: &SecretRef{
 			Name:      name,
 			Namespace: namespace,
 		},

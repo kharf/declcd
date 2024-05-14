@@ -15,10 +15,13 @@
 package component
 
 import (
+	"crypto/tls"
+	"net/http"
 	"os"
 	"path"
 	"testing"
 
+	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/helm"
 	_ "github.com/kharf/declcd/test/workingdir"
@@ -29,8 +32,21 @@ import (
 func TestBuilder_Build(t *testing.T) {
 	testRoot, err := os.MkdirTemp("", "")
 	assert.NilError(t, err)
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	// set to to true globally as CUE for example uses the DefaultTransport
+	http.DefaultTransport = transport
 	cueRegistry := ocitest.StartCUERegistry(t, testRoot)
 	defer cueRegistry.Close()
+
 	builder := NewBuilder()
 	cwd, err := os.Getwd()
 	assert.NilError(t, err)
