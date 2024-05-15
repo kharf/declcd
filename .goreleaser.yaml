@@ -77,7 +77,6 @@ publishers:
 dockers:
   - image_templates:
       - "ghcr.io/kharf/declcd:{{ .Tag }}"
-      - "ghcr.io/kharf/declcd:latest"
     build_flag_templates:
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
