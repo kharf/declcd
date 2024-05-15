@@ -16,6 +16,7 @@ package build
 
 import (
 	"context"
+	"os"
 
 	"dagger.io/dagger"
 )
@@ -49,6 +50,42 @@ func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, erro
 	if err != nil {
 		return nil, err
 	}
+	return &stepResult{
+		container: gen,
+	}, nil
+}
+
+type Publish string
+
+var _ step = (*Publish)(nil)
+
+func (p Publish) name() string {
+	return "publish"
+}
+
+// when changed, the renovate customManager has also to be updated.
+var goreleaserDep = "github.com/goreleaser/goreleaser@v1.26.1"
+
+func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	token := request.client.SetSecret("token", os.Getenv("GITHUB_TOKEN"))
+	dockerSock := os.Getenv("DOCKER_SOCK")
+	gen := request.container.
+		WithUnixSocket(
+			"/var/run/docker.sock",
+			request.client.Host().UnixSocket(dockerSock),
+		).
+		WithSecretVariable("GITHUB_TOKEN", token).
+		WithExec([]string{"go", "install", goreleaserDep}).
+		WithExec(
+			[]string{
+				"sh",
+				"-c",
+				`git config --global url.https://kharf:$GITHUB_TOKEN@github.com/kharf/declcd.git.insteadOf git@github.com:kharf/declcd.git`,
+			},
+		).
+		WithExec([]string{"git", "tag", string(p)}).
+		WithExec([]string{"git", "push", "origin", string(p)}).
+		WithExec([]string{"bin/goreleaser", "release", "--clean", "--skip=validate"})
 	return &stepResult{
 		container: gen,
 	}, nil

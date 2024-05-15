@@ -58,6 +58,7 @@ func RunWith(steps ...step) error {
 	base := client.Container().
 		From("golang:1.22.3-alpine").
 		WithExec([]string{"apk", "add", "--no-cache", "git"}).
+		WithExec([]string{"apk", "add", "--no-cache", "openssh-client"}).
 		WithExec([]string{"apk", "add", "--no-cache", "curl"}).
 		WithExec([]string{"apk", "add", "--no-cache", "docker"}).
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
@@ -65,7 +66,7 @@ func RunWith(steps ...step) error {
 				".git",
 				".gitignore",
 				".github",
-				".monoreleaser.yaml",
+				".goreleaser.yaml",
 				"cmd",
 				"pkg",
 				"internal",
