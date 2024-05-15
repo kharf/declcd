@@ -1,0 +1,81 @@
+version: 1
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/controller
+    id: controller
+    binary: controller
+    ldflags:
+      - -s -w -X "main.Version={{.Version}}"
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+  - main: ./cmd/cli
+    id: cli
+    binary: declcd
+    ldflags:
+      - -s -w -X "main.Version={{.Version}}"
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: cli
+    builds:
+      - cli
+    format: tar.gz
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        format: zip
+
+release:
+  ids:
+    - cli
+  draft: true
+
+publishers:
+  - name: cue
+    dir: schema
+    cmd: cue mod publish v{{.Version}}
+    env:
+      - CUE_EXPERIMENT=modules
+      - CUE_REGISTRY=ghcr.io/kharf
+
+dockers:
+  - image_templates:
+      - "gcr.io/kharf/declcd:{{ .Tag }}"
+      - "gcr.io/kharf/declcd:latest"
+    build_flag_templates:
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
