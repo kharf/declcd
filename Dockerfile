@@ -14,6 +14,6 @@
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
-COPY dist/controller_linux_amd64_v1 controller
+COPY dist/controller_linux_amd64_v1/controller .
 USER 65532:65532
 ENTRYPOINT ["/controller"]
