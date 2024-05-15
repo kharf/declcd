@@ -46,6 +46,18 @@ archives:
       - goos: windows
         format: zip
 
+  - id: controller
+    builds:
+      - controller
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+
 release:
   ids:
     - cli
@@ -53,7 +65,9 @@ release:
 
 publishers:
   - name: cue
-    ids: []
+    ids: 
+      # it doesnt publish the controller, but reference it to only run once
+      - controller
     dir: schema
     cmd: cue mod publish v{{.Version}}
     env:
@@ -62,8 +76,8 @@ publishers:
 
 dockers:
   - image_templates:
-      - "gcr.io/kharf/declcd:{{ .Tag }}"
-      - "gcr.io/kharf/declcd:latest"
+      - "ghcr.io/kharf/declcd:{{ .Tag }}"
+      - "ghcr.io/kharf/declcd:latest"
     build_flag_templates:
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
