@@ -53,6 +53,7 @@ release:
 
 publishers:
   - name: cue
+    ids: []
     dir: schema
     cmd: cue mod publish v{{.Version}}
     env:
