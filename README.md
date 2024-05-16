@@ -33,7 +33,8 @@ Traditional GitOps tools often rely on YAML for configuration, which can lead to
 Linux(x86_64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-linux-amd64
+curl -L -o declcd.tar.gz https://github.com/kharf/declcd/releases/download/v0.16.0-dev.22/declcd_linux_x86_64.tar.gz
+tar -xf declcd.tar.gz
 chmod +x declcd
 ./declcd -h
 ```
@@ -41,7 +42,8 @@ chmod +x declcd
 MacOS(x86_64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-darwin-amd64
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.16.0-dev.22/declcd_darwin_x86_64.tar.gz
+tar -xf declcd.tar.gz
 chmod +x declcd
 ./declcd -h
 ```
@@ -49,7 +51,8 @@ chmod +x declcd
 MacOS(arm64):
 
 ```bash
-curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.10.0/declcd-darwin-arm64
+curl -L -o declcd https://github.com/kharf/declcd/releases/download/v0.16.0-dev.22/declcd_darwin_arm64.tar.gz
+tar -xf declcd.tar.gz
 chmod +x declcd
 ./declcd -h
 ```

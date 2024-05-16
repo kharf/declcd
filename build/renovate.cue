@@ -42,6 +42,7 @@ _githubReleaseManager: #regexManager & {
 	fileMatch: [
 		"^(.*?).go$",
 		"^(.*?).cue$",
+		"README.md",
 	]
 	matchStrings: ["https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"]
 	datasourceTemplate: "github-releases"
@@ -92,6 +93,7 @@ customManagers: [
 		matchStrings: [
 			"var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
 			"var controllerGenDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
+			"var goreleaserDep  = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
 		]
 		datasourceTemplate: "go"
 	},

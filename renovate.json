@@ -75,7 +75,8 @@
             ],
             "matchStrings": [
                 "var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
-                "var controllerGenDep = \"(?<depName>.*?)@(?<currentValue>.*?)\""
+                "var controllerGenDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
+                "var goreleaserDep  = \"(?<depName>.*?)@(?<currentValue>.*?)\""
             ],
             "datasourceTemplate": "go"
         },
@@ -83,7 +84,8 @@
             "customType": "regex",
             "fileMatch": [
                 "^(.*?).go$",
-                "^(.*?).cue$"
+                "^(.*?).cue$",
+                "README.md"
             ],
             "matchStrings": [
                 "https://github.com/(?<depName>.*?)/releases/download/(?<currentValue>.*?)/"
