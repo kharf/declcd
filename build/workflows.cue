@@ -22,9 +22,8 @@ import "github.com/kharf/cuepkgs/modules/github@v0"
 	name: "Checkout code"
 	uses: "actions/checkout@v4.1.5"
 	with: {
-		[string]:     string | number | bool
-		token:        "${{ secrets.PAT }}"
-		"fetch-tags": true
+		[string]: string | number | bool
+		token:    "${{ secrets.PAT }}"
 	}
 }
 
@@ -128,7 +127,12 @@ workflows: [
 
 			jobs: "\(_name)": {
 				steps: [
-					#checkoutCode,
+					#checkoutCode & {
+						with: {
+							"fetch-tags":  true
+							"fetch-depth": 0
+						}
+					},
 					#setupGo,
 					#pipeline & {
 						name: "Publish Pipeline"
