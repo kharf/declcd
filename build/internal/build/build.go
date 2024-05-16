@@ -16,7 +16,11 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"dagger.io/dagger"
 )
@@ -67,15 +71,33 @@ func (p Publish) name() string {
 var goreleaserDep = "github.com/goreleaser/goreleaser@v1.26.1"
 
 func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, error) {
+	reqVersion := string(p)
+	var prefixedVersion string
+	var version string
+	if !strings.HasPrefix(reqVersion, "v") {
+		prefixedVersion = "v" + reqVersion
+		version = reqVersion
+	} else {
+		prefixedVersion = reqVersion
+		version, _ = strings.CutPrefix(reqVersion, "v")
+	}
+
 	token := request.client.SetSecret("token", os.Getenv("GITHUB_TOKEN"))
-	dockerSock := os.Getenv("DOCKER_SOCK")
-	gen := request.container.
-		WithUnixSocket(
-			"/var/run/docker.sock",
-			request.client.Host().UnixSocket(dockerSock),
-		).
+
+	bin := filepath.Join(workDir, localBin)
+	publish, err := request.container.
+		WithoutEnvVariable("GOOS").
+		WithoutEnvVariable("GOARCH").
+		WithExec([]string{"go", "install", cueDep}).
+		WithEnvVariable("CUE_EXPERIMENT", "modules").
+		WithEnvVariable("CUE_REGISTRY", "ghcr.io/kharf").
 		WithSecretVariable("GITHUB_TOKEN", token).
+		WithExec([]string{"sh", "-c", "docker login ghcr.io -u kharf -p $GITHUB_TOKEN"}).
+		WithWorkdir("schema").
+		WithExec([]string{"../bin/cue", "mod", "publish", prefixedVersion}).
+		WithWorkdir(workDir).
 		WithExec([]string{"go", "install", goreleaserDep}).
+		WithEnvVariable("PATH", "$PATH:"+bin, dagger.ContainerWithEnvVariableOpts{Expand: true}).
 		WithExec(
 			[]string{
 				"sh",
@@ -83,10 +105,26 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 				`git config --global url.https://kharf:$GITHUB_TOKEN@github.com/kharf/declcd.git.insteadOf git@github.com:kharf/declcd.git`,
 			},
 		).
-		WithExec([]string{"git", "tag", string(p)}).
-		WithExec([]string{"git", "push", "origin", string(p)}).
-		WithExec([]string{"bin/goreleaser", "release", "--clean", "--skip=validate"})
+		WithExec([]string{"git", "tag", prefixedVersion}).
+		WithExec([]string{"git", "push", "origin", prefixedVersion}).
+		WithExec([]string{"goreleaser", "release", "--clean", "--skip=validate"}).Sync(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ref, err := publish.
+		Directory(".").
+		DockerBuild().
+		WithRegistryAuth("ghcr.io", "kharf", token).
+		WithLabel("org.opencontainers.image.title", "declcd").
+		WithLabel("org.opencontainers.image.created", time.Now().String()).
+		WithLabel("org.opencontainers.image.source", "https://github.com/kharf/declcd").
+		Publish(ctx, "ghcr.io/kharf/declcd:"+version)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Published image to: %s\n", ref)
 	return &stepResult{
-		container: gen,
+		container: publish,
 	}, nil
 }

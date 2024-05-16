@@ -16,6 +16,7 @@ jobs:
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ github.head_ref || github.ref_name }}
+          fetch-tags: true
       - name: Setup Go
         uses: actions/setup-go@v5.0.1
         with:

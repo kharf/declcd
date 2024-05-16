@@ -6,6 +6,7 @@
 *.so
 *.dylib
 bin
+dist
 testbin/*
 Dockerfile.cross
 
@@ -31,5 +32,3 @@ go.work.sum
 
 # temporary
 tmp/*
-
-dist/

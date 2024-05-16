@@ -63,26 +63,6 @@ release:
     - cli
   draft: true
 
-publishers:
-  - name: cue
-    ids: 
-      # it doesnt publish the controller, but reference it to only run once
-      - controller
-    dir: schema
-    cmd: cue mod publish v{{.Version}}
-    env:
-      - CUE_EXPERIMENT=modules
-      - CUE_REGISTRY=ghcr.io/kharf
-
-dockers:
-  - image_templates:
-      - "ghcr.io/kharf/declcd:{{ .Tag }}"
-    build_flag_templates:
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-
 changelog:
   sort: asc
   filters:

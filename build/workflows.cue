@@ -22,8 +22,9 @@ import "github.com/kharf/cuepkgs/modules/github@v0"
 	name: "Checkout code"
 	uses: "actions/checkout@v4.1.5"
 	with: {
-		[string]: string | number | bool
-		token:    "${{ secrets.PAT }}"
+		[string]:     string | number | bool
+		token:        "${{ secrets.PAT }}"
+		"fetch-tags": true
 	}
 }
 
