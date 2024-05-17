@@ -27,6 +27,7 @@ import (
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/declcd/pkg/kube"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -34,16 +35,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestCollector_Collect(t *testing.T) {
-	env := projecttest.StartProjectEnv(
-		t,
-		projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
-	)
-	defer env.Stop()
 	nsA := &inventory.ManifestItem{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -84,11 +79,287 @@ func TestCollector_Collect(t *testing.T) {
 		nsB,
 		depB,
 	}
-	ctx := context.Background()
-	converter := runtime.DefaultUnstructuredConverter
-	dag := component.NewDependencyGraph()
+
+	hr := &inventory.HelmReleaseItem{
+		Name:      "test",
+		Namespace: "test",
+		ID:        "test_test_HelmRelease",
+	}
+	invHelmReleases := []*inventory.HelmReleaseItem{
+		hr,
+	}
+
+	testCases := []struct {
+		name    string
+		runCase func(context.Context, projecttest.Environment)
+	}{
+		{
+			name: "Deleted-DepB-and-HR",
+			runCase: func(ctx context.Context, env projecttest.Environment) {
+				dag := component.NewDependencyGraph()
+				prepareManifests(ctx, t, invManifests, env, dag)
+
+				chartReconciler := helm.ChartReconciler{
+					KubeConfig:            env.ControlPlane.Config,
+					Client:                env.DynamicTestKubeClient,
+					FieldManager:          "controller",
+					InventoryManager:      env.InventoryManager,
+					InsecureSkipTLSverify: true,
+					Log:                   env.Log,
+				}
+				prepareHelmReleases(ctx, t, invHelmReleases, env, chartReconciler, dag)
+
+				storage, err := env.InventoryManager.Load()
+				assert.NilError(t, err)
+
+				assertItems(t, invManifests, invHelmReleases, storage)
+				assertRunningAll := func(ctx context.Context, t *testing.T, env projecttest.Environment) {
+					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "apps/v1",
+							"kind":       "Deployment",
+							"metadata": map[string]interface{}{
+								"name":      "a",
+								"namespace": "a",
+							},
+						},
+					})
+
+					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "apps/v1",
+							"kind":       "Deployment",
+							"metadata": map[string]interface{}{
+								"name":      "b",
+								"namespace": "b",
+							},
+						},
+					})
+
+					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "apps/v1",
+							"kind":       "Deployment",
+							"metadata": map[string]interface{}{
+								"name":      "test",
+								"namespace": "test",
+							},
+						},
+					})
+				}
+				assertRunningAll(ctx, t, env)
+
+				err = env.GarbageCollector.Collect(ctx, &dag)
+				assert.NilError(t, err)
+
+				storage, err = env.InventoryManager.Load()
+				assert.NilError(t, err)
+
+				assertItems(t, invManifests, invHelmReleases, storage)
+				assertRunningAll(ctx, t, env)
+
+				renderedManifests := []*inventory.ManifestItem{
+					nsA,
+					nsB,
+					depA,
+				}
+
+				dag = component.NewDependencyGraph()
+				prepareManifests(ctx, t, renderedManifests, env, dag)
+
+				err = env.GarbageCollector.Collect(ctx, &dag)
+				assert.NilError(t, err)
+
+				assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "a",
+							"namespace": "a",
+						},
+					},
+				})
+
+				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "b",
+							"namespace": "b",
+						},
+					},
+				})
+
+				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "test",
+							"namespace": "test",
+						},
+					},
+				})
+			},
+		},
+		{
+			name: "Deleted-Deployment-But-Still-In-Inventory",
+			runCase: func(ctx context.Context, env projecttest.Environment) {
+				renderedManifests := []*inventory.ManifestItem{
+					nsA,
+					depA,
+				}
+
+				dag := component.NewDependencyGraph()
+				prepareManifests(ctx, t, renderedManifests, env, dag)
+				storage, err := env.InventoryManager.Load()
+				assert.NilError(t, err)
+				assertItems(t, renderedManifests, []*inventory.HelmReleaseItem{}, storage)
+
+				obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(depA))
+				assert.NilError(t, err)
+				unstr := &unstructured.Unstructured{Object: obj}
+				assertRunning(ctx, t, env.DynamicTestKubeClient, unstr)
+
+				err = env.DynamicTestKubeClient.Delete(ctx, unstr)
+				assert.NilError(t, err)
+
+				storage, err = env.InventoryManager.Load()
+				assert.NilError(t, err)
+				assertItems(t, renderedManifests, []*inventory.HelmReleaseItem{}, storage)
+
+				err = env.GarbageCollector.Collect(ctx, &dag)
+				assert.NilError(t, err)
+
+				storage, err = env.InventoryManager.Load()
+				assert.NilError(t, err)
+
+				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "a",
+							"namespace": "a",
+						},
+					},
+				})
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := projecttest.StartProjectEnv(
+				t,
+				projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+			)
+			defer env.Stop()
+
+			ctx := context.Background()
+			tc.runCase(ctx, env)
+		})
+	}
+}
+
+func assertRunning(
+	ctx context.Context,
+	t *testing.T,
+	client *kube.DynamicClient,
+	obj *unstructured.Unstructured,
+) {
+	foundObj, err := client.Get(ctx, obj)
+	assert.NilError(t, err)
+	assert.Equal(t, foundObj.GetName(), obj.GetName())
+	assert.Equal(t, foundObj.GetNamespace(), obj.GetNamespace())
+}
+
+func assertNotRunning(
+	ctx context.Context,
+	t *testing.T,
+	client *kube.DynamicClient,
+	obj *unstructured.Unstructured,
+) {
+	restMapper := client.RESTMapper()
+	gvk := obj.GroupVersionKind()
+	mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	assert.NilError(t, err)
+	_, err = client.Get(ctx, obj)
+	assert.Error(
+		t,
+		err,
+		fmt.Sprintf(
+			"%s.%s \"%s\" not found",
+			mapping.Resource.Resource,
+			mapping.Resource.Group,
+			obj.GetName(),
+		),
+	)
+}
+
+func assertItems(
+	t *testing.T,
+	manifests []*inventory.ManifestItem,
+	releases []*inventory.HelmReleaseItem,
+	storage *inventory.Storage,
+) {
+	for _, manifest := range manifests {
+		assert.Assert(t, storage.HasItem(manifest))
+	}
+	for _, release := range releases {
+		assert.Assert(t, storage.HasItem(release))
+	}
+}
+
+func prepareHelmReleases(
+	ctx context.Context,
+	t *testing.T,
+	invHelmReleases []*inventory.HelmReleaseItem,
+	env projecttest.Environment,
+	chartReconciler helm.ChartReconciler,
+	dag component.DependencyGraph,
+) {
+	releases := make([]helm.ReleaseDeclaration, 0, len(invHelmReleases))
+	for _, hrMetadata := range invHelmReleases {
+		release := helm.ReleaseDeclaration{
+			Name:      hrMetadata.GetName(),
+			Namespace: hrMetadata.GetNamespace(),
+			Chart: helm.Chart{
+				Name:    "test",
+				RepoURL: env.HelmEnv.ChartServer.URL(),
+				Version: "1.0.0",
+			},
+			Values: helm.Values{},
+		}
+		id := fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace)
+		_, err := chartReconciler.Reconcile(ctx, release, id)
+		assert.NilError(t, err)
+		releases = append(releases, release)
+		err = env.InventoryManager.StoreItem(&inventory.HelmReleaseItem{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+			ID:        id,
+		}, nil)
+		assert.NilError(t, err)
+		dag.Insert(&component.HelmRelease{
+			ID:           hrMetadata.ID,
+			Dependencies: []string{},
+			Content:      release,
+		})
+	}
+}
+
+func prepareManifests(
+	ctx context.Context,
+	t *testing.T,
+	invManifests []*inventory.ManifestItem,
+	env projecttest.Environment,
+	dag component.DependencyGraph,
+) {
 	for _, im := range invManifests {
-		obj, err := converter.ToUnstructured(toObject(im))
+		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
 		err = env.DynamicTestKubeClient.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
@@ -104,135 +375,6 @@ func TestCollector_Collect(t *testing.T) {
 			},
 		)
 	}
-	hr := &inventory.HelmReleaseItem{
-		Name:      "test",
-		Namespace: "test",
-		ID:        "test_test_HelmRelease",
-	}
-	invHelmReleases := []*inventory.HelmReleaseItem{
-		hr,
-	}
-	chartReconciler := helm.ChartReconciler{
-		KubeConfig:            env.ControlPlane.Config,
-		Client:                env.DynamicTestKubeClient,
-		FieldManager:          "controller",
-		InventoryManager:      env.InventoryManager,
-		InsecureSkipTLSverify: true,
-		Log:                   env.Log,
-	}
-	releases := make([]helm.ReleaseDeclaration, 0, len(invHelmReleases))
-	for _, hrMetadata := range invHelmReleases {
-		release := helm.ReleaseDeclaration{
-			Name:      hrMetadata.GetName(),
-			Namespace: hrMetadata.GetNamespace(),
-			Chart: helm.Chart{
-				Name:    "test",
-				RepoURL: env.HelmEnv.ChartServer.URL(),
-				Version: "1.0.0",
-			},
-			Values: helm.Values{},
-		}
-		_, err := chartReconciler.Reconcile(ctx, release, hr.ID)
-		assert.NilError(t, err)
-		releases = append(releases, release)
-		err = env.InventoryManager.StoreItem(&inventory.HelmReleaseItem{
-			Name:      release.Name,
-			Namespace: release.Namespace,
-			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
-		}, nil)
-		assert.NilError(t, err)
-		dag.Insert(&component.HelmRelease{
-			ID:           hrMetadata.ID,
-			Dependencies: []string{},
-			Content:      release,
-		})
-	}
-	storage, err := env.InventoryManager.Load()
-	assert.NilError(t, err)
-	assert.Assert(t, storage.HasItem(nsA))
-	assert.Assert(t, storage.HasItem(depA))
-	assert.Assert(t, storage.HasItem(nsB))
-	assert.Assert(t, storage.HasItem(depB))
-	assert.Assert(t, storage.HasItem(hr))
-	collector := env.GarbageCollector
-	err = collector.Collect(ctx, &dag)
-	assert.NilError(t, err)
-	storage, err = env.InventoryManager.Load()
-	assert.NilError(t, err)
-	assert.Assert(t, storage.HasItem(nsA))
-	assert.Assert(t, storage.HasItem(depA))
-	assert.Assert(t, storage.HasItem(nsB))
-	assert.Assert(t, storage.HasItem(depB))
-	assert.Assert(t, storage.HasItem(hr))
-	var deploymentA appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "a", Namespace: "a"}, &deploymentA)
-	assert.NilError(t, err)
-	assert.Equal(t, deploymentA.Name, "a")
-	assert.Equal(t, deploymentA.Namespace, "a")
-	var deploymentB appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "b", Namespace: "b"}, &deploymentB)
-	assert.NilError(t, err)
-	assert.Equal(t, deploymentB.Name, "b")
-	assert.Equal(t, deploymentB.Namespace, "b")
-	var hrDeployment appsv1.Deployment
-	err = env.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: "test", Namespace: "test"},
-		&hrDeployment,
-	)
-	assert.NilError(t, err)
-	assert.Equal(t, hrDeployment.Name, "test")
-	assert.Equal(t, hrDeployment.Namespace, "test")
-	t.Run("Changes", func(t *testing.T) {
-		renderedManifests := []*inventory.ManifestItem{
-			nsA,
-			nsB,
-			depA,
-		}
-		dag := component.NewDependencyGraph()
-		for _, im := range renderedManifests {
-			obj, err := converter.ToUnstructured(toObject(im))
-			unstr := unstructured.Unstructured{Object: obj}
-			err = env.DynamicTestKubeClient.Apply(ctx, &unstr, "test")
-			assert.NilError(t, err)
-			buf := &bytes.Buffer{}
-			json.NewEncoder(buf).Encode(unstr.Object)
-			err = env.InventoryManager.StoreItem(im, buf)
-			assert.NilError(t, err)
-			dag.Insert(
-				&component.Manifest{
-					ID:           im.ID,
-					Dependencies: []string{},
-					Content:      unstr,
-				},
-			)
-		}
-		err = collector.Collect(ctx, &dag)
-		assert.NilError(t, err)
-		var deploymentA appsv1.Deployment
-		err = env.TestKubeClient.Get(
-			ctx,
-			types.NamespacedName{Name: "a", Namespace: "a"},
-			&deploymentA,
-		)
-		assert.NilError(t, err)
-		assert.Equal(t, deploymentA.Name, "a")
-		assert.Equal(t, deploymentA.Namespace, "a")
-		var deploymentB appsv1.Deployment
-		err = env.TestKubeClient.Get(
-			ctx,
-			types.NamespacedName{Name: "b", Namespace: "b"},
-			&deploymentB,
-		)
-		assert.Error(t, err, "deployments.apps \"b\" not found")
-		var hrDeployment appsv1.Deployment
-		err = env.TestKubeClient.Get(
-			ctx,
-			types.NamespacedName{Name: "test", Namespace: "test"},
-			&hrDeployment,
-		)
-		assert.Error(t, err, "deployments.apps \"test\" not found")
-	})
 }
 
 func toObject(invManifest *inventory.ManifestItem) client.Object {
