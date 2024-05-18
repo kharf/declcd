@@ -58,6 +58,8 @@ func (env *Environment) Stop() {
 		env.DNSServer.Close()
 	}
 	os.Setenv("CUE_REGISTRY", "")
+	_ = os.RemoveAll(env.TestRoot)
+	_ = os.RemoveAll(env.GitRepository.Directory)
 }
 
 type Option interface {
@@ -96,8 +98,7 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	for _, o := range opts {
 		o.Apply(&options)
 	}
-	testRoot := filepath.Join(os.TempDir(), "declcd")
-	err := os.MkdirAll(testRoot, 0700)
+	testRoot, err := os.MkdirTemp("", "declcd-*")
 	assert.NilError(t, err)
 	testProject, err := os.MkdirTemp(testRoot, "")
 	assert.NilError(t, err)

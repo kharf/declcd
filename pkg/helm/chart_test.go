@@ -579,6 +579,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			env, releaseDeclaration, assertFunc := tc.pre()
 			defer env.Stop()
 			err := Remove(releaseDeclaration.Chart)
+			defer Remove(releaseDeclaration.Chart)
 			assert.NilError(t, err)
 			chartReconciler := helm.ChartReconciler{
 				KubeConfig:            env.ControlPlane.Config,
@@ -607,8 +608,6 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				releaseDeclaration.Namespace,
 			)
 			tc.post(env, chartReconciler, releaseDeclaration)
-			err = Remove(releaseDeclaration.Chart)
-			assert.NilError(t, err)
 		})
 	}
 }

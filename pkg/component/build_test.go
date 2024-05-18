@@ -32,6 +32,7 @@ import (
 func TestBuilder_Build(t *testing.T) {
 	testRoot, err := os.MkdirTemp("", "")
 	assert.NilError(t, err)
+	defer os.RemoveAll(testRoot)
 	dnsServer, err := dnstest.NewDNSServer()
 	assert.NilError(t, err)
 	defer dnsServer.Close()

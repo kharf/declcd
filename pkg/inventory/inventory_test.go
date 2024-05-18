@@ -79,6 +79,7 @@ func TestManager_Load(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path, err := os.MkdirTemp("", "")
 			assert.NilError(t, err)
+			defer os.Remove(path)
 			manager := inventory.Manager{
 				Log:  logger,
 				Path: path,

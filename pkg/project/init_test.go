@@ -93,6 +93,7 @@ func TestInit(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := tc.pre()
+			defer os.RemoveAll(path)
 			err := project.Init(tc.module, path, "0.1.0")
 			if tc.expectedErr != "" {
 				assert.Error(t, err, tc.expectedErr)
