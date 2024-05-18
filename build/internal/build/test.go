@@ -44,7 +44,7 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 		WithExec(
 			[]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"},
 		).
-		WithExec([]string{envTest, "use", "1.26.1", "--bin-dir", localBin, "-p", "path"})
+		WithExec([]string{envTest, "use", "1.27", "--bin-dir", localBin, "-p", "path"})
 
 	apiServerPath, err := testBase.Stdout(ctx)
 	if err != nil {
