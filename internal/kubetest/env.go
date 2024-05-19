@@ -65,18 +65,6 @@ func (env Environment) Stop() {
 	env.clean()
 }
 
-type helmOption struct {
-	enabled bool
-	oci     bool
-	private bool
-}
-
-var _ Option = (*helmOption)(nil)
-
-func (opt helmOption) apply(opts *options) {
-	opts.helm = opt
-}
-
 type projectOption struct {
 	repo        *gittest.LocalGitRepository
 	testProject string
@@ -105,9 +93,17 @@ func (opt vcsSSHKeyCreated) apply(opts *options) {
 	opts.vcsSSHKeyCreated = bool(opt)
 }
 
+type helmOptions []helmtest.Option
+
+var _ Option = (*helmOptions)(nil)
+
+func (opt helmOptions) apply(opts *options) {
+	opts.helmOptions = opt
+}
+
 type options struct {
 	enabled              bool
-	helm                 helmOption
+	helmOptions          helmOptions
 	decryptionKeyCreated bool
 	vcsSSHKeyCreated     bool
 	project              projectOption
@@ -117,12 +113,8 @@ type Option interface {
 	apply(*options)
 }
 
-func WithHelm(enabled bool, oci bool, private bool) helmOption {
-	return helmOption{
-		enabled: enabled,
-		oci:     oci,
-		private: private,
-	}
+func WithHelm(opts ...helmtest.Option) helmOptions {
+	return opts
 }
 
 func WithDecryptionKeyCreated() decryptionKeyCreated {
@@ -148,11 +140,7 @@ func WithProject(
 func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environment {
 	logf.SetLogger(log)
 	options := &options{
-		helm: helmOption{
-			enabled: false,
-			oci:     false,
-			private: false,
-		},
+		helmOptions:          []helmtest.Option{},
 		enabled:              true,
 		decryptionKeyCreated: false,
 		vcsSSHKeyCreated:     false,
@@ -160,22 +148,35 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	for _, o := range opts {
 		o.apply(options)
 	}
+
 	if !options.enabled {
 		return nil
 	}
+
+	options.helmOptions = append(options.helmOptions,
+		helmtest.WithProject(
+			options.project.repo,
+			options.project.testProject,
+			options.project.testRoot,
+		),
+	)
+
 	testEnv := &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
+
 	var err error
 	// cfg is defined in this file globally.
 	cfg, err := testEnv.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	err = gitops.AddToScheme(scheme.Scheme)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Metrics: server.Options{
@@ -185,25 +186,19 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	ctx, cancel := context.WithCancel(context.TODO())
 	testClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		t.Fatal(err)
 	}
-	helmEnv := helmtest.Environment{}
-	if options.helm.enabled {
-		helmEnv = helmtest.StartHelmEnv(
-			t,
-			cfg,
-			helmtest.WithOCI(options.helm.oci),
-			helmtest.WithPrivate(options.helm.private),
-			helmtest.WithProject(
-				options.project.repo,
-				options.project.testProject,
-				options.project.testRoot,
-			),
-		)
-	}
+
+	helmEnv := helmtest.StartHelmEnv(
+		t,
+		cfg,
+		options.helmOptions...,
+	)
+
 	client, err := kube.NewDynamicClient(testEnv.Config)
 	assert.NilError(t, err)
 	inventoryPath, err := os.MkdirTemp(options.project.testRoot, "inventory-*")

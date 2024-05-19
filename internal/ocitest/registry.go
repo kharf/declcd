@@ -121,7 +121,7 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 	httpsServer.Config.Addr = addr
 	httpsServer.Listener = listener
 	httpsServer.StartTLS()
-	fmt.Println("TLS registry listening on ", httpsServer.URL)
+	fmt.Println("TLS Registry listening on", httpsServer.URL)
 	client := httpsServer.Client()
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{

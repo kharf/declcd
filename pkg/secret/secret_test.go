@@ -29,6 +29,7 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"filippo.io/age"
 	"filippo.io/age/armor"
+	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/secret"
@@ -286,7 +287,13 @@ _cSecretFar: 'bar'
 func TestEncrypter_EncryptPackage(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithProjectSource("secret"),
-		projecttest.WithKubernetes(kubetest.WithHelm(false, false, false)),
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(
+				helmtest.Enabled(false),
+				helmtest.WithOCI(false),
+				helmtest.WithPrivate(false),
+			),
+		),
 	)
 	defer env.Stop()
 	privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
@@ -381,7 +388,11 @@ func TestDecrypter_Decrypt(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithProjectSource("secret"),
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(false, false, false),
+			kubetest.WithHelm(
+				helmtest.Enabled(false),
+				helmtest.WithOCI(false),
+				helmtest.WithPrivate(false),
+			),
 			kubetest.WithDecryptionKeyCreated(),
 		),
 	)
@@ -495,7 +506,11 @@ func BenchmarkDecrypter_Decrypt(b *testing.B) {
 	env := projecttest.StartProjectEnv(b,
 		projecttest.WithProjectSource("secret"),
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(false, false, false),
+			kubetest.WithHelm(
+				helmtest.Enabled(false),
+				helmtest.WithOCI(false),
+				helmtest.WithPrivate(false),
+			),
 			kubetest.WithDecryptionKeyCreated(),
 		),
 	)

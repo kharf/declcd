@@ -29,6 +29,7 @@ import (
 	"k8s.io/kubectl/pkg/scheme"
 
 	"github.com/kharf/declcd/internal/gittest"
+	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
@@ -64,7 +65,11 @@ func TestAPIs(t *testing.T) {
 var _ = BeforeSuite(func() {
 	env = projecttest.StartProjectEnv(test,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(true, false, false),
+			kubetest.WithHelm(
+				helmtest.Enabled(true),
+				helmtest.WithOCI(false),
+				helmtest.WithPrivate(false),
+			),
 			kubetest.WithDecryptionKeyCreated(),
 			kubetest.WithVCSSSHKeyCreated(),
 		),

@@ -15,9 +15,11 @@
 package dnstest
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/foxcpp/go-mockdns"
+	"github.com/kharf/declcd/internal/cloudtest"
 )
 
 type nullLogger struct{}
@@ -42,6 +44,12 @@ func NewDNSServer() (*DNSServer, error) {
 			A: []string{"127.0.0.1"},
 		},
 		"metadata.google.internal.": {
+			A: []string{"127.0.0.1"},
+		},
+		fmt.Sprintf("%s.", cloudtest.AWS_REGISTRY_HOST): {
+			A: []string{"127.0.0.1"},
+		},
+		fmt.Sprintf("%s.", cloudtest.AWS_API_ECR_HOST): {
 			A: []string{"127.0.0.1"},
 		},
 	},

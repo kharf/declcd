@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"text/template"
 
@@ -37,8 +36,11 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/kharf/declcd/internal/cloudtest"
+	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	. "github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/kube"
@@ -81,7 +83,13 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -112,11 +120,17 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "HTTP-AuthSecretNotFound",
+			name: "HTTP-Auth-Secret-Not-Found",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 				release := createReleaseDeclaration(
 					"default",
@@ -138,18 +152,53 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "HTTP-Auth-Secret-SecretRef-Not-Set",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
+				)
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					&Auth{
+						SecretRef: nil,
+					},
+					Values{},
+				)
+				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assert.ErrorIs(t, reconcileErr, helm.ErrAuthSecretValueNotFound)
+				}
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
 			name: "HTTP-Auth",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, true)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(true),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
 					"default",
 					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
-					applyRepoAuthSecret(t, env, false),
+					applyRepoAuthSecret(t, env),
 					Values{},
 				)
 				return env, release, defaultAssertionFunc(release)
@@ -162,7 +211,13 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, true, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -178,11 +233,17 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "OCI-AuthSecretNotFound",
+			name: "OCI-Auth-Secret-Not-Found",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, true, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -205,40 +266,24 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "OCI-AuthSecretEmptyHost",
+			name: "OCI-Secret-Auth",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, true, true)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(true),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
 					"default",
 					env.HelmEnv.ChartServer.URL(),
 					"1.0.0",
-					applyRepoAuthSecret(t, env, false),
-					Values{},
-				)
-				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-					assert.Error(t, reconcileErr, "Auth secret value not found: host is empty")
-				}
-			},
-			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
-			},
-		},
-		{
-			name: "OCI-SecretAuth",
-			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
-				env := projecttest.StartProjectEnv(
-					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, true, true)),
-				)
-
-				release := createReleaseDeclaration(
-					"default",
-					env.HelmEnv.ChartServer.URL(),
-					"1.0.0",
-					applyRepoAuthSecret(t, env, true),
+					applyRepoAuthSecret(t, env),
 					Values{},
 				)
 				return env, release, defaultAssertionFunc(release)
@@ -247,11 +292,48 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "OCI-GCPWorkloadIdentityAuth",
+			name: "OCI-Secret-Auth-SecretRef-Not-Set",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, true, true)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(true),
+						),
+					),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					&Auth{
+						SecretRef: nil,
+					},
+					Values{},
+				)
+				return env, release, func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assert.ErrorIs(t, reconcileErr, helm.ErrAuthSecretValueNotFound)
+				}
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "OCI-GCP-Workload-Identity-Auth",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(true),
+							helmtest.WithProvider(cloud.GCP),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -271,11 +353,51 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
+			name: "OCI-AWS-Workload-Identity-Auth",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(true),
+							helmtest.WithProvider(cloud.AWS),
+						),
+					),
+				)
+
+				awsEnv, ok := env.HelmEnv.CloudEnvironment.(*cloudtest.AWSEnvironment)
+				assert.Assert(t, ok)
+
+				release := createReleaseDeclaration(
+					"default",
+					awsEnv.ECRServer.URL,
+					"1.0.0",
+					&Auth{
+						WorkloadIdentity: &WorkloadIdentity{
+							Provider: "aws",
+						},
+					},
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
 			name: "Namespaced",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -295,7 +417,13 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -344,7 +472,13 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -409,11 +543,17 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "NoUpgrade",
+			name: "No-Upgrade",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 				release := createReleaseDeclaration(
 					"default",
@@ -445,7 +585,13 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -494,11 +640,17 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "PendingUpgradeRecovery",
+			name: "Pending-Upgrade-Recovery",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -534,11 +686,17 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name: "PendingInstallRecovery",
+			name: "Pending-Install-Recovery",
 			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
 				env := projecttest.StartProjectEnv(
 					t,
-					projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 
 				release := createReleaseDeclaration(
@@ -612,7 +770,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 	}
 }
 
-func applyRepoAuthSecret(t *testing.T, env projecttest.Environment, withHost bool) *Auth {
+func applyRepoAuthSecret(t *testing.T, env projecttest.Environment) *Auth {
 	name := "repauth"
 	namespace := "default"
 	unstr := unstructured.Unstructured{
@@ -628,11 +786,6 @@ func applyRepoAuthSecret(t *testing.T, env projecttest.Environment, withHost boo
 				"password": []byte("abcd"),
 			},
 		},
-	}
-	if withHost {
-		host, _ := strings.CutPrefix(env.HelmEnv.ChartServer.URL(), "oci://")
-		data := unstr.Object["data"].(map[string][]byte)
-		data["host"] = []byte(host)
 	}
 	err := env.DynamicTestKubeClient.Apply(
 		env.Ctx,

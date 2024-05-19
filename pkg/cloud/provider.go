@@ -15,63 +15,49 @@
 package cloud
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"fmt"
 	"net/http"
 )
 
+type ProviderID string
+
 const (
-	GoogleMetadataServerTokenEndpoint = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+	AWS   ProviderID = "aws"
+	GCP   ProviderID = "gcp"
+	Azure ProviderID = "azure"
 )
 
 var (
 	ErrUnexpectedResponse = errors.New("Unexpected response")
 )
 
-type GoogleToken struct {
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"`
-	TokenType   string `json:"token_type"`
+// A Provider is a widely recognized cloud computing platform that provides several services for managing access and hosting containers.
+type Provider interface {
+	// FetchCredentials uses the configured provider identity and access management approach to receive temporary credentials for accessing cloud provider services, like container registries.
+	FetchCredentials(context.Context) (*Credentials, error)
 }
 
+// GetProvider constructs a cloud Provider based on the given identifier or nil if no provider for given identifier could be constructed.
+// Currently supported: gcp, aws, azure
+func GetProvider(providerID ProviderID, host string, httpClient *http.Client) Provider {
+	switch providerID {
+	case GCP:
+		return &GCPProvider{
+			HttpClient: httpClient,
+		}
+	case AWS:
+		return &AWSProvider{
+			HttpClient: httpClient,
+			Host:       host,
+		}
+	}
+
+	return nil
+}
+
+// Temporary workload credentials used for cloud provider authentication and accessing cloud provider services.
 type Credentials struct {
 	Username string
 	Password string
-}
-
-type GoogleProvider struct {
-	HttpClient http.Client
-}
-
-func (provider *GoogleProvider) FetchCredentials() (*Credentials, error) {
-	req, err := http.NewRequest(http.MethodGet, GoogleMetadataServerTokenEndpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Metadata-Flavor", "Google")
-
-	response, err := provider.HttpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(
-			"%w: got status code %d from gke metadata server",
-			ErrUnexpectedResponse,
-			response.StatusCode,
-		)
-	}
-
-	var token GoogleToken
-	if err := json.NewDecoder(response.Body).Decode(&token); err != nil {
-		return nil, err
-	}
-
-	return &Credentials{
-		Username: "oauth2accesstoken",
-		Password: token.AccessToken,
-	}, nil
 }

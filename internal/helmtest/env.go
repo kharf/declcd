@@ -33,6 +33,7 @@ import (
 	"github.com/kharf/declcd/internal/cloudtest"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/ocitest"
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	"gotest.tools/v3/assert"
@@ -53,15 +54,23 @@ type projectOption struct {
 
 var _ Option = (*projectOption)(nil)
 
-func (opt projectOption) apply(opts *options) {
+func (opt projectOption) Apply(opts *options) {
 	opts.project = opt
+}
+
+type enabled bool
+
+var _ Option = (*enabled)(nil)
+
+func (opt enabled) Apply(opts *options) {
+	opts.enabled = bool(opt)
 }
 
 type oci bool
 
 var _ Option = (*oci)(nil)
 
-func (opt oci) apply(opts *options) {
+func (opt oci) Apply(opts *options) {
 	opts.oci = bool(opt)
 }
 
@@ -69,18 +78,32 @@ type private bool
 
 var _ Option = (*private)(nil)
 
-func (opt private) apply(opts *options) {
+func (opt private) Apply(opts *options) {
 	opts.private = bool(opt)
 }
 
+type provider cloud.ProviderID
+
+var _ Option = (*provider)(nil)
+
+func (opt provider) Apply(opts *options) {
+	opts.cloudProviderID = cloud.ProviderID(opt)
+}
+
 type options struct {
-	oci     bool
-	private bool
-	project projectOption
+	enabled         bool
+	oci             bool
+	private         bool
+	project         projectOption
+	cloudProviderID cloud.ProviderID
 }
 
 type Option interface {
-	apply(*options)
+	Apply(*options)
+}
+
+func Enabled(isEnabled bool) enabled {
+	return enabled(isEnabled)
 }
 
 func WithOCI(enabled bool) oci {
@@ -101,6 +124,10 @@ func WithProject(
 		testProject: testProject,
 		testRoot:    testRoot,
 	}
+}
+
+func WithProvider(providerID cloud.ProviderID) provider {
+	return provider(providerID)
 }
 
 type Server interface {
@@ -140,7 +167,7 @@ func (r *yamlBasedRepository) URL() string {
 type Environment struct {
 	HelmConfig       action.Configuration
 	ChartServer      Server
-	CloudEnvironment *cloudtest.Environment
+	CloudEnvironment cloudtest.Environment
 	chartArchives    []*os.File
 }
 
@@ -158,11 +185,19 @@ func (env Environment) Close() {
 
 func StartHelmEnv(t testing.TB, cfg *rest.Config, opts ...Option) Environment {
 	options := &options{
-		oci: false,
+		enabled:         false,
+		private:         false,
+		oci:             false,
+		cloudProviderID: "",
 	}
 	for _, o := range opts {
-		o.apply(options)
+		o.Apply(options)
 	}
+
+	if !options.enabled {
+		return Environment{}
+	}
+
 	helmCfg := action.Configuration{}
 	var helmEnv Environment
 	helmKube.ManagedFieldsManager = project.ControllerName
@@ -194,18 +229,23 @@ func startHelmServer(t testing.TB, options *options) Environment {
 	v1Archive := createChartArchive(t, "test", "1.0.0")
 	v2Archive := createChartArchive(t, "testv2", "2.0.0")
 	var chartServer Server
-	var cloudEnvironment *cloudtest.Environment
+	var cloudEnvironment cloudtest.Environment
 	if options.oci {
 		var err error
 		ociServer, err := ocitest.NewTLSRegistry(t, options.private)
 		assert.NilError(t, err)
-		cloudEnvironment = cloudtest.StartCloudEnvironment(t)
+
+		if options.cloudProviderID != "" {
+			cloudEnvironment = cloudtest.NewCloudEnvironment(t, options.cloudProviderID, ociServer)
+		}
+
 		helmOpts := []helmRegistry.ClientOption{
 			helmRegistry.ClientOptDebug(true),
 			helmRegistry.ClientOptWriter(os.Stderr),
 			helmRegistry.ClientOptHTTPClient(ociServer.Client()),
 			helmRegistry.ClientOptResolver(nil),
 		}
+
 		helmRegistryClient, err := helmRegistry.NewClient(helmOpts...)
 		assert.NilError(t, err)
 		v1Bytes, err := os.ReadFile(v1Archive.Name())
