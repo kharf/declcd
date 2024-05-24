@@ -17,6 +17,7 @@ package build
 import (
 	"context"
 	"path/filepath"
+	"time"
 
 	"dagger.io/dagger"
 )
@@ -51,7 +52,8 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 		return nil, err
 	}
 	prepareTest := testBase.WithWorkdir(workDir).
-		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath))
+		WithEnvVariable("KUBEBUILDER_ASSETS", filepath.Join(workDir, apiServerPath)).
+		WithEnvVariable("CACHEBUSTER", time.Now().String())
 	var test *dagger.Container
 	if t.ID == TestAllArg {
 		test = prepareTest.

@@ -93,11 +93,10 @@ func RunWith(steps ...step) error {
 			return err
 		}
 		if stepResult.container != nil {
-			output, err := stepResult.container.Stderr(ctx)
+			_, err := stepResult.container.Stderr(ctx)
 			if err != nil {
 				return err
 			}
-			fmt.Println(output)
 			latestContainer = stepResult.container
 		}
 		fmt.Println("\033[32m", strings.ToUpper(step.name())+" passed!")

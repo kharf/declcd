@@ -37,15 +37,17 @@ func run() error {
 	}
 	defer client.Close()
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
-	updateContainer := client.Container().
-		From("renovate/renovate:37.375-full").
-		WithDefaultArgs([]string{"kharf/declcd"}).
-		WithEnvVariable("LOG_LEVEL", "DEBUG").
-		WithSecretVariable("RENOVATE_TOKEN", pat)
-	output, err := updateContainer.Stderr(ctx)
+	_, err = client.Container().
+		From("node:20.13.1-alpine").
+		WithEnvVariable("LOG_LEVEL", "INFO").
+		WithSecretVariable("RENOVATE_TOKEN", pat).
+		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
+		WithExec([]string{"apk", "add", "--no-cache", "git", "go"}).
+		WithExec([]string{"sh", "-c", "npm install -g renovate"}).
+		WithExec([]string{"renovate"}).
+		Sync(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Println(output)
 	return nil
 }
