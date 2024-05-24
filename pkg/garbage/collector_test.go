@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
@@ -254,7 +255,13 @@ func TestCollector_Collect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env := projecttest.StartProjectEnv(
 				t,
-				projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+				projecttest.WithKubernetes(
+					kubetest.WithHelm(
+						helmtest.Enabled(true),
+						helmtest.WithOCI(false),
+						helmtest.WithPrivate(false),
+					),
+				),
 			)
 			defer env.Stop()
 
@@ -450,7 +457,13 @@ var errResult error
 func BenchmarkCollector_Collect(b *testing.B) {
 	env := projecttest.StartProjectEnv(
 		b,
-		projecttest.WithKubernetes(kubetest.WithHelm(true, false, false)),
+		projecttest.WithKubernetes(
+			kubetest.WithHelm(
+				helmtest.Enabled(true),
+				helmtest.WithOCI(false),
+				helmtest.WithPrivate(false),
+			),
+		),
 	)
 	defer env.Stop()
 	dag := component.NewDependencyGraph()

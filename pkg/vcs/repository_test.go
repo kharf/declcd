@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/kharf/declcd/internal/gittest"
+	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/kube"
@@ -43,7 +44,11 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithHelm(false, false, false),
+						kubetest.WithHelm(
+							helmtest.Enabled(false),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
 						kubetest.WithVCSSSHKeyCreated(),
 					),
 				)
@@ -63,7 +68,11 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithHelm(false, false, false),
+						kubetest.WithHelm(
+							helmtest.Enabled(false),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
 						kubetest.WithVCSSSHKeyCreated(),
 					),
 				)
@@ -89,7 +98,11 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithHelm(false, false, false),
+						kubetest.WithHelm(
+							helmtest.Enabled(false),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
 					),
 				)
 				defer env.Stop()
@@ -231,7 +244,13 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			pre: func() projecttest.Environment {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithProjectSource("empty"),
-					projecttest.WithKubernetes(kubetest.WithHelm(false, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(false),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
@@ -252,7 +271,13 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			pre: func() projecttest.Environment {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithProjectSource("empty"),
-					projecttest.WithKubernetes(kubetest.WithHelm(false, false, false)),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(false),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+					),
 				)
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,

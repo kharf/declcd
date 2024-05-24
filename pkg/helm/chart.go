@@ -50,7 +50,6 @@ import (
 )
 
 var (
-	ErrEmptyAuthSecret         = errors.New("Auth secret is empty")
 	ErrAuthSecretValueNotFound = errors.New("Auth secret value not found")
 )
 
@@ -263,9 +262,9 @@ type driftType string
 
 const (
 	driftTypeConflict driftType = "conflict"
-	driftTypeDeleted            = "deleted"
-	driftTypeUpdate             = "update"
-	driftTypeNone               = "none"
+	driftTypeDeleted  driftType = "deleted"
+	driftTypeUpdate   driftType = "update"
+	driftTypeNone     driftType = "none"
 )
 
 func (c *ChartReconciler) diff(
@@ -496,46 +495,43 @@ func (c *ChartReconciler) pull(
 		pull.SetRegistryClient(registryClient)
 
 		if chartRequest.Auth != nil {
+			host, _ := strings.CutPrefix(chartRequest.RepoURL, "oci://")
+
+			var creds *cloud.Credentials
 			if chartRequest.Auth.WorkloadIdentity != nil {
-				var creds *cloud.Credentials
-				switch chartRequest.Auth.WorkloadIdentity.Provider {
-				case "gcp":
-					provider := &cloud.GoogleProvider{}
-					creds, err = provider.FetchCredentials()
-					if err != nil {
-						return err
-					}
-				}
-				host, _ := strings.CutPrefix(chartRequest.RepoURL, "oci://")
-				if err := registryClient.Login(
+				provider := cloud.GetProvider(
+					cloud.ProviderID(chartRequest.Auth.WorkloadIdentity.Provider),
 					host,
-					registry.LoginOptBasicAuth(creds.Username, creds.Password),
-				); err != nil {
-					return err
-				}
-			} else {
-				creds, err := c.retrieveCredentials(ctx, chartRequest, false)
+					httpClient,
+				)
+				creds, err = provider.FetchCredentials(ctx)
 				if err != nil {
 					return err
 				}
-				if err := registryClient.Login(
-					creds.host,
-					registry.LoginOptBasicAuth(creds.username, creds.password),
-				); err != nil {
+			} else {
+				creds, err = c.readCredentialsFromSecret(ctx, chartRequest)
+				if err != nil {
 					return err
 				}
+			}
+
+			if err := registryClient.Login(
+				host,
+				registry.LoginOptBasicAuth(creds.Username, creds.Password),
+			); err != nil {
+				return err
 			}
 		}
 
 		chartRef = fmt.Sprintf("%s/%s", chartRequest.RepoURL, chartRequest.Name)
 	} else {
 		if chartRequest.Auth != nil {
-			creds, err := c.retrieveCredentials(ctx, chartRequest, true)
+			creds, err := c.readCredentialsFromSecret(ctx, chartRequest)
 			if err != nil {
 				return err
 			}
-			pull.Username = creds.username
-			pull.Password = creds.password
+			pull.Username = creds.Username
+			pull.Password = creds.Password
 		}
 
 		pull.RepoURL = chartRequest.RepoURL
@@ -556,17 +552,14 @@ func (c *ChartReconciler) pull(
 	return nil
 }
 
-type creds struct {
-	username string
-	password string
-	host     string
-}
-
-func (c *ChartReconciler) retrieveCredentials(
+func (c *ChartReconciler) readCredentialsFromSecret(
 	ctx context.Context,
 	chartRequest Chart,
-	optionalHost bool,
-) (*creds, error) {
+) (*cloud.Credentials, error) {
+	if chartRequest.Auth.SecretRef == nil {
+		return nil, fmt.Errorf("%w: secretRef not set", ErrAuthSecretValueNotFound)
+	}
+
 	secretReq := &unstructured.Unstructured{}
 	secretReq.SetKind("Secret")
 	secretReq.SetAPIVersion("v1")
@@ -578,17 +571,13 @@ func (c *ChartReconciler) retrieveCredentials(
 	}
 
 	data, found := secret.Object["data"].(map[string]interface{})
-	var username, password, host string
+	var username, password string
 	if found {
 		username, err = getSecretValue(data, "username", false)
 		if err != nil {
 			return nil, err
 		}
 		password, err = getSecretValue(data, "password", false)
-		if err != nil {
-			return nil, err
-		}
-		host, err = getSecretValue(data, "host", optionalHost)
 		if err != nil {
 			return nil, err
 		}
@@ -599,13 +588,11 @@ func (c *ChartReconciler) retrieveCredentials(
 		}
 		username = stringData["username"]
 		password = stringData["password"]
-		host = stringData["host"]
 	}
 
-	return &creds{
-		username: username,
-		password: password,
-		host:     host,
+	return &cloud.Credentials{
+		Username: username,
+		Password: password,
 	}, nil
 }
 

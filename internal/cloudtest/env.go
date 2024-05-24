@@ -15,62 +15,56 @@
 package cloudtest
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
-	"encoding/json"
+	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/cloud"
 	"gotest.tools/v3/assert"
 )
 
-type Environment struct {
-	HttpsServer *httptest.Server
-	Client      *http.Client
+// A test Cloud Environment imitating either AWS, GCP or Azure Workload Identity auth.
+type Environment interface {
+	Close()
 }
 
-func (env *Environment) Close() {
-	if env.HttpsServer != nil {
-		env.HttpsServer.Close()
+func NewCloudEnvironment(
+	t testing.TB,
+	provider cloud.ProviderID,
+	registry *ocitest.Registry,
+) Environment {
+	switch provider {
+	case cloud.GCP:
+		return NewGCPEnvironment(t)
+	case cloud.AWS:
+		return NewAWSEnvironment(t, registry)
 	}
+
+	return nil
 }
 
-func StartCloudEnvironment(t testing.TB) *Environment {
-	mux := http.NewServeMux()
-	mux.HandleFunc(
-		"GET /computeMetadata/v1/instance/service-accounts/default/token",
-		func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(200)
-			token := &cloud.GoogleToken{
-				AccessToken: "aaaa",
-				ExpiresIn:   10 * 60,
-				TokenType:   "bearer",
-			}
-			err := json.NewEncoder(w).Encode(token)
-			assert.NilError(t, err)
-		},
-	)
+func newUnstartedServerFromEndpoint(
+	t testing.TB,
+	endpoint string,
+	port string,
+	mux *http.ServeMux,
+) *httptest.Server {
+	url, err := url.Parse(endpoint)
+	assert.NilError(t, err)
 
-	googleEndpointURL, err := url.Parse(cloud.GoogleMetadataServerTokenEndpoint)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", url.Hostname()+":"+port)
 	assert.NilError(t, err)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", googleEndpointURL.Hostname()+":80")
-	assert.NilError(t, err)
+
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	assert.NilError(t, err)
-	addr := googleEndpointURL.Hostname() + ":80"
+
+	addr := url.Hostname() + ":" + port
 
 	httpsServer := httptest.NewUnstartedServer(mux)
 	httpsServer.Config.Addr = addr
 	httpsServer.Listener = listener
-	httpsServer.Start()
-	fmt.Println("Metadata Server listening on ", httpsServer.URL)
-
-	client := httpsServer.Client()
-	return &Environment{
-		HttpsServer: httpsServer,
-		Client:      client,
-	}
+	return httpsServer
 }
