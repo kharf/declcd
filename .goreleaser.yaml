@@ -17,7 +17,7 @@ builds:
     id: cli
     binary: declcd
     ldflags:
-      - -s -w -X "main.Version={{.Version}}"
+      - -s -w -X "main.Version={{.Version}}" -X "main.OS={{.Os}}" -X "main.Arch={{.Arch}}"
     env:
       - CGO_ENABLED=0
     goos:

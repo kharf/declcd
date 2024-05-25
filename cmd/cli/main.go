@@ -34,6 +34,8 @@ import (
 )
 
 var Version string
+var OS string
+var Arch string
 
 func main() {
 	cfg, err := initCliConfig()
@@ -55,6 +57,7 @@ func main() {
 type RootCommandBuilder struct {
 	initCommandBuilder    InitCommandBuilder
 	verifyCommandBuilder  VerifyCommandBuilder
+	versionCommandBuilder VersionCommandBuilder
 	installCommandBuilder InstallCommandBuilder
 	encryptCommandBuilder EncryptCommandBuilder
 }
@@ -66,6 +69,7 @@ func (builder RootCommandBuilder) Build() *cobra.Command {
 	}
 	rootCmd.AddCommand(builder.initCommandBuilder.Build())
 	rootCmd.AddCommand(builder.verifyCommandBuilder.Build())
+	rootCmd.AddCommand(builder.versionCommandBuilder.Build())
 	rootCmd.AddCommand(builder.installCommandBuilder.Build())
 	rootCmd.AddCommand(builder.encryptCommandBuilder.Build())
 	return &rootCmd
@@ -108,6 +112,22 @@ func (builder VerifyCommandBuilder) Build() *cobra.Command {
 			)
 			_, err = projectManager.Load(cwd)
 			return err
+		},
+	}
+	return cmd
+}
+
+type VersionCommandBuilder struct{}
+
+func (builder VersionCommandBuilder) Build() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print declcd version",
+		Args:  cobra.MinimumNArgs(0),
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			fmt.Printf("declcd v%s\n", Version)
+			fmt.Printf("on %s_%s\n", OS, Arch)
+			return nil
 		},
 	}
 	return cmd
@@ -192,7 +212,6 @@ func initCliConfig() (*viper.Viper, error) {
 }
 
 func initCli(cliConfig *viper.Viper) (*RootCommandBuilder, error) {
-	installCmd := InstallCommandBuilder{}
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -201,7 +220,6 @@ func initCli(cliConfig *viper.Viper) (*RootCommandBuilder, error) {
 		secretEncrypter: secret.NewEncrypter(wd),
 	}
 	rootCmd := RootCommandBuilder{
-		installCommandBuilder: installCmd,
 		encryptCommandBuilder: encryptCommand,
 	}
 	return &rootCmd, nil
