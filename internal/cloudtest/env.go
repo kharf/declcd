@@ -41,6 +41,8 @@ func NewCloudEnvironment(
 		return NewGCPEnvironment(t)
 	case cloud.AWS:
 		return NewAWSEnvironment(t, registry)
+	case cloud.Azure:
+		return NewAzureEnvironment(t, registry)
 	}
 
 	return nil

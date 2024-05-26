@@ -232,7 +232,11 @@ func startHelmServer(t testing.TB, options *options) Environment {
 	var cloudEnvironment cloudtest.Environment
 	if options.oci {
 		var err error
-		ociServer, err := ocitest.NewTLSRegistry(t, options.private)
+		ociServer, err := ocitest.NewTLSRegistry(
+			t,
+			options.private,
+			string(options.cloudProviderID),
+		)
 		assert.NilError(t, err)
 
 		if options.cloudProviderID != "" {
