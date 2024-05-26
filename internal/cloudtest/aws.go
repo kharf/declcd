@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	AWS_API_ECR_HOST  = "api.ecr.eu-north-1.amazonaws.com"
-	AWS_REGISTRY_HOST = "account-id.dkr.ecr.eu-north-1.amazonaws.com"
+	AWSApiECRHost   = "api.ecr.eu-north-1.amazonaws.com"
+	AWSRegistryHost = "account-id.dkr.ecr.eu-north-1.amazonaws.com"
 )
 
 // A test Cloud Environment imitating AWS Pod Identity Agents and ECR auth.
@@ -123,7 +123,7 @@ func NewAWSEnvironment(
 	)
 	ecrTokenServer := newUnstartedServerFromEndpoint(
 		t,
-		fmt.Sprintf("https://%s", AWS_API_ECR_HOST),
+		fmt.Sprintf("https://%s", AWSApiECRHost),
 		"443",
 		ecrTokenServerMux,
 	)
@@ -139,7 +139,7 @@ func NewAWSEnvironment(
 	)
 	ecrServer := newUnstartedServerFromEndpoint(
 		t,
-		fmt.Sprintf("https://%s", AWS_REGISTRY_HOST),
+		fmt.Sprintf("https://%s", AWSRegistryHost),
 		"0",
 		ecrMux,
 	)
@@ -148,7 +148,7 @@ func NewAWSEnvironment(
 	ecrServer.URL = strings.Replace(
 		ecrServer.URL,
 		"https://127.0.0.1",
-		fmt.Sprintf("oci://%s", AWS_REGISTRY_HOST),
+		fmt.Sprintf("oci://%s", AWSRegistryHost),
 		1,
 	)
 	fmt.Println("ECR Server listening on", ecrServer.URL)

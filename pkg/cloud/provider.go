@@ -51,6 +51,11 @@ func GetProvider(providerID ProviderID, host string, httpClient *http.Client) Pr
 			HttpClient: httpClient,
 			Host:       host,
 		}
+	case Azure:
+		return &AzureProvider{
+			HttpClient: httpClient,
+			Host:       host,
+		}
 	}
 
 	return nil
