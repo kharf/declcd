@@ -34,7 +34,7 @@ type GoogleToken struct {
 	TokenType   string `json:"token_type"`
 }
 
-// GCPProvider is the dedicated provider for accessing google cloud services.
+// GCPProvider is the dedicated provider for accessing Google Cloud services.
 type GCPProvider struct {
 	HttpClient *http.Client
 }
