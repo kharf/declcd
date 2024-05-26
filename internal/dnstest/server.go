@@ -46,10 +46,13 @@ func NewDNSServer() (*DNSServer, error) {
 		"metadata.google.internal.": {
 			A: []string{"127.0.0.1"},
 		},
-		fmt.Sprintf("%s.", cloudtest.AWS_REGISTRY_HOST): {
+		fmt.Sprintf("%s.", cloudtest.AWSRegistryHost): {
 			A: []string{"127.0.0.1"},
 		},
-		fmt.Sprintf("%s.", cloudtest.AWS_API_ECR_HOST): {
+		fmt.Sprintf("%s.", cloudtest.AWSApiECRHost): {
+			A: []string{"127.0.0.1"},
+		},
+		fmt.Sprintf("%s.", cloudtest.AzureAuthHost): {
 			A: []string{"127.0.0.1"},
 		},
 	},
