@@ -125,8 +125,7 @@ func (builder VersionCommandBuilder) Build() *cobra.Command {
 		Short: "Print declcd version",
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			fmt.Printf("declcd v%s\n", Version)
-			fmt.Printf("on %s_%s\n", OS, Arch)
+			fmt.Printf("declcd v%s\non %s_%s\n", Version, OS, Arch)
 			return nil
 		},
 	}
