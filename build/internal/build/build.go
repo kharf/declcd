@@ -59,7 +59,10 @@ func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, erro
 	}, nil
 }
 
-type Publish string
+type Publish struct {
+	Version     string
+	PreviousTag string
+}
 
 var _ step = (*Publish)(nil)
 
@@ -71,7 +74,7 @@ func (p Publish) name() string {
 var goreleaserDep = "github.com/goreleaser/goreleaser@v1.26.1"
 
 func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, error) {
-	reqVersion := string(p)
+	reqVersion := p.Version
 	var prefixedVersion string
 	var version string
 	if !strings.HasPrefix(reqVersion, "v") {
@@ -85,7 +88,7 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 	token := request.client.SetSecret("token", os.Getenv("GITHUB_TOKEN"))
 
 	bin := filepath.Join(workDir, localBin)
-	publish, err := request.container.
+	publish := request.container.
 		WithoutEnvVariable("GOOS").
 		WithoutEnvVariable("GOARCH").
 		WithExec([]string{"go", "install", cueDep}).
@@ -106,7 +109,13 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 			},
 		).
 		WithExec([]string{"git", "tag", prefixedVersion}).
-		WithExec([]string{"git", "push", "origin", prefixedVersion}).
+		WithExec([]string{"git", "push", "origin", prefixedVersion})
+
+	if p.PreviousTag != "" {
+		publish = publish.WithEnvVariable("GORELEASER_PREVIOUS_TAG", p.PreviousTag)
+	}
+
+	publish, err := publish.
 		WithExec([]string{"goreleaser", "release", "--clean", "--skip=validate"}).Sync(ctx)
 	if err != nil {
 		return nil, err

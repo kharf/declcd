@@ -28,9 +28,17 @@ func main() {
 		os.Exit(1)
 	}
 	version := args[0]
+	var prevTag string
+	if len(args) > 1 {
+		prevTag = args[1]
+	}
+
 	if err := build.RunWith(
 		build.TestAll,
-		build.Publish(version),
+		build.Publish{
+			Version:     version,
+			PreviousTag: prevTag,
+		},
 	); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
