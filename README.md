@@ -7,7 +7,7 @@
   </p>
   <p>
 		<img src="https://img.shields.io/github/actions/workflow/status/kharf/declcd/test.yaml"/>
-		<img src="https://goreportcard.com/badge/github.com/kharf/declcd"/>
+		<a href="https://goreportcard.com/report/github.com/kharf/declcd"><img src="https://goreportcard.com/badge/github.com/kharf/declcd"/></a>
   </p>
 </div>
 <br>
