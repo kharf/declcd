@@ -121,6 +121,11 @@ workflows: [
 							description: "version to be released"
 							required:    true
 						}
+						"prev-version": {
+							description: "previous version to use to calculate the changelog diff from"
+							required:    false
+							default:     ""
+						}
 					}
 				}
 			}
@@ -136,7 +141,7 @@ workflows: [
 					#setupGo,
 					#pipeline & {
 						name: "Publish Pipeline"
-						run:  "go run cmd/publish/main.go ${{ inputs.version }}"
+						run:  "go run cmd/publish/main.go ${{ inputs.version }} ${{ inputs.prev-version }}"
 						env: {
 							GITHUB_TOKEN: "${{ secrets.PAT }}"
 						}
