@@ -125,11 +125,13 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	for _, o := range opts {
 		o.Apply(&instOpts)
 	}
+
 	var projectBuf bytes.Buffer
 	projectTmpl, err := template.New("").Parse(manifest.Project)
 	if err != nil {
 		return err
 	}
+
 	if err := projectTmpl.Execute(&projectBuf, map[string]interface{}{
 		"Name":                instOpts.name,
 		"Namespace":           instOpts.namespace,
@@ -139,10 +141,12 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	}); err != nil {
 		return err
 	}
+
 	declcdDir := filepath.Join(act.projectRoot, "declcd")
 	if err := os.WriteFile(filepath.Join(declcdDir, "project.cue"), projectBuf.Bytes(), 0666); err != nil {
 		return err
 	}
+
 	instances, err := act.componentBuilder.Build(
 		component.WithPackagePath("./declcd"),
 		component.WithProjectRoot(act.projectRoot),
@@ -150,14 +154,17 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	if err != nil {
 		return err
 	}
+
 	dag := component.NewDependencyGraph()
 	if err := dag.Insert(instances...); err != nil {
 		return err
 	}
+
 	instances, err = dag.TopologicalSort()
 	if err != nil {
 		return err
 	}
+
 	for _, instance := range instances {
 		manifest, ok := instance.(*component.Manifest)
 		if !ok {
@@ -167,6 +174,7 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 			return err
 		}
 	}
+
 	repoConfigurator, err := vcs.NewRepositoryConfigurator(
 		instOpts.namespace,
 		act.kubeClient,
@@ -177,12 +185,15 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	if err != nil {
 		return err
 	}
+
 	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, project.ControllerName); err != nil {
 		return err
 	}
+
 	if err := secret.NewManager(act.projectRoot, instOpts.namespace, act.kubeClient, 1).CreateKeyIfNotExists(ctx, project.ControllerName); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -193,12 +204,9 @@ func (act Action) installObject(
 ) error {
 	kind, _ := unstr.Object["kind"].(string)
 	if kind == "GitOpsProject" {
-		// clear cache because we just introduced a new crd
-		if err := act.kubeClient.Invalidate(); err != nil {
-			return err
-		}
 		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
+
 		var err error
 		for {
 			select {
@@ -206,14 +214,22 @@ func (act Action) installObject(
 				return fmt.Errorf("%w: %w", ctx.Err(), err)
 			default:
 			}
+
+			// clear cache because we just introduced a new crd
+			if err := act.kubeClient.Invalidate(); err != nil {
+				return err
+			}
+
 			err = act.kubeClient.Apply(ctx, unstr, fieldManager)
 			if err == nil {
 				return nil
 			}
+
 			if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
 				return err
 			}
-			time.Sleep(1 * time.Second)
+
+			time.Sleep(2 * time.Second)
 		}
 	}
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
