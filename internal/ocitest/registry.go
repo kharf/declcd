@@ -37,6 +37,7 @@ import (
 	"cuelang.org/go/mod/modzip"
 	"gotest.tools/v3/assert"
 
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/otiai10/copy"
 )
 
@@ -76,7 +77,7 @@ func (r *Registry) Close() {
 // In order to test OCI with a HTTPS server, we have to supply a "fake" host.
 // We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
 // All OCI tests have to use declcd.io as host.
-func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
+func NewTLSRegistry(t testing.TB, private bool, cloudProviderID string) (*Registry, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
 	if err != nil {
 		return nil, err
@@ -89,9 +90,28 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 	addr := "declcd.io:" + strconv.Itoa(port)
 	registry := ocimem.New()
 	ociHandler := ociserver.New(registry, nil)
-	httpsServer := httptest.NewUnstartedServer(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// login endpoint
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"POST /oauth2/exchange",
+		func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			assert.NilError(t, err)
+			assert.Equal(
+				t,
+				string(body),
+				"access_token=nottheacrtoken&grant_type=access_token&service=declcd.io%3A"+strconv.Itoa(
+					port,
+				)+"&tenant=tenant",
+			)
+
+			w.WriteHeader(200)
+			_, err = w.Write([]byte(`{"refresh_token": "aaaa"}`))
+			assert.NilError(t, err)
+		},
+	)
+	mux.HandleFunc(
+		"/v2/",
+		func(w http.ResponseWriter, r *http.Request) {
 			if private {
 				if r.URL.Path == "/v2/" {
 					auth, found := r.Header["Authorization"]
@@ -107,22 +127,31 @@ func NewTLSRegistry(t testing.TB, private bool) (*Registry, error) {
 					credsBytes, err := base64.StdEncoding.DecodeString(credsBase64)
 					assert.NilError(t, err)
 					creds := string(credsBytes)
-					if strings.HasPrefix(creds, "oauth2accesstoken:") {
-						assert.Equal(t, creds, "oauth2accesstoken:aaaa")
-					} else {
-						assert.Equal(t, creds, "declcd:abcd")
+
+					var expectedCreds string
+					switch cloudProviderID {
+					case string(cloud.GCP):
+						expectedCreds = "oauth2accesstoken:aaaa"
+					case string(cloud.Azure):
+						expectedCreds = "00000000-0000-0000-0000-000000000000:aaaa"
+					default:
+						expectedCreds = "declcd:abcd"
 					}
+					assert.Equal(t, creds, expectedCreds)
 				}
 			}
 
 			ociHandler.ServeHTTP(w, r)
-		}),
+		},
 	)
+	httpsServer := httptest.NewUnstartedServer(mux)
 	httpsServer.Config.Addr = addr
 	httpsServer.Listener = listener
 	httpsServer.StartTLS()
+
 	fmt.Println("TLS Registry listening on", httpsServer.URL)
 	client := httpsServer.Client()
+
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
@@ -149,7 +178,7 @@ func StartCUERegistry(
 	t testing.TB,
 	testRoot string,
 ) *Registry {
-	cueModuleRegistry, err := NewTLSRegistry(t, false)
+	cueModuleRegistry, err := NewTLSRegistry(t, false, "")
 	assert.NilError(t, err)
 	ociClient := cueModuleRegistry.OCIClient()
 	modDir, err := os.MkdirTemp(testRoot, "")

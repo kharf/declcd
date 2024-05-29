@@ -342,7 +342,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					"1.0.0",
 					&Auth{
 						WorkloadIdentity: &WorkloadIdentity{
-							Provider: "gcp",
+							Provider: string(cloud.GCP),
 						},
 					},
 					Values{},
@@ -376,7 +376,38 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					"1.0.0",
 					&Auth{
 						WorkloadIdentity: &WorkloadIdentity{
-							Provider: "aws",
+							Provider: string(cloud.AWS),
+						},
+					},
+					Values{},
+				)
+				return env, release, defaultAssertionFunc(release)
+			},
+			post: func(env projecttest.Environment, reconciler ChartReconciler, releaseDeclaration helm.ReleaseDeclaration) {
+			},
+		},
+		{
+			name: "OCI-Azure-Workload-Identity-Auth",
+			pre: func() (projecttest.Environment, helm.ReleaseDeclaration, assertFunc) {
+				env := projecttest.StartProjectEnv(
+					t,
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(true),
+							helmtest.WithProvider(cloud.Azure),
+						),
+					),
+				)
+
+				release := createReleaseDeclaration(
+					"default",
+					env.HelmEnv.ChartServer.URL(),
+					"1.0.0",
+					&Auth{
+						WorkloadIdentity: &WorkloadIdentity{
+							Provider: string(cloud.Azure),
 						},
 					},
 					Values{},
