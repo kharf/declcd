@@ -1,11 +1,11 @@
 package subcomponent
 
 import (
-	"github.com/kharf/declcd/schema@v0"
+	"github.com/kharf/declcd/schema/component"
 	"github.com/kharf/declcd/test/testdata/simple/infra/prometheus"
 )
 
-deployment: schema.#Manifest & {
+deployment: component.#Manifest & {
 	dependencies: [
 		prometheus.ns.id,
 	]

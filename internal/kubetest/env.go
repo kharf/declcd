@@ -201,12 +201,15 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 
 	client, err := kube.NewDynamicClient(testEnv.Config)
 	assert.NilError(t, err)
+
 	inventoryPath, err := os.MkdirTemp(options.project.testRoot, "inventory-*")
 	assert.NilError(t, err)
+
 	invManager := &inventory.Manager{
 		Log:  log,
 		Path: inventoryPath,
 	}
+
 	gc := garbage.Collector{
 		Log:              log,
 		Client:           client,
@@ -226,6 +229,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	}
 	err = testClient.Create(ctx, &declNs)
 	assert.NilError(t, err)
+
 	if options.decryptionKeyCreated {
 		privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
 		decSec := corev1.Secret{
@@ -244,6 +248,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 		err = testClient.Create(ctx, &decSec)
 		assert.NilError(t, err)
 	}
+
 	if options.vcsSSHKeyCreated {
 		sec := corev1.Secret{
 			TypeMeta: v1.TypeMeta{
@@ -270,13 +275,16 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		err = testClient.Create(ctx, &sec)
 		assert.NilError(t, err)
 	}
+
 	manager := secret.NewManager(
 		options.project.testProject,
 		nsStr,
 		client,
 		goRuntime.GOMAXPROCS(0),
 	)
+
 	repositoryManger := vcs.NewRepositoryManager("test", client, log)
+
 	return &Environment{
 		ControlPlane:          testEnv,
 		ControllerManager:     mgr,

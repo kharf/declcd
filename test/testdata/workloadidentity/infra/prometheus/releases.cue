@@ -2,13 +2,12 @@ package prometheus
 
 import (
 	"github.com/kharf/declcd/schema/component"
-	"github.com/kharf/declcd/test/testdata/simple/infra/linkerd"
+	"github.com/kharf/declcd/schema/workloadidentity"
 )
 
 release: component.#HelmRelease & {
 	dependencies: [
 		ns.id,
-		linkerd.ns.id,
 	]
 	name:      "{{.Name}}"
 	namespace: #namespace.metadata.name
@@ -16,6 +15,7 @@ release: component.#HelmRelease & {
 		name:    "test"
 		repoURL: "{{.RepoUrl}}"
 		version: "{{.Version}}"
+		auth:    workloadidentity.#Azure
 	}
 	values: {
 		autoscaling: enabled: true

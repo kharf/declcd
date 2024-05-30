@@ -1,11 +1,11 @@
 package infrastructure
 
 import (
-	"github.com/kharf/declcd/schema@v0"
+	"github.com/kharf/declcd/schema/component"
 	corev1 "k8s.io/api/core/v1"
 )
 
-ns: schema.#Manifest & {
+ns: component.#Manifest & {
 	content: corev1.#Namespace & {
 		apiVersion: "v1"
 		kind:       "Namespace"
@@ -15,7 +15,7 @@ ns: schema.#Manifest & {
 	}
 }
 
-prometheusStack: schema.#HelmRelease & {
+prometheusStack: component.#HelmRelease & {
 	dependencies: [
 		ns.id,
 	]

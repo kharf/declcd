@@ -112,6 +112,53 @@ func TestBuilder_Build(t *testing.T) {
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
+				&HelmRelease{
+					ID: "test-secret-ref_prometheus_HelmRelease",
+					Content: helm.ReleaseDeclaration{
+						Name:      "{{.Name}}",
+						Namespace: "prometheus",
+						Chart: helm.Chart{
+							Name:    "test",
+							RepoURL: "oci://test",
+							Version: "test",
+							Auth: &helm.Auth{
+								SecretRef: &helm.SecretRef{
+									Name:      "test-secret-ref",
+									Namespace: "namespace",
+								},
+							},
+						},
+						Values: helm.Values{
+							"autoscaling": map[string]interface{}{
+								"enabled": true,
+							},
+						},
+					},
+					Dependencies: []string{"prometheus___Namespace"},
+				},
+				&HelmRelease{
+					ID: "test-workload-identity_prometheus_HelmRelease",
+					Content: helm.ReleaseDeclaration{
+						Name:      "{{.Name}}",
+						Namespace: "prometheus",
+						Chart: helm.Chart{
+							Name:    "test",
+							RepoURL: "oci://test",
+							Version: "test",
+							Auth: &helm.Auth{
+								WorkloadIdentity: &helm.WorkloadIdentity{
+									Provider: "gcp",
+								},
+							},
+						},
+						Values: helm.Values{
+							"autoscaling": map[string]interface{}{
+								"enabled": true,
+							},
+						},
+					},
+					Dependencies: []string{"prometheus___Namespace"},
+				},
 			},
 			expectedErr: "",
 		},
@@ -177,6 +224,13 @@ func TestBuilder_Build(t *testing.T) {
 			packagePath:       "./infra/wrongprefixreleasecharturlwithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.repoURL: 3 errors in empty disjunction: (and 3 more errors)",
+		},
+		{
+			name:              "ConflictingChartAuth",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			packagePath:       "./infra/conflictingchartauth",
+			expectedInstances: []Instance{},
+			expectedErr:       "release.chart.auth: 2 errors in empty disjunction: (and 2 more errors)",
 		},
 	}
 	for _, tc := range testCases {
