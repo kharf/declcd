@@ -70,7 +70,7 @@ Declcd Components effectively describe the desired cluster state and currently e
 A *Manifest* is a typical [Kubernetes Object](https://kubernetes.io/docs/concepts/overview/working-with-objects/), which you would normally describe in yaml format.
 A *HelmRelease* is an instance of a [Helm](https://helm.sh/docs/intro/using_helm/) Chart.
 All Components share the attribute to specify Dependencies to other Components. This helps Declcd to identify the correct order in which to apply all objects onto a Kubernetes cluster.
-See [schema](schema/schema.cue).
+See [schema](schema/component/schema.cue).
 
 > [!IMPORTANT]
 > Dependency relationships are represented in the form of a Directed Acyclic Graph, thus cyclic dependencies lead to errors.
@@ -152,12 +152,12 @@ Edit `infrastructure/prometheus.cue` and add:
 package infrastructure
 
 import (
-	"github.com/kharf/declcd/schema@v0"
+	"github.com/kharf/declcd/schema/component"
 	corev1 "k8s.io/api/core/v1"
 )
 
 // Public Declcd Manifest Component
-ns: schema.#Manifest & {
+ns: component.#Manifest & {
 	content: corev1.#Namespace & {
 		apiVersion: "v1"
 		kind:       "Namespace"
@@ -168,7 +168,7 @@ ns: schema.#Manifest & {
 }
 
 // Public Declcd HelmRelease Component
-prometheusStack: schema.#HelmRelease & {
+prometheusStack: component.#HelmRelease & {
 	dependencies: [
     // Declcd automatically generates ids for Components, which are used for dependency constraints.
 		ns.id,

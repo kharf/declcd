@@ -1,12 +1,12 @@
 package declcd
 
 import (
-	"github.com/kharf/declcd/schema"
+	"github.com/kharf/declcd/schema/component"
 )
 
 _projectName: "{{.Name}}"
 
-project: schema.#Manifest & {
+project: component.#Manifest & {
 	dependencies: [crd.id]
 	content: {
 		apiVersion: "gitops.declcd.io/v1beta1"

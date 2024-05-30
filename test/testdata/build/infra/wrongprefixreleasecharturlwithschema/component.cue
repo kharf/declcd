@@ -1,11 +1,11 @@
 package wrongprefixreleasecharturlwithschema
 
 import (
-	"github.com/kharf/declcd/schema@v0"
+	"github.com/kharf/declcd/schema/component"
 )
 
-release: schema.#HelmRelease & {
-	name: "test"
+release: component.#HelmRelease & {
+	name:      "test"
 	namespace: "test"
 	chart: {
 		name:    "test"

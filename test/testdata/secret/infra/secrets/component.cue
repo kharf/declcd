@@ -1,13 +1,13 @@
 package secrets
 
 import (
-	"github.com/kharf/declcd/schema@v0"
+	"github.com/kharf/declcd/schema/component"
 	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 )
 
 #Namespace: {
 	_name!: string
-	schema.#Manifest & {
+	component.#Manifest & {
 		content: corev1.#Namespace & {
 			apiVersion: "v1"
 			kind:       "Namespace"

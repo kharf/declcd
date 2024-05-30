@@ -1,7 +1,8 @@
-package prometheus
+package conflictingchartauth
 
 import (
 	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/declcd/schema/workloadidentity"
 	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
 )
 
@@ -17,33 +18,21 @@ ns: component.#Manifest & {
 	content: #namespace
 }
 
-secret: component.#Manifest & {
-	dependencies: [
-		ns.id,
-	]
-	content: corev1.#Secret & {
-		apiVersion: "v1"
-		kind:       "Secret"
-		metadata: {
-			name:      "secret"
-			namespace: #namespace.metadata.name
-		}
-		data: {
-			foo: '(enc;value omitted)'
-		}
-	}
-}
-
 release: component.#HelmRelease & {
 	dependencies: [
 		ns.id,
 	]
-	name:      "{{.Name}}"
+	name:      "test-workload-identity"
 	namespace: #namespace.metadata.name
 	chart: {
 		name:    "test"
-		repoURL: "{{.RepoUrl}}"
-		version: "{{.Version}}"
+		repoURL: "oci://test"
+		version: "test"
+		auth:    workloadidentity.#GCP
+		auth: secretRef: {
+			name:      "no"
+			namespace: "no"
+		}
 	}
 	values: {
 		autoscaling: enabled: true

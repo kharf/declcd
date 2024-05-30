@@ -26,6 +26,7 @@ import (
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
@@ -39,206 +40,261 @@ import (
 )
 
 func TestReconciler_Reconcile(t *testing.T) {
-	env := projecttest.StartProjectEnv(t,
-		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(true),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
-			kubetest.WithDecryptionKeyCreated(),
-			kubetest.WithVCSSSHKeyCreated(),
-		),
-	)
-	defer env.Stop()
-	chartReconciler := helm.ChartReconciler{
-		KubeConfig:            env.ControlPlane.Config,
-		Client:                env.DynamicTestKubeClient,
-		FieldManager:          "controller",
-		InventoryManager:      env.InventoryManager,
-		InsecureSkipTLSverify: true,
-		Log:                   env.Log,
-	}
-	reconciler := project.Reconciler{
-		Client:            env.ControllerManager.GetClient(),
-		DynamicClient:     env.DynamicTestKubeClient,
-		ComponentBuilder:  component.NewBuilder(),
-		RepositoryManager: env.RepositoryManager,
-		ProjectManager:    env.ProjectManager,
-		ChartReconciler:   chartReconciler,
-		InventoryManager:  env.InventoryManager,
-		GarbageCollector:  env.GarbageCollector,
-		Log:               env.Log,
-		Decrypter:         env.SecretManager.Decrypter,
-		FieldManager:      project.ControllerName,
-		WorkerPoolSize:    runtime.GOMAXPROCS(0),
-	}
-	suspend := false
-	gProject := gitops.GitOpsProject{
-		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
-			Kind:       "GitOpsProject",
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "reconcile-test",
-			Namespace: "default",
-			UID:       "reconcile-test",
-		},
-		Spec: gitops.GitOpsProjectSpec{
-			URL:                 env.TestProject,
-			PullIntervalSeconds: 5,
-			Suspend:             &suspend,
-		},
-	}
-	result, err := reconciler.Reconcile(env.Ctx, gProject)
-	assert.NilError(t, err)
-	assert.Equal(t, result.Suspended, false)
-	ctx := context.Background()
-	ns := "prometheus"
-	var mysubcomponent appsv1.Deployment
-	err = env.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
-		&mysubcomponent,
-	)
-	assert.NilError(t, err)
-	assert.Equal(t, mysubcomponent.Name, "mysubcomponent")
-	assert.Equal(t, mysubcomponent.Namespace, ns)
-	var dep appsv1.Deployment
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "test", Namespace: ns}, &dep)
-	assert.NilError(t, err)
-	assert.Equal(t, dep.Name, "test")
-	assert.Equal(t, dep.Namespace, ns)
-	var sec corev1.Secret
-	err = env.TestKubeClient.Get(ctx, types.NamespacedName{Name: "secret", Namespace: ns}, &sec)
-	assert.NilError(t, err)
-	fooSecretValue, found := sec.Data["foo"]
-	assert.Assert(t, found)
-	assert.Equal(t, string(fooSecretValue), "bar")
-	inventoryStorage, err := reconciler.InventoryManager.Load()
-	assert.NilError(t, err)
-	invComponents := inventoryStorage.Items()
-	assert.Assert(t, len(invComponents) == 5)
-	testHR := &inventory.HelmReleaseItem{
-		Name:      dep.Name,
-		Namespace: dep.Namespace,
-		ID:        fmt.Sprintf("%s_%s_HelmRelease", dep.Name, dep.Namespace),
-	}
-	assert.Assert(t, inventoryStorage.HasItem(testHR))
-	invNs := &inventory.ManifestItem{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Namespace",
-			APIVersion: "v1",
-		},
-		Name:      mysubcomponent.Namespace,
-		Namespace: "",
-		ID:        fmt.Sprintf("%s___Namespace", mysubcomponent.Namespace),
-	}
-	assert.Assert(t, inventoryStorage.HasItem(invNs))
-	subComponentDeploymentManifest := &inventory.ManifestItem{
-		TypeMeta: v1.TypeMeta{
-			Kind:       "Deployment",
-			APIVersion: "apps/v1",
-		},
-		Name:      mysubcomponent.Name,
-		Namespace: mysubcomponent.Namespace,
-		ID: fmt.Sprintf(
-			"%s_%s_apps_Deployment",
-			mysubcomponent.Name,
-			mysubcomponent.Namespace,
-		),
-	}
-	assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
-	t.Run("RemoveSubcomponent", func(t *testing.T) {
-		err = os.RemoveAll(
-			filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent"),
-		)
-		assert.NilError(t, err)
-		_, err = env.GitRepository.CommitFile(
-			"infra/prometheus/",
-			"undeploy subcomponent",
-		)
-		assert.NilError(t, err)
-		result, err = reconciler.Reconcile(env.Ctx, gProject)
-		assert.NilError(t, err)
-		inventoryStorage, err := reconciler.InventoryManager.Load()
-		assert.NilError(t, err)
-		invComponents := inventoryStorage.Items()
-		assert.Assert(t, len(invComponents) == 4)
-		assert.Assert(t, !inventoryStorage.HasItem(subComponentDeploymentManifest))
-		assert.Assert(t, inventoryStorage.HasItem(invNs))
-		assert.Assert(t, inventoryStorage.HasItem(testHR))
-		err = env.TestKubeClient.Get(
-			ctx,
-			types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
-			&mysubcomponent,
-		)
-		assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
-	})
-}
+	testCases := []struct {
+		name    string
+		prepare func(t *testing.T) projecttest.Environment
+		run     func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject)
+	}{
+		{
+			name: "Simple",
+			prepare: func(t *testing.T) projecttest.Environment {
+				return projecttest.StartProjectEnv(t,
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+						kubetest.WithDecryptionKeyCreated(),
+						kubetest.WithVCSSSHKeyCreated(),
+					),
+				)
+			},
+			run: func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject) {
+				result, err := reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
+				assert.Equal(t, result.Suspended, false)
 
-func TestReconciler_Reconcile_Suspend(t *testing.T) {
-	env := projecttest.StartProjectEnv(
-		t,
-		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(true),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
-			kubetest.WithDecryptionKeyCreated(),
-		),
-	)
-	defer env.Stop()
-	chartReconciler := helm.ChartReconciler{
-		KubeConfig:            env.ControlPlane.Config,
-		Client:                env.DynamicTestKubeClient,
-		FieldManager:          "controller",
-		InventoryManager:      env.InventoryManager,
-		InsecureSkipTLSverify: true,
-		Log:                   env.Log,
+				ctx := context.Background()
+				ns := "prometheus"
+				var mysubcomponent appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
+					&mysubcomponent,
+				)
+
+				assert.NilError(t, err)
+				assert.Equal(t, mysubcomponent.Name, "mysubcomponent")
+				assert.Equal(t, mysubcomponent.Namespace, ns)
+
+				var dep appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "test", Namespace: ns},
+					&dep,
+				)
+				assert.NilError(t, err)
+				assert.Equal(t, dep.Name, "test")
+				assert.Equal(t, dep.Namespace, ns)
+
+				var sec corev1.Secret
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "secret", Namespace: ns},
+					&sec,
+				)
+				assert.NilError(t, err)
+				fooSecretValue, found := sec.Data["foo"]
+				assert.Assert(t, found)
+				assert.Equal(t, string(fooSecretValue), "bar")
+
+				inventoryStorage, err := reconciler.InventoryManager.Load()
+				assert.NilError(t, err)
+
+				invComponents := inventoryStorage.Items()
+				assert.Assert(t, len(invComponents) == 5)
+				testHR := &inventory.HelmReleaseItem{
+					Name:      dep.Name,
+					Namespace: dep.Namespace,
+					ID:        fmt.Sprintf("%s_%s_HelmRelease", dep.Name, dep.Namespace),
+				}
+				assert.Assert(t, inventoryStorage.HasItem(testHR))
+
+				invNs := &inventory.ManifestItem{
+					TypeMeta: v1.TypeMeta{
+						Kind:       "Namespace",
+						APIVersion: "v1",
+					},
+					Name:      mysubcomponent.Namespace,
+					Namespace: "",
+					ID:        fmt.Sprintf("%s___Namespace", mysubcomponent.Namespace),
+				}
+				assert.Assert(t, inventoryStorage.HasItem(invNs))
+
+				subComponentDeploymentManifest := &inventory.ManifestItem{
+					TypeMeta: v1.TypeMeta{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+					},
+					Name:      mysubcomponent.Name,
+					Namespace: mysubcomponent.Namespace,
+					ID: fmt.Sprintf(
+						"%s_%s_apps_Deployment",
+						mysubcomponent.Name,
+						mysubcomponent.Namespace,
+					),
+				}
+				assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
+
+				err = os.RemoveAll(
+					filepath.Join(env.TestProject, "infra", "prometheus", "subcomponent"),
+				)
+				assert.NilError(t, err)
+				_, err = env.GitRepository.CommitFile(
+					"infra/prometheus/",
+					"undeploy subcomponent",
+				)
+				assert.NilError(t, err)
+				_, err = reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
+				inventoryStorage, err = reconciler.InventoryManager.Load()
+				assert.NilError(t, err)
+				invComponents = inventoryStorage.Items()
+				assert.Assert(t, len(invComponents) == 4)
+				assert.Assert(t, !inventoryStorage.HasItem(subComponentDeploymentManifest))
+				assert.Assert(t, inventoryStorage.HasItem(invNs))
+				assert.Assert(t, inventoryStorage.HasItem(testHR))
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
+					&mysubcomponent,
+				)
+				assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
+			},
+		},
+		{
+			name: "WorkloadIdentity",
+			prepare: func(t *testing.T) projecttest.Environment {
+				return projecttest.StartProjectEnv(t,
+					projecttest.WithProjectSource("workloadidentity"),
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(true),
+							helmtest.WithPrivate(false),
+							helmtest.WithProvider(cloud.Azure),
+						),
+						kubetest.WithDecryptionKeyCreated(),
+						kubetest.WithVCSSSHKeyCreated(),
+					),
+				)
+			},
+			run: func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject) {
+				result, err := reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
+				assert.Equal(t, result.Suspended, false)
+
+				ctx := context.Background()
+				ns := "prometheus"
+
+				var dep appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "test", Namespace: ns},
+					&dep,
+				)
+				assert.NilError(t, err)
+				assert.Equal(t, dep.Name, "test")
+				assert.Equal(t, dep.Namespace, ns)
+
+				inventoryStorage, err := reconciler.InventoryManager.Load()
+				assert.NilError(t, err)
+
+				invComponents := inventoryStorage.Items()
+				assert.Assert(t, len(invComponents) == 2)
+				testHR := &inventory.HelmReleaseItem{
+					Name:      dep.Name,
+					Namespace: dep.Namespace,
+					ID:        fmt.Sprintf("%s_%s_HelmRelease", dep.Name, dep.Namespace),
+				}
+				assert.Assert(t, inventoryStorage.HasItem(testHR))
+			},
+		},
+		{
+			name: "Suspend",
+			prepare: func(t *testing.T) projecttest.Environment {
+				return projecttest.StartProjectEnv(t,
+					projecttest.WithKubernetes(
+						kubetest.WithHelm(
+							helmtest.Enabled(true),
+							helmtest.WithOCI(false),
+							helmtest.WithPrivate(false),
+						),
+						kubetest.WithDecryptionKeyCreated(),
+						kubetest.WithVCSSSHKeyCreated(),
+					),
+				)
+			},
+			run: func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject) {
+				suspend := true
+				gProject.Spec.Suspend = &suspend
+				result, err := reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
+				assert.Equal(t, result.Suspended, true)
+
+				ctx := context.Background()
+				var deployment appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					ctx,
+					types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"},
+					&deployment,
+				)
+				assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
+			},
+		},
 	}
-	reconciler := project.Reconciler{
-		Client:            env.ControllerManager.GetClient(),
-		DynamicClient:     env.DynamicTestKubeClient,
-		ComponentBuilder:  component.NewBuilder(),
-		RepositoryManager: env.RepositoryManager,
-		ProjectManager:    env.ProjectManager,
-		ChartReconciler:   chartReconciler,
-		InventoryManager:  env.InventoryManager,
-		GarbageCollector:  env.GarbageCollector,
-		Log:               env.Log,
-		Decrypter:         env.SecretManager.Decrypter,
-		FieldManager:      project.ControllerName,
-		WorkerPoolSize:    runtime.GOMAXPROCS(0),
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := tc.prepare(t)
+			defer env.Stop()
+
+			chartReconciler := helm.ChartReconciler{
+				KubeConfig:            env.ControlPlane.Config,
+				Client:                env.DynamicTestKubeClient,
+				FieldManager:          "controller",
+				InventoryManager:      env.InventoryManager,
+				InsecureSkipTLSverify: true,
+				Log:                   env.Log,
+			}
+
+			reconciler := project.Reconciler{
+				Client:            env.ControllerManager.GetClient(),
+				DynamicClient:     env.DynamicTestKubeClient,
+				ComponentBuilder:  component.NewBuilder(),
+				RepositoryManager: env.RepositoryManager,
+				ProjectManager:    env.ProjectManager,
+				ChartReconciler:   chartReconciler,
+				InventoryManager:  env.InventoryManager,
+				GarbageCollector:  env.GarbageCollector,
+				Log:               env.Log,
+				Decrypter:         env.SecretManager.Decrypter,
+				FieldManager:      project.ControllerName,
+				WorkerPoolSize:    runtime.GOMAXPROCS(0),
+			}
+
+			suspend := false
+			gProject := gitops.GitOpsProject{
+				TypeMeta: v1.TypeMeta{
+					APIVersion: "gitops.declcd.io/v1",
+					Kind:       "GitOpsProject",
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name:      env.TestRoot,
+					Namespace: "default",
+					UID:       types.UID(env.TestRoot),
+				},
+				Spec: gitops.GitOpsProjectSpec{
+					URL:                 env.TestProject,
+					PullIntervalSeconds: 5,
+					Suspend:             &suspend,
+				},
+			}
+
+			tc.run(t, env, reconciler, gProject)
+		})
 	}
-	suspend := true
-	result, err := reconciler.Reconcile(env.Ctx, gitops.GitOpsProject{
-		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
-			Kind:       "GitOpsProject",
-		},
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "reconcile-test",
-			Namespace: "default",
-			UID:       "reconcile-test",
-		},
-		Spec: gitops.GitOpsProjectSpec{
-			URL:                 env.TestProject,
-			PullIntervalSeconds: 5,
-			Suspend:             &suspend,
-		},
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, result.Suspended, true)
-	ctx := context.Background()
-	var deployment appsv1.Deployment
-	err = env.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"},
-		&deployment,
-	)
-	assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
 }
 
 var reconcileResult *project.ReconcileResult

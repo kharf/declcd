@@ -1,11 +1,11 @@
 package emptyreleasenamewithschema
 
 import (
-	"github.com/kharf/declcd/schema@v0"
+	"github.com/kharf/declcd/schema/component"
 )
 
-release: schema.#HelmRelease & {
-	name: ""
+release: component.#HelmRelease & {
+	name:      ""
 	namespace: "test"
 	chart: {
 		name:    "test"
