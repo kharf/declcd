@@ -15,7 +15,6 @@ package build
 #cueModuleManager: #regexManager & {
 	fileMatch: [
 		"^(.*?)cue.mod/module.cue$",
-		"^examples/getting-started/cue.mod/module.cue$",
 		"^(.*?)project/init.go$",
 	]
 	versioningTemplate: "semver-coerced"
