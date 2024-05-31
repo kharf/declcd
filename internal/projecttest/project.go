@@ -23,10 +23,8 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
@@ -43,19 +41,11 @@ type Environment struct {
 	TestProject    string
 	Log            logr.Logger
 	*kubetest.Environment
-	CUEModuleRegistry *ocitest.Registry
-	DNSServer         *dnstest.DNSServer
 }
 
 func (env *Environment) Stop() {
 	if env.Environment != nil {
 		env.Environment.Stop()
-	}
-	if env.CUEModuleRegistry != nil {
-		env.CUEModuleRegistry.Close()
-	}
-	if env.DNSServer != nil {
-		env.DNSServer.Close()
 	}
 	os.Setenv("CUE_REGISTRY", "")
 	_ = os.RemoveAll(env.TestRoot)
@@ -113,8 +103,6 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	assert.NilError(t, err)
 	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
 
-	dnsServer, err := dnstest.NewDNSServer()
-	assert.NilError(t, err)
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
@@ -126,16 +114,13 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 
 	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
 	projectManager := project.NewManager(component.NewBuilder(), log, runtime.GOMAXPROCS(0))
-	cueModuleRegistry := ocitest.StartCUERegistry(t, testRoot)
 
 	return Environment{
-		ProjectManager:    projectManager,
-		GitRepository:     repo,
-		TestRoot:          testRoot,
-		TestProject:       testProject,
-		Environment:       env,
-		CUEModuleRegistry: cueModuleRegistry,
-		DNSServer:         dnsServer,
-		Log:               log,
+		ProjectManager: projectManager,
+		GitRepository:  repo,
+		TestRoot:       testRoot,
+		TestProject:    testProject,
+		Environment:    env,
+		Log:            log,
 	}
 }

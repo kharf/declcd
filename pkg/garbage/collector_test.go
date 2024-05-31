@@ -19,11 +19,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"testing"
 
 	"github.com/kharf/declcd/internal/helmtest"
-	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
@@ -38,6 +38,27 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var (
+	helmEnvironment *helmtest.Environment
+)
+
+func TestMain(m *testing.M) {
+	var err error
+	helmEnvironment, err = helmtest.NewHelmEnvironment(
+		helmtest.WithOCI(false),
+		helmtest.WithPrivate(false),
+	)
+	assertError(err)
+	defer helmEnvironment.Close()
+}
+
+func assertError(err error) {
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
 
 func TestCollector_Collect(t *testing.T) {
 	nsA := &inventory.ManifestItem{
@@ -255,13 +276,6 @@ func TestCollector_Collect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env := projecttest.StartProjectEnv(
 				t,
-				projecttest.WithKubernetes(
-					kubetest.WithHelm(
-						helmtest.Enabled(true),
-						helmtest.WithOCI(false),
-						helmtest.WithPrivate(false),
-					),
-				),
 			)
 			defer env.Stop()
 
@@ -335,7 +349,7 @@ func prepareHelmReleases(
 			Namespace: hrMetadata.GetNamespace(),
 			Chart: helm.Chart{
 				Name:    "test",
-				RepoURL: env.HelmEnv.ChartServer.URL(),
+				RepoURL: helmEnvironment.ChartServer.URL(),
 				Version: "1.0.0",
 			},
 			Values: helm.Values{},
@@ -457,13 +471,6 @@ var errResult error
 func BenchmarkCollector_Collect(b *testing.B) {
 	env := projecttest.StartProjectEnv(
 		b,
-		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(true),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
-		),
 	)
 	defer env.Stop()
 	dag := component.NewDependencyGraph()

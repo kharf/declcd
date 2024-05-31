@@ -22,10 +22,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"testing"
-
-	"github.com/kharf/declcd/internal/ocitest"
-	"gotest.tools/v3/assert"
 )
 
 const (
@@ -34,12 +30,9 @@ const (
 
 // A test Cloud Environment imitating Azure Active Directory.
 type AzureEnvironment struct {
-	TokenServer             *httptest.Server
-	OIDCIssuerServer        *httptest.Server
-	InstanceDiscoveryServer *httptest.Server
+	TokenServer      *httptest.Server
+	OIDCIssuerServer *httptest.Server
 }
-
-var _ Environment = (*AzureEnvironment)(nil)
 
 func (env *AzureEnvironment) Close() {
 	if env.TokenServer != nil {
@@ -47,9 +40,6 @@ func (env *AzureEnvironment) Close() {
 	}
 	if env.OIDCIssuerServer != nil {
 		env.OIDCIssuerServer.Close()
-	}
-	if env.InstanceDiscoveryServer != nil {
-		env.InstanceDiscoveryServer.Close()
 	}
 }
 
@@ -69,22 +59,24 @@ type azureInstanceDiscoveryMetadata struct {
 	TenantDiscoveryEndpoint string `json:"tenant_discovery_endpoint"`
 }
 
-func NewAzureEnvironment(
-	t testing.TB,
-	registry *ocitest.Registry,
-) *AzureEnvironment {
+func NewAzureEnvironment() (*AzureEnvironment, error) {
 	tokenMux := http.NewServeMux()
 	tokenMux.HandleFunc(
 		"POST /token",
 		func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
-			assert.NilError(t, err)
-			assert.Equal(
-				t,
-				string(body),
-				"client_assertion=federatedtoken&client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer"+
-					"&client_id=xxx&client_info=1&grant_type=client_credentials&scope=https%3A%2F%2Fmanagement.azure.com%2F.default+openid+offline_access+profile",
-			)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+
+			if string(
+				body,
+			) != "client_assertion=federatedtoken&client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer"+
+				"&client_id=xxx&client_info=1&grant_type=client_credentials&scope=https%3A%2F%2Fmanagement.azure.com%2F.default+openid+offline_access+profile" {
+				w.WriteHeader(500)
+				return
+			}
 
 			w.WriteHeader(200)
 			err = json.NewEncoder(w).Encode(&azureAccessToken{
@@ -92,7 +84,10 @@ func NewAzureEnvironment(
 				ExpiresIn:   10 * 60,
 				TokenType:   "bearer",
 			})
-			assert.NilError(t, err)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 		},
 	)
 
@@ -111,48 +106,32 @@ func NewAzureEnvironment(
 				TokenEndpoint:         fmt.Sprintf("%s/token", tokenServer.URL),
 				Issuer:                "issuer",
 			})
-			assert.NilError(t, err)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 		},
 	)
-	oidcIssuerServer := newUnstartedServerFromEndpoint(
-		t,
-		fmt.Sprintf("https://%s", AzureAuthHost),
+	oidcIssuerServer, err := newUnstartedServerFromEndpoint(
 		"0",
 		oidcIssuerMux,
 	)
+	if err != nil {
+		return nil, err
+	}
 	oidcIssuerServer.StartTLS()
 	fmt.Println("Azure OIDC Issuer Server listening on", oidcIssuerServer.URL)
 
-	instanceDiscoveryMux := http.NewServeMux()
-	instanceDiscoveryMux.HandleFunc(
-		"GET /common/discovery/instance",
-		func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(200)
-			err := json.NewEncoder(w).Encode(&azureInstanceDiscoveryMetadata{
-				TenantDiscoveryEndpoint: fmt.Sprintf(
-					"%s/%s/v2.0/.well-known/openid-configuration",
-					oidcIssuerServer.URL,
-					tenantID,
-				),
-			})
-			assert.NilError(t, err)
-		},
-	)
-	instanceDiscoveryServer := newUnstartedServerFromEndpoint(
-		t,
-		fmt.Sprintf("https://%s", AzureAuthHost),
-		"443",
-		instanceDiscoveryMux,
-	)
-	instanceDiscoveryServer.StartTLS()
-	fmt.Println("Azure Instance Discovery Server listening on", instanceDiscoveryServer.URL)
-
 	tokenFileDir, err := os.MkdirTemp("", "")
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
 	tokenFile := filepath.Join(tokenFileDir, "token")
 	err = os.WriteFile(tokenFile, []byte("federatedtoken"), 0666)
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
 	os.Setenv(
 		"AZURE_CLIENT_ID",
@@ -172,8 +151,7 @@ func NewAzureEnvironment(
 	)
 
 	return &AzureEnvironment{
-		TokenServer:             tokenServer,
-		OIDCIssuerServer:        oidcIssuerServer,
-		InstanceDiscoveryServer: instanceDiscoveryServer,
-	}
+		TokenServer:      tokenServer,
+		OIDCIssuerServer: oidcIssuerServer,
+	}, nil
 }

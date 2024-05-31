@@ -16,6 +16,7 @@ package kubetest
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -27,7 +28,6 @@ import (
 
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/helmtest"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,7 +50,6 @@ import (
 type Environment struct {
 	ControlPlane          *envtest.Environment
 	ControllerManager     manager.Manager
-	HelmEnv               helmtest.Environment
 	TestKubeClient        client.Client
 	DynamicTestKubeClient *kube.DynamicClient
 	GarbageCollector      garbage.Collector
@@ -77,6 +76,14 @@ func (opt projectOption) apply(opts *options) {
 	opts.project = opt
 }
 
+type enabled bool
+
+var _ Option = (*enabled)(nil)
+
+func (opt enabled) apply(opts *options) {
+	opts.enabled = bool(opt)
+}
+
 type decryptionKeyCreated bool
 
 var _ Option = (*decryptionKeyCreated)(nil)
@@ -93,17 +100,8 @@ func (opt vcsSSHKeyCreated) apply(opts *options) {
 	opts.vcsSSHKeyCreated = bool(opt)
 }
 
-type helmOptions []helmtest.Option
-
-var _ Option = (*helmOptions)(nil)
-
-func (opt helmOptions) apply(opts *options) {
-	opts.helmOptions = opt
-}
-
 type options struct {
 	enabled              bool
-	helmOptions          helmOptions
 	decryptionKeyCreated bool
 	vcsSSHKeyCreated     bool
 	project              projectOption
@@ -113,8 +111,8 @@ type Option interface {
 	apply(*options)
 }
 
-func WithHelm(opts ...helmtest.Option) helmOptions {
-	return opts
+func WithEnabled(isEnabled bool) enabled {
+	return enabled(isEnabled)
 }
 
 func WithDecryptionKeyCreated() decryptionKeyCreated {
@@ -140,7 +138,6 @@ func WithProject(
 func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environment {
 	logf.SetLogger(log)
 	options := &options{
-		helmOptions:          []helmtest.Option{},
 		enabled:              true,
 		decryptionKeyCreated: false,
 		vcsSSHKeyCreated:     false,
@@ -153,20 +150,11 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 		return nil
 	}
 
-	options.helmOptions = append(options.helmOptions,
-		helmtest.WithProject(
-			options.project.repo,
-			options.project.testProject,
-			options.project.testRoot,
-		),
-	)
-
 	testEnv := &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
 
 	var err error
-	// cfg is defined in this file globally.
 	cfg, err := testEnv.Start()
 	if err != nil {
 		t.Fatal(err)
@@ -192,12 +180,6 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	helmEnv := helmtest.StartHelmEnv(
-		t,
-		cfg,
-		options.helmOptions...,
-	)
 
 	client, err := kube.NewDynamicClient(testEnv.Config)
 	assert.NilError(t, err)
@@ -288,7 +270,6 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 	return &Environment{
 		ControlPlane:          testEnv,
 		ControllerManager:     mgr,
-		HelmEnv:               helmEnv,
 		TestKubeClient:        testClient,
 		DynamicTestKubeClient: client,
 		GarbageCollector:      gc,
@@ -297,8 +278,9 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		SecretManager:         manager,
 		Ctx:                   ctx,
 		clean: func() {
-			testEnv.Stop()
-			helmEnv.Close()
+			if err := testEnv.Stop(); err != nil {
+				fmt.Println(err)
+			}
 			cancel()
 		},
 	}

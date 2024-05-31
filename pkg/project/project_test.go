@@ -53,16 +53,11 @@ func TestManager_Load(t *testing.T) {
 	)
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(false),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
+			kubetest.WithEnabled(false),
 		),
 	)
 	defer env.Stop()
 	helmtest.ReplaceTemplate(
-		t,
 		env.TestProject,
 		env.GitRepository,
 		"oci://empty",

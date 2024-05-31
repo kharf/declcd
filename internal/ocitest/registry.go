@@ -28,14 +28,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"testing"
 
 	"cuelabs.dev/go/oci/ociregistry/ocimem"
 	"cuelabs.dev/go/oci/ociregistry/ociserver"
 	"cuelang.org/go/mod/modregistry"
 	"cuelang.org/go/mod/module"
 	"cuelang.org/go/mod/modzip"
-	"gotest.tools/v3/assert"
 
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/otiai10/copy"
@@ -77,7 +75,7 @@ func (r *Registry) Close() {
 // In order to test OCI with a HTTPS server, we have to supply a "fake" host.
 // We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
 // All OCI tests have to use declcd.io as host.
-func NewTLSRegistry(t testing.TB, private bool, cloudProviderID string) (*Registry, error) {
+func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
 	if err != nil {
 		return nil, err
@@ -95,18 +93,26 @@ func NewTLSRegistry(t testing.TB, private bool, cloudProviderID string) (*Regist
 		"POST /oauth2/exchange",
 		func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
-			assert.NilError(t, err)
-			assert.Equal(
-				t,
-				string(body),
-				"access_token=nottheacrtoken&grant_type=access_token&service=declcd.io%3A"+strconv.Itoa(
-					port,
-				)+"&tenant=tenant",
-			)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+
+			if string(
+				body,
+			) != "access_token=nottheacrtoken&grant_type=access_token&service=declcd.io%3A"+strconv.Itoa(
+				port,
+			)+"&tenant=tenant" {
+				w.WriteHeader(500)
+				return
+			}
 
 			w.WriteHeader(200)
 			_, err = w.Write([]byte(`{"refresh_token": "aaaa"}`))
-			assert.NilError(t, err)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 		},
 	)
 	mux.HandleFunc(
@@ -120,12 +126,23 @@ func NewTLSRegistry(t testing.TB, private bool, cloudProviderID string) (*Regist
 						w.WriteHeader(401)
 						return
 					}
-					assert.Assert(t, found)
-					assert.Assert(t, len(auth) == 1)
+
+					if len(auth) != 1 {
+						w.WriteHeader(500)
+						return
+					}
+
 					credsBase64, found := strings.CutPrefix(auth[0], "Basic ")
-					assert.Assert(t, found)
+					if !found {
+						w.WriteHeader(500)
+						return
+					}
+
 					credsBytes, err := base64.StdEncoding.DecodeString(credsBase64)
-					assert.NilError(t, err)
+					if err != nil {
+						w.WriteHeader(500)
+						return
+					}
 					creds := string(credsBytes)
 
 					var expectedCreds string
@@ -137,7 +154,11 @@ func NewTLSRegistry(t testing.TB, private bool, cloudProviderID string) (*Regist
 					default:
 						expectedCreds = "declcd:abcd"
 					}
-					assert.Equal(t, creds, expectedCreds)
+
+					if creds != expectedCreds {
+						w.WriteHeader(500)
+						return
+					}
 				}
 			}
 
@@ -175,62 +196,100 @@ func NewTLSRegistry(t testing.TB, private bool, cloudProviderID string) (*Regist
 }
 
 func StartCUERegistry(
-	t testing.TB,
-	testRoot string,
-) *Registry {
-	cueModuleRegistry, err := NewTLSRegistry(t, false, "")
-	assert.NilError(t, err)
+	registryPath string,
+) (*Registry, error) {
+	cueModuleRegistry, err := NewTLSRegistry(false, "")
+	if err != nil {
+		return nil, err
+	}
+
 	ociClient := cueModuleRegistry.OCIClient()
-	modDir, err := os.MkdirTemp(testRoot, "")
-	assert.NilError(t, err)
+	modDir, err := os.MkdirTemp(registryPath, "")
+	if err != nil {
+		return nil, err
+	}
+
 	schemaSrc := "schema"
 	err = copy.Copy(schemaSrc, filepath.Join(modDir, schemaSrc))
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx := context.Background()
 	m, err := module.NewVersion("github.com/kharf/declcd/schema", "v0.9.1")
-	assert.NilError(t, err)
-	schemaModuleReader, schemaLen := createImage(t, m, modDir, "schema")
+	if err != nil {
+		return nil, err
+	}
+
+	schemaModuleReader, schemaLen, err := createImage(m, modDir, "schema")
+	if err != nil {
+		return nil, err
+	}
+
 	err = ociClient.PutModule(ctx, m, schemaModuleReader, schemaLen)
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
+
 	modDirSrc := "test/mod/cue/k8s"
 	err = copy.Copy(modDirSrc, filepath.Join(modDir, "k8s"))
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
+
 	m, err = module.NewVersion("github.com/kharf/cuepkgs/modules/k8s", "v0.0.5")
-	assert.NilError(t, err)
-	cuepkgsModuleReader, cuepkgsLen := createImage(t, m, modDir, "k8s")
+	if err != nil {
+		return nil, err
+	}
+
+	cuepkgsModuleReader, cuepkgsLen, err := createImage(m, modDir, "k8s")
+	if err != nil {
+		return nil, err
+	}
+
 	err = ociClient.PutModule(ctx, m, cuepkgsModuleReader, cuepkgsLen)
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
+
 	err = ociClient.PutModule(ctx, m, cuepkgsModuleReader, int64(cuepkgsLen))
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
+
 	http.DefaultClient.Transport = &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 	}
 	err = os.Setenv("CUE_REGISTRY", cueModuleRegistry.Addr())
-	assert.NilError(t, err)
-	return cueModuleRegistry
+	if err != nil {
+		return nil, err
+	}
+	return cueModuleRegistry, nil
 }
 
 func createImage(
-	t testing.TB,
 	m module.Version,
 	modDir string,
 	mod string,
-) (io.ReaderAt, int64) {
-	zipFile, err := createZip(t, m, modDir, mod)
-	assert.NilError(t, err)
-	return bytes.NewReader(zipFile), int64(len(zipFile))
+) (io.ReaderAt, int64, error) {
+	zipFile, err := createZip(m, modDir, mod)
+	if err != nil {
+		return nil, 0, err
+	}
+	return bytes.NewReader(zipFile), int64(len(zipFile)), nil
 }
 
 func createZip(
-	t testing.TB,
 	m module.Version,
 	modDir string,
 	mod string,
 ) ([]byte, error) {
 	var zipBytes bytes.Buffer
 	err := modzip.CreateFromDir(&zipBytes, m, filepath.Join(modDir, mod))
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	return zipBytes.Bytes(), nil
 }

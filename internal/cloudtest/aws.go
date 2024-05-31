@@ -23,11 +23,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"testing"
 	"time"
-
-	"github.com/kharf/declcd/internal/ocitest"
-	"gotest.tools/v3/assert"
 )
 
 const (
@@ -41,18 +37,12 @@ const (
 // All AWS OCI tests have to use account-id.dkr.ecr.eu-north-1.amazonaws.com (ECRServer.URL) as host.
 type AWSEnvironment struct {
 	PodIdentityAgent *httptest.Server
-	ECRTokenServer   *httptest.Server
 	ECRServer        *httptest.Server
 }
-
-var _ Environment = (*AWSEnvironment)(nil)
 
 func (env *AWSEnvironment) Close() {
 	if env.PodIdentityAgent != nil {
 		env.PodIdentityAgent.Close()
-	}
-	if env.ECRTokenServer != nil {
-		env.ECRTokenServer.Close()
 	}
 	if env.ECRServer != nil {
 		env.ECRServer.Close()
@@ -78,9 +68,8 @@ type awsCredentials struct {
 }
 
 func NewAWSEnvironment(
-	t testing.TB,
-	registry *ocitest.Registry,
-) *AWSEnvironment {
+	registryAddr string,
+) (*AWSEnvironment, error) {
 	agentMux := http.NewServeMux()
 	agentMux.HandleFunc(
 		"GET /get-credentials",
@@ -91,7 +80,10 @@ func NewAWSEnvironment(
 				SecretAccessKey: "bbbb",
 			}
 			err := json.NewEncoder(w).Encode(&creds)
-			assert.NilError(t, err)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 		},
 	)
 
@@ -118,31 +110,30 @@ func NewAWSEnvironment(
 				},
 			}
 			err := json.NewEncoder(w).Encode(&token)
-			assert.NilError(t, err)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 		},
 	)
-	ecrTokenServer := newUnstartedServerFromEndpoint(
-		t,
-		fmt.Sprintf("https://%s", AWSApiECRHost),
-		"443",
-		ecrTokenServerMux,
-	)
-	ecrTokenServer.StartTLS()
-	fmt.Println("ECR Token Server listening on", ecrTokenServer.URL)
 
 	ecrMux := http.NewServeMux()
-	url, err := url.Parse("https://" + registry.Addr())
-	assert.NilError(t, err)
+	url, err := url.Parse("https://" + registryAddr)
+	if err != nil {
+		return nil, err
+	}
+
 	ecrMux.HandleFunc(
 		"/",
 		httputil.NewSingleHostReverseProxy(url).ServeHTTP,
 	)
-	ecrServer := newUnstartedServerFromEndpoint(
-		t,
-		fmt.Sprintf("https://%s", AWSRegistryHost),
+	ecrServer, err := newUnstartedServerFromEndpoint(
 		"0",
 		ecrMux,
 	)
+	if err != nil {
+		return nil, err
+	}
 	ecrServer.StartTLS()
 
 	ecrServer.URL = strings.Replace(
@@ -155,7 +146,6 @@ func NewAWSEnvironment(
 
 	return &AWSEnvironment{
 		PodIdentityAgent: agentServer,
-		ECRTokenServer:   ecrTokenServer,
 		ECRServer:        ecrServer,
-	}
+	}, nil
 }
