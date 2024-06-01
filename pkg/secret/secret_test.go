@@ -29,7 +29,6 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"filippo.io/age"
 	"filippo.io/age/armor"
-	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/secret"
@@ -288,11 +287,7 @@ func TestEncrypter_EncryptPackage(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithProjectSource("secret"),
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(false),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
+			kubetest.WithEnabled(false),
 		),
 	)
 	defer env.Stop()
@@ -388,11 +383,6 @@ func TestDecrypter_Decrypt(t *testing.T) {
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithProjectSource("secret"),
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(false),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
 			kubetest.WithDecryptionKeyCreated(),
 		),
 	)
@@ -410,7 +400,9 @@ func TestDecrypter_Decrypt(t *testing.T) {
 }
 
 func TestManager_CreateKeyIfNotExists(t *testing.T) {
-	env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("empty"))
+	env := projecttest.StartProjectEnv(t,
+		projecttest.WithProjectSource("empty"),
+	)
 	defer env.Stop()
 	nsStr := "test"
 	t.Run("GetError", func(t *testing.T) {
@@ -506,11 +498,6 @@ func BenchmarkDecrypter_Decrypt(b *testing.B) {
 	env := projecttest.StartProjectEnv(b,
 		projecttest.WithProjectSource("secret"),
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(false),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
 			kubetest.WithDecryptionKeyCreated(),
 		),
 	)

@@ -32,6 +32,7 @@ import (
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -204,7 +205,7 @@ func (act Action) installObject(
 ) error {
 	kind, _ := unstr.Object["kind"].(string)
 	if kind == "GitOpsProject" {
-		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 
 		var err error
@@ -225,7 +226,8 @@ func (act Action) installObject(
 				return nil
 			}
 
-			if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
+			if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound ||
+				!meta.IsNoMatchError(err) {
 				return err
 			}
 

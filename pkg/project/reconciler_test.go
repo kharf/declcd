@@ -23,8 +23,11 @@ import (
 	"testing"
 
 	gitops "github.com/kharf/declcd/api/v1beta1"
+	"github.com/kharf/declcd/internal/cloudtest"
+	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/component"
@@ -39,27 +42,57 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+var (
+	publicHelmEnvironment *helmtest.Environment
+	azureHelmEnvironment  *helmtest.Environment
+)
+
+func TestMain(m *testing.M) {
+	var err error
+	dnsServer, err := dnstest.NewDNSServer()
+	assertError(err)
+	defer dnsServer.Close()
+
+	registryPath, err := os.MkdirTemp("", "declcd-cue-registry*")
+	assertError(err)
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(registryPath)
+	assertError(err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment, err = helmtest.NewHelmEnvironment(
+		helmtest.WithOCI(false),
+		helmtest.WithPrivate(false),
+	)
+	assertError(err)
+	defer publicHelmEnvironment.Close()
+
+	azureHelmEnvironment, err = helmtest.NewHelmEnvironment(
+		helmtest.WithOCI(true),
+		helmtest.WithPrivate(true),
+		helmtest.WithProvider(cloud.Azure),
+	)
+	assertError(err)
+	defer azureHelmEnvironment.Close()
+	azureCloudEnvironment, err := cloudtest.NewAzureEnvironment()
+	assertError(err)
+	defer azureCloudEnvironment.Close()
+}
+
+func assertError(err error) {
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+
 func TestReconciler_Reconcile(t *testing.T) {
 	testCases := []struct {
-		name    string
-		prepare func(t *testing.T) projecttest.Environment
-		run     func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject)
+		name string
+		run  func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject)
 	}{
 		{
 			name: "Simple",
-			prepare: func(t *testing.T) projecttest.Environment {
-				return projecttest.StartProjectEnv(t,
-					projecttest.WithKubernetes(
-						kubetest.WithHelm(
-							helmtest.Enabled(true),
-							helmtest.WithOCI(false),
-							helmtest.WithPrivate(false),
-						),
-						kubetest.WithDecryptionKeyCreated(),
-						kubetest.WithVCSSSHKeyCreated(),
-					),
-				)
-			},
 			run: func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject) {
 				result, err := reconciler.Reconcile(env.Ctx, gProject)
 				assert.NilError(t, err)
@@ -165,21 +198,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "WorkloadIdentity",
-			prepare: func(t *testing.T) projecttest.Environment {
-				return projecttest.StartProjectEnv(t,
-					projecttest.WithProjectSource("workloadidentity"),
-					projecttest.WithKubernetes(
-						kubetest.WithHelm(
-							helmtest.Enabled(true),
-							helmtest.WithOCI(true),
-							helmtest.WithPrivate(false),
-							helmtest.WithProvider(cloud.Azure),
-						),
-						kubetest.WithDecryptionKeyCreated(),
-						kubetest.WithVCSSSHKeyCreated(),
-					),
-				)
-			},
 			run: func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject) {
 				result, err := reconciler.Reconcile(env.Ctx, gProject)
 				assert.NilError(t, err)
@@ -213,19 +231,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 		},
 		{
 			name: "Suspend",
-			prepare: func(t *testing.T) projecttest.Environment {
-				return projecttest.StartProjectEnv(t,
-					projecttest.WithKubernetes(
-						kubetest.WithHelm(
-							helmtest.Enabled(true),
-							helmtest.WithOCI(false),
-							helmtest.WithPrivate(false),
-						),
-						kubetest.WithDecryptionKeyCreated(),
-						kubetest.WithVCSSSHKeyCreated(),
-					),
-				)
-			},
 			run: func(t *testing.T, env projecttest.Environment, reconciler project.Reconciler, gProject gitops.GitOpsProject) {
 				suspend := true
 				gProject.Spec.Suspend = &suspend
@@ -247,7 +252,12 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.prepare(t)
+			env := projecttest.StartProjectEnv(t,
+				projecttest.WithKubernetes(
+					kubetest.WithDecryptionKeyCreated(),
+					kubetest.WithVCSSSHKeyCreated(),
+				),
+			)
 			defer env.Stop()
 
 			chartReconciler := helm.ChartReconciler{
@@ -302,11 +312,6 @@ var reconcileResult *project.ReconcileResult
 func BenchmarkReconciler_Reconcile(b *testing.B) {
 	env := projecttest.StartProjectEnv(b,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(true),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
 			kubetest.WithDecryptionKeyCreated(),
 			kubetest.WithVCSSSHKeyCreated(),
 		),

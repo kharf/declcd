@@ -19,10 +19,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"testing"
 
 	"github.com/kharf/declcd/pkg/cloud"
-	"gotest.tools/v3/assert"
 )
 
 // A test Cloud Environment imitating GCP Metadata Server.
@@ -30,15 +28,13 @@ type GCPEnvironment struct {
 	HttpsServer *httptest.Server
 }
 
-var _ Environment = (*GCPEnvironment)(nil)
-
 func (env *GCPEnvironment) Close() {
 	if env.HttpsServer != nil {
 		env.HttpsServer.Close()
 	}
 }
 
-func NewGCPEnvironment(t testing.TB) *GCPEnvironment {
+func NewGCPEnvironment() (*GCPEnvironment, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(
 		"GET /computeMetadata/v1/instance/service-accounts/default/token",
@@ -50,20 +46,25 @@ func NewGCPEnvironment(t testing.TB) *GCPEnvironment {
 				TokenType:   "bearer",
 			}
 			err := json.NewEncoder(w).Encode(token)
-			assert.NilError(t, err)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 		},
 	)
 
-	httpsServer := newUnstartedServerFromEndpoint(
-		t,
-		cloud.GoogleMetadataServerTokenEndpoint,
+	httpServer, err := newUnstartedServerFromEndpoint(
 		"80",
 		mux,
 	)
-	httpsServer.Start()
-	fmt.Println("Metadata Server listening on", httpsServer.URL)
+	if err != nil {
+		return nil, err
+	}
+	httpServer.Start()
+
+	fmt.Println("Metadata Server listening on", httpServer.URL)
 
 	return &GCPEnvironment{
-		HttpsServer: httpsServer,
-	}
+		HttpsServer: httpServer,
+	}, nil
 }

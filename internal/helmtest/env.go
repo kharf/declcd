@@ -26,17 +26,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 	"text/template"
 	"time"
 
-	"github.com/kharf/declcd/internal/cloudtest"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
-	"gotest.tools/v3/assert"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	helmKube "helm.sh/helm/v3/pkg/kube"
@@ -45,6 +42,34 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 )
+
+func ConfigureHelm(cfg *rest.Config) (*action.Configuration, error) {
+	helmCfg := action.Configuration{}
+	helmKube.ManagedFieldsManager = project.ControllerName
+
+	k8sClient, err := kube.NewDynamicClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	getter := &kube.InMemoryRESTClientGetter{
+		Cfg:        cfg,
+		RestMapper: k8sClient.RESTMapper(),
+	}
+
+	err = helmCfg.Init(getter, "default", "secret", log.Printf)
+	if err != nil {
+		return nil, err
+	}
+
+	helmCfg.KubeClient = &kube.HelmClient{
+		Client:        helmCfg.KubeClient.(*helmKube.Client),
+		DynamicClient: k8sClient,
+		FieldManager:  "controller",
+	}
+
+	return &helmCfg, nil
+}
 
 type projectOption struct {
 	repo        *gittest.LocalGitRepository
@@ -133,6 +158,7 @@ func WithProvider(providerID cloud.ProviderID) provider {
 type Server interface {
 	// base URL of form http://ipaddr:port with no trailing slash
 	URL() string
+	Addr() string
 	Close()
 }
 
@@ -150,6 +176,10 @@ func (r *ociRegistry) URL() string {
 	return r.server.URL()
 }
 
+func (r *ociRegistry) Addr() string {
+	return r.server.Addr()
+}
+
 type yamlBasedRepository struct {
 	server *httptest.Server
 }
@@ -164,26 +194,26 @@ func (r *yamlBasedRepository) URL() string {
 	return r.server.URL
 }
 
+func (r *yamlBasedRepository) Addr() string {
+	return r.server.Config.Addr
+}
+
 type Environment struct {
-	HelmConfig       action.Configuration
-	ChartServer      Server
-	CloudEnvironment cloudtest.Environment
-	chartArchives    []*os.File
+	ChartServer   Server
+	chartArchives []*os.File
 }
 
 func (env Environment) Close() {
 	if env.ChartServer != nil {
 		env.ChartServer.Close()
 	}
-	if env.CloudEnvironment != nil {
-		env.CloudEnvironment.Close()
-	}
 	for _, f := range env.chartArchives {
 		os.Remove(f.Name())
 	}
 }
 
-func StartHelmEnv(t testing.TB, cfg *rest.Config, opts ...Option) Environment {
+// NewHelmEnvironment creates Helm chart archives and starts either and oci or yaml based Helm repository.
+func NewHelmEnvironment(opts ...Option) (*Environment, error) {
 	options := &options{
 		enabled:         false,
 		private:         false,
@@ -194,53 +224,25 @@ func StartHelmEnv(t testing.TB, cfg *rest.Config, opts ...Option) Environment {
 		o.Apply(options)
 	}
 
-	if !options.enabled {
-		return Environment{}
+	v1Archive, err := createChartArchive("test", "1.0.0")
+	if err != nil {
+		return nil, err
 	}
 
-	helmCfg := action.Configuration{}
-	var helmEnv Environment
-	helmKube.ManagedFieldsManager = project.ControllerName
-	k8sClient, err := kube.NewDynamicClient(cfg)
+	v2Archive, err := createChartArchive("testv2", "2.0.0")
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	getter := &kube.InMemoryRESTClientGetter{
-		Cfg:        cfg,
-		RestMapper: k8sClient.RESTMapper(),
-	}
-	err = helmCfg.Init(getter, "default", "secret", log.Printf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	helmCfg.KubeClient = &kube.HelmClient{
-		Client:        helmCfg.KubeClient.(*helmKube.Client),
-		DynamicClient: k8sClient,
-		FieldManager:  "controller",
-	}
-	helmEnv = startHelmServer(t, options)
-	ReplaceTemplate(t, options.project.testProject, options.project.repo, helmEnv.ChartServer.URL())
-	// need to be always set, even though we dont test helm releases
-	helmEnv.HelmConfig = helmCfg
-	return helmEnv
-}
 
-func startHelmServer(t testing.TB, options *options) Environment {
-	v1Archive := createChartArchive(t, "test", "1.0.0")
-	v2Archive := createChartArchive(t, "testv2", "2.0.0")
 	var chartServer Server
-	var cloudEnvironment cloudtest.Environment
 	if options.oci {
 		var err error
 		ociServer, err := ocitest.NewTLSRegistry(
-			t,
 			options.private,
 			string(options.cloudProviderID),
 		)
-		assert.NilError(t, err)
-
-		if options.cloudProviderID != "" {
-			cloudEnvironment = cloudtest.NewCloudEnvironment(t, options.cloudProviderID, ociServer)
+		if err != nil {
+			return nil, err
 		}
 
 		helmOpts := []helmRegistry.ClientOption{
@@ -251,14 +253,23 @@ func startHelmServer(t testing.TB, options *options) Environment {
 		}
 
 		helmRegistryClient, err := helmRegistry.NewClient(helmOpts...)
-		assert.NilError(t, err)
+		if err != nil {
+			return nil, err
+		}
+
 		v1Bytes, err := os.ReadFile(v1Archive.Name())
-		assert.NilError(t, err)
+		if err != nil {
+			return nil, err
+		}
+
 		_, err = helmRegistryClient.Push(
 			v1Bytes,
 			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", "1.0.0"),
 		)
-		assert.NilError(t, err)
+		if err != nil {
+			return nil, err
+		}
+
 		chartServer = &ociRegistry{
 			server: ociServer,
 		}
@@ -266,10 +277,22 @@ func startHelmServer(t testing.TB, options *options) Environment {
 		httpsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if options.private {
 				auth, found := r.Header["Authorization"]
-				assert.Assert(t, found)
-				assert.Assert(t, len(auth) == 1)
+				if !found {
+					w.WriteHeader(500)
+					return
+				}
+
+				if len(auth) != 1 {
+					w.WriteHeader(500)
+					return
+				}
+
 				// declcd:abcd
-				assert.Equal(t, auth[0], "Basic ZGVjbGNkOmFiY2Q=")
+				if auth[0] != "Basic ZGVjbGNkOmFiY2Q=" {
+					w.WriteHeader(500)
+					return
+
+				}
 			}
 
 			if strings.HasSuffix(r.URL.Path, "index.yaml") {
@@ -297,46 +320,58 @@ func startHelmServer(t testing.TB, options *options) Environment {
 						},
 					},
 				}
+
 				indexBytes, err := yaml.Marshal(index)
 				if err != nil {
-					t.Fatal(err)
+					w.WriteHeader(500)
+					return
 				}
-				w.Write(indexBytes)
+
+				if _, err := w.Write(indexBytes); err != nil {
+					w.WriteHeader(500)
+					return
+				}
 				return
 			}
 			archive := v1Archive
 			if strings.Contains(r.URL.Path, "2.0.0") {
 				archive = v2Archive
 			}
+
 			w.Header().Set("Content-Type", "application/gzip")
 			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(archive.Name())))
+
 			file, err := os.Open(archive.Name())
 			if err != nil {
-				t.Fatal(err)
+				w.WriteHeader(500)
+				return
 			}
+
 			if _, err := io.Copy(w, file); err != nil {
-				t.Fatal(err)
+				w.WriteHeader(500)
+				return
 			}
 		}))
+
 		chartServer = &yamlBasedRepository{
 			server: httpsServer,
 		}
 	}
-	return Environment{
-		ChartServer:      chartServer,
-		CloudEnvironment: cloudEnvironment,
-		chartArchives:    []*os.File{v1Archive, v2Archive},
-	}
+
+	return &Environment{
+		ChartServer:   chartServer,
+		chartArchives: []*os.File{v1Archive, v2Archive},
+	}, nil
 }
 
-func createChartArchive(t testing.TB, chart string, version string) *os.File {
+func createChartArchive(chart string, version string) (*os.File, error) {
 	archive, err := os.CreateTemp("", fmt.Sprintf("*-test-%s.tgz", version))
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	gzWriter := gzip.NewWriter(archive)
 	tarWriter := tar.NewWriter(gzWriter)
@@ -345,71 +380,84 @@ func createChartArchive(t testing.TB, chart string, version string) *os.File {
 		os.DirFS(chartDir),
 		chart,
 		func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
 			if d.IsDir() || path == ".helmignore" {
 				return nil
 			}
+
 			info, err := d.Info()
 			if err != nil {
 				return err
 			}
+
 			header := &tar.Header{
 				Name: path,
 				Mode: int64(info.Mode()),
 				Size: info.Size(),
 			}
+
 			if err := tarWriter.WriteHeader(header); err != nil {
 				return err
 			}
+
 			file, err := os.Open(filepath.Join(chartDir, path))
 			if err != nil {
 				return err
 			}
 			defer file.Close()
+
 			if _, err := io.Copy(tarWriter, file); err != nil {
 				return err
 			}
+
 			return nil
 		},
 	)
 	err = tarWriter.Close()
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	err = gzWriter.Close()
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	if walkDirErr != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	return archive
+	return archive, nil
 }
 
 func ReplaceTemplate(
-	t testing.TB,
 	testProject string,
 	repo *gittest.LocalGitRepository,
 	repoURL string,
-) {
+) error {
 	releasesFilePath := filepath.Join(
 		testProject,
 		"infra",
 		"prometheus",
 		"releases.cue",
 	)
+
 	releasesContent, err := os.ReadFile(releasesFilePath)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
+
 	tmpl, err := template.New("releases").Parse(string(releasesContent))
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
+
 	releasesFile, err := os.Create(releasesFilePath)
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	defer releasesFile.Close()
+
 	err = tmpl.Execute(releasesFile, struct {
 		Name    string
 		RepoUrl string
@@ -420,10 +468,13 @@ func ReplaceTemplate(
 		Version: "1.0.0",
 	})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
+
 	_, err = repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
+
+	return nil
 }

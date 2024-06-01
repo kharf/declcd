@@ -15,58 +15,83 @@
 package cloudtest
 
 import (
+	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"testing"
-
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/pkg/cloud"
-	"gotest.tools/v3/assert"
+	"time"
 )
 
-// A test Cloud Environment imitating either AWS, GCP or Azure Workload Identity auth.
-type Environment interface {
-	Close()
-}
+// NewMetaServer creates an https server, which handles all requests destined for port 443.
+func NewMetaServer(
+	azureOidcIssuerUrl string,
+) (*httptest.Server, error) {
+	tlsMux := http.NewServeMux()
+	tlsMux.HandleFunc(
+		"POST /",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+			token := awsToken{
+				AuthorizationData: []authorizationData{
+					{
+						AuthorizationToken: "ZGVjbGNkOmFiY2Q=",
+						ExpiresAt:          time.Now().Add(10 * time.Minute).Unix(),
+					},
+				},
+			}
+			err := json.NewEncoder(w).Encode(&token)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+		},
+	)
+	tlsMux.HandleFunc(
+		"GET /common/discovery/instance",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+			err := json.NewEncoder(w).Encode(&azureInstanceDiscoveryMetadata{
+				TenantDiscoveryEndpoint: fmt.Sprintf(
+					"%s/%s/v2.0/.well-known/openid-configuration",
+					azureOidcIssuerUrl,
+					"tenant",
+				),
+			})
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+		},
+	)
 
-func NewCloudEnvironment(
-	t testing.TB,
-	provider cloud.ProviderID,
-	registry *ocitest.Registry,
-) Environment {
-	switch provider {
-	case cloud.GCP:
-		return NewGCPEnvironment(t)
-	case cloud.AWS:
-		return NewAWSEnvironment(t, registry)
-	case cloud.Azure:
-		return NewAzureEnvironment(t, registry)
+	tlsServer, err := newUnstartedServerFromEndpoint("443", tlsMux)
+	if err != nil {
+		return nil, err
 	}
+	tlsServer.StartTLS()
+	fmt.Println("TLS Meta Server listening on", tlsServer.URL)
 
-	return nil
+	return tlsServer, nil
 }
 
 func newUnstartedServerFromEndpoint(
-	t testing.TB,
-	endpoint string,
 	port string,
 	mux *http.ServeMux,
-) *httptest.Server {
-	url, err := url.Parse(endpoint)
-	assert.NilError(t, err)
-
-	tcpAddr, err := net.ResolveTCPAddr("tcp", url.Hostname()+":"+port)
-	assert.NilError(t, err)
+) (*httptest.Server, error) {
+	addr := "127.0.0.1:" + port
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
 
 	listener, err := net.ListenTCP("tcp", tcpAddr)
-	assert.NilError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
-	addr := url.Hostname() + ":" + port
-
-	httpsServer := httptest.NewUnstartedServer(mux)
-	httpsServer.Config.Addr = addr
-	httpsServer.Listener = listener
-	return httpsServer
+	httpServer := httptest.NewUnstartedServer(mux)
+	httpServer.Config.Addr = addr
+	httpServer.Listener = listener
+	return httpServer, nil
 }

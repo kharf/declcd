@@ -28,10 +28,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/kubectl/pkg/scheme"
 
+	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -48,11 +50,15 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient     client.Client
-	test          *testing.T
-	env           projecttest.Environment
-	httpClient    *http.Client
-	installAction install.Action
+	k8sClient         client.Client
+	test              *testing.T
+	env               projecttest.Environment
+	httpClient        *http.Client
+	installAction     install.Action
+	helmEnvironment   *helmtest.Environment
+	gitServer         *httptest.Server
+	cueModuleRegistry *ocitest.Registry
+	dnsServer         *dnstest.DNSServer
 )
 
 func TestAPIs(t *testing.T) {
@@ -63,30 +69,45 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	var err error
 	env = projecttest.StartProjectEnv(test,
 		projecttest.WithKubernetes(
-			kubetest.WithHelm(
-				helmtest.Enabled(true),
-				helmtest.WithOCI(false),
-				helmtest.WithPrivate(false),
-			),
 			kubetest.WithDecryptionKeyCreated(),
 			kubetest.WithVCSSSHKeyCreated(),
 		),
 	)
-	var server *httptest.Server
-	server, httpClient = gittest.MockGitProvider(test, vcs.GitHub)
-	defer server.Close()
+
+	dnsServer, err = dnstest.NewDNSServer()
+	Expect(err).NotTo(HaveOccurred())
+
+	cueModuleRegistry, err = ocitest.StartCUERegistry(env.TestRoot)
+	Expect(err).NotTo(HaveOccurred())
+
+	helmEnvironment, err = helmtest.NewHelmEnvironment(
+		helmtest.WithOCI(false),
+		helmtest.WithPrivate(false),
+	)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = helmtest.ReplaceTemplate(
+		env.TestProject,
+		env.GitRepository,
+		helmEnvironment.ChartServer.URL(),
+	)
+	Expect(err).NotTo(HaveOccurred())
+
+	gitServer, httpClient = gittest.MockGitProvider(test, vcs.GitHub)
 	installAction = install.NewAction(
 		env.DynamicTestKubeClient,
 		httpClient,
 		env.TestProject,
 	)
+
 	logf.SetLogger(env.Log)
-	var err error
 	k8sClient, err = client.New(env.ControlPlane.Config, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
 	chartReconciler := helm.ChartReconciler{
 		KubeConfig:            env.ControlPlane.Config,
 		Client:                env.DynamicTestKubeClient,
@@ -95,11 +116,13 @@ var _ = BeforeSuite(func() {
 		InsecureSkipTLSverify: true,
 		Log:                   env.Log,
 	}
+
 	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "declcd",
 		Name:      "reconciliation_duration_seconds",
 		Help:      "Duration of a GitOps Project reconciliation",
 	}, []string{"project", "url"})
+
 	reconciler := project.Reconciler{
 		Client:            env.ControllerManager.GetClient(),
 		DynamicClient:     env.DynamicTestKubeClient,
@@ -119,6 +142,7 @@ var _ = BeforeSuite(func() {
 		ReconciliationHistogram: reconciliationHisto,
 	}).SetupWithManager(env.ControllerManager)
 	Expect(err).ToNot(HaveOccurred())
+
 	go func() {
 		defer GinkgoRecover()
 		err = env.ControllerManager.Start(env.Ctx)
@@ -129,4 +153,8 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	env.Stop()
+	helmEnvironment.Close()
+	gitServer.Close()
+	cueModuleRegistry.Close()
+	dnsServer.Close()
 })

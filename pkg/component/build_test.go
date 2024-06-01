@@ -45,7 +45,8 @@ func TestBuilder_Build(t *testing.T) {
 
 	// set to to true globally as CUE for example uses the DefaultTransport
 	http.DefaultTransport = transport
-	cueRegistry := ocitest.StartCUERegistry(t, testRoot)
+	cueRegistry, err := ocitest.StartCUERegistry(testRoot)
+	assert.NilError(t, err)
 	defer cueRegistry.Close()
 
 	builder := NewBuilder()
