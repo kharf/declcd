@@ -11,14 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM alpine:3.14 as builder
+FROM alpine:3.20.0
 RUN apk add --no-cache git
-RUN ls -la /usr/bin/
+RUN apk add --no-cache ca-certificates && update-ca-certificates
 
-FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 
-COPY --from=builder --chmod=0700 --chown=65532:65532 /usr/bin/git /usr/bin/git 
 COPY dist/controller_linux_amd64_v1 .
 
 USER 65532:65532
