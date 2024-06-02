@@ -11,9 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+FROM alpine:3.14 as builder
+RUN apk add --no-cache git
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
+
+COPY --from=builder /usr/bin/git /usr/bin/git 
 COPY dist/controller_linux_amd64_v1 .
+
 USER 65532:65532
 ENTRYPOINT ["/controller"]
