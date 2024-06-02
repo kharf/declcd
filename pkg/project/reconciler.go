@@ -40,22 +40,54 @@ import (
 // then decrypts secrets, translates cue definitions to either Kubernetes unstructurd objects or Helm Releases and applies/installs them on a Kubernetes cluster.
 // Every run stores objects in the inventory and collects dangling objects.
 type Reconciler struct {
-	Log               logr.Logger
-	Client            client.Client
-	DynamicClient     kube.Client[unstructured.Unstructured]
-	ProjectManager    Manager
+	Log logr.Logger
+
+	// DynamicClient connects to a Kubernetes cluster
+	// to create, read, update and delete standard Kubernetes manifests/objects.
+	Client client.Client
+
+	// DynamicClient connects to a Kubernetes cluster
+	// to create, read, update and delete manifests/objects.
+	DynamicClient kube.Client[unstructured.Unstructured]
+
+	// Manager loads a declcd project and resolves the component dependency graph.
+	ProjectManager Manager
+
+	// RepositoryManager clones a remote vcs repository to a local path.
 	RepositoryManager vcs.RepositoryManager
-	ComponentBuilder  component.Builder
-	ChartReconciler   helm.ChartReconciler
-	InventoryManager  *inventory.Manager
-	GarbageCollector  garbage.Collector
-	Decrypter         secret.Decrypter
-	FieldManager      string
-	WorkerPoolSize    int
+
+	// ComponentBuilder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
+	ComponentBuilder component.Builder
+
+	// ChartReconciler reads Helm Packages with their desired state
+	// and applies them on a Kubernetes cluster.
+	// It stores releases in the inventory, but never collects it.
+	ChartReconciler helm.ChartReconciler
+
+	// InventoryManager is responsible for maintaining the current cluster state.
+	// It can store, delete and read items from the inventory.
+	InventoryManager *inventory.Manager
+
+	// GarbageCollector inspects the inventory for dangling manifests or helm releases,
+	// which are undefined in the declcd gitops repository, and uninstalls them from
+	// the Kubernetes cluster and inventory.
+	GarbageCollector garbage.Collector
+
+	Decrypter secret.Decrypter
+
+	// Managers identify distinct workflows that are modifying the object (especially useful on conflicts!),
+	FieldManager string
+
+	// Defines the concurrency level of Declcd operations.
+	WorkerPoolSize int
 }
 
+// ReconcileResult reports the outcome and metadata of a reconciliation.
 type ReconcileResult struct {
-	Suspended  bool
+	// Reports whether the GitOpsProject was flagged as suspended.
+	Suspended bool
+
+	// The hash of the reconciled Git Commit.
 	CommitHash string
 }
 

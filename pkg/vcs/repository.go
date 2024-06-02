@@ -105,12 +105,7 @@ func WithTarget(path string) loadOption {
 	}
 }
 
-var (
-	ErrAuthKeyNotFound = errors.New("VCS auth key secret not found")
-)
-
 func (manager RepositoryManager) getAuthMethodFromSecret(
-	ctx context.Context,
 	secret v1.Secret,
 ) (transport.AuthMethod, error) {
 	var authMethod transport.AuthMethod
@@ -135,43 +130,57 @@ func (manager RepositoryManager) Load(
 	for _, opt := range opts {
 		opt(options)
 	}
+
 	secret, err := getAuthSecret(ctx, manager.kubeClient, manager.controllerNamespace)
 	if err != nil {
 		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
 			return nil, err
 		}
 	}
-	if secret == nil {
-		return nil, ErrAuthKeyNotFound
+
+	var authMethod transport.AuthMethod
+	var knownHosts []byte
+	if secret != nil {
+		authMethod, err = manager.getAuthMethodFromSecret(*secret)
+		if err != nil {
+			return nil, err
+		}
+
+		knownHosts = secret.Data[SSHKnownHosts]
 	}
-	authMethod, err := manager.getAuthMethodFromSecret(ctx, *secret)
-	if err != nil {
-		return nil, err
-	}
+
 	targetPath := options.targetPath
 	logArgs := []interface{}{"remote url", options.url, "target path", targetPath}
-	manager.log.Info("Opening repository", logArgs...)
+	manager.log.V(1).Info("Opening repository", logArgs...)
+
 	gitRepository, err := git.PlainOpen(targetPath)
 	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
+
 	if err == git.ErrRepositoryNotExists {
-		manager.log.Info("Repository not cloned yet", logArgs...)
-		manager.log.Info("Cloning repository", logArgs...)
-		switch authMethod.Name() {
-		case ssh.PublicKeysName:
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, err
-			}
-			sshDir := filepath.Join(home, ".ssh")
-			if err := os.MkdirAll(sshDir, 0700); err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(filepath.Join(sshDir, SSHKnownHosts), secret.Data[SSHKnownHosts], 0600); err != nil {
-				return nil, err
+		manager.log.V(1).Info("Repository not cloned yet", logArgs...)
+		manager.log.V(1).Info("Cloning repository", logArgs...)
+
+		if authMethod != nil {
+			switch authMethod.Name() {
+			case ssh.PublicKeysName:
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return nil, err
+				}
+
+				sshDir := filepath.Join(home, ".ssh")
+				if err := os.MkdirAll(sshDir, 0700); err != nil {
+					return nil, err
+				}
+
+				if err := os.WriteFile(filepath.Join(sshDir, SSHKnownHosts), knownHosts, 0600); err != nil {
+					return nil, err
+				}
 			}
 		}
+
 		gitRepository, err = git.PlainClone(
 			targetPath, false,
 			&git.CloneOptions{
@@ -184,10 +193,12 @@ func (manager RepositoryManager) Load(
 			return nil, err
 		}
 	}
+
 	worktree, err := gitRepository.Worktree()
 	if err != nil {
 		return nil, err
 	}
+
 	pullFunc := func() (string, error) {
 		err := worktree.Pull(&git.PullOptions{
 			Auth: authMethod,
@@ -201,6 +212,7 @@ func (manager RepositoryManager) Load(
 		}
 		return ref.Hash().String(), nil
 	}
+
 	repository := NewRepository(targetPath, pullFunc)
 	return &repository, nil
 }
@@ -215,14 +227,17 @@ func getAuthSecret(
 	unstr.SetNamespace(controllerNamespace)
 	unstr.SetKind("Secret")
 	unstr.SetAPIVersion("v1")
+
 	unstr, err := kubeClient.Get(ctx, unstr)
 	if err != nil {
 		return nil, err
 	}
+
 	var sec v1.Secret
 	if err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstr.Object, &sec); err != nil {
 		return nil, err
 	}
+
 	return &sec, nil
 }
 
@@ -249,6 +264,7 @@ func NewRepositoryConfigurator(
 	var provider string
 	var repoID string
 	urlParts := strings.Split(url, "@")
+
 	if len(urlParts) != 2 {
 		provider = Generic
 		repoID = url
@@ -257,6 +273,7 @@ func NewRepositoryConfigurator(
 		if len(providerIdParts) != 2 {
 			return nil, fmt.Errorf("%s: expected one ':' in url '%s'", ErrUnknownURLFormat, url)
 		}
+
 		providerParts := strings.Split(providerIdParts[0], ".")
 		if len(providerParts) != 2 {
 			return nil, fmt.Errorf(
@@ -265,17 +282,21 @@ func NewRepositoryConfigurator(
 				providerIdParts[0],
 			)
 		}
+
 		provider = providerParts[0]
 		idSuffixParts := strings.Split(providerIdParts[1], ".")
 		if len(idSuffixParts) != 2 {
 			return nil, fmt.Errorf("%s: expected one '.' at end of url '%s'", ErrUnknownURLFormat, url)
 		}
+
 		repoID = idSuffixParts[0]
 	}
+
 	providerClient, err := getProviderClient(httpClient, provider, token)
 	if err != nil {
 		return nil, err
 	}
+
 	return &RepositoryConfigurator{
 		controllerNamespace: controllerNamespace,
 		kubeClient:          kubeClient,
@@ -295,13 +316,16 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 			return err
 		}
 	}
+
 	if sec != nil {
 		return nil
 	}
+
 	depKey, err := config.provider.CreateDeployKey(ctx, config.repoID)
 	if err != nil {
 		return err
 	}
+
 	if depKey != nil {
 		unstr := &unstructured.Unstructured{}
 		unstr.SetName(K8sSecretName)
@@ -314,10 +338,12 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 			K8sSecretDataAuthType: []byte(K8sSecretDataAuthTypeSSH),
 			SSHKnownHosts:         []byte(config.provider.GetHostPublicSSHKey()),
 		}
+
 		err = config.kubeClient.Apply(ctx, unstr, fieldManager)
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }

@@ -47,12 +47,21 @@ func TestRepositoryManager_Load(t *testing.T) {
 					),
 				)
 				defer env.Stop()
+
 				repository, err := env.RepositoryManager.Load(
 					env.Ctx,
 					vcs.WithTarget(localRepository),
 					vcs.WithUrl(remoteRepository.Directory),
 				)
 				assert.NilError(t, err)
+
+				home, err := os.UserHomeDir()
+				assert.NilError(t, err)
+				knownHostFile, err := os.Open(filepath.Join(home, ".ssh", vcs.SSHKnownHosts))
+				assert.NilError(t, err)
+				knownHostContent, err := io.ReadAll(knownHostFile)
+				assert.NilError(t, err)
+				assert.Equal(t, string(knownHostContent), vcs.GitHubSSHKey)
 				return env, repository
 			},
 			assert: true,
@@ -92,10 +101,10 @@ func TestRepositoryManager_Load(t *testing.T) {
 					vcs.WithTarget(localRepository),
 					vcs.WithUrl(remoteRepository.Directory),
 				)
-				assert.ErrorIs(t, err, vcs.ErrAuthKeyNotFound)
+				assert.NilError(t, err)
 				return env, repository
 			},
-			assert: false,
+			assert: true,
 		},
 	}
 	for _, tc := range testCases {
@@ -122,13 +131,6 @@ func TestRepositoryManager_Load(t *testing.T) {
 				assert.NilError(t, err)
 				assert.Assert(t, !fileInfo.IsDir())
 				assert.Assert(t, fileInfo.Name() == newFile)
-				home, err := os.UserHomeDir()
-				assert.NilError(t, err)
-				knownHostFile, err := os.Open(filepath.Join(home, ".ssh", vcs.SSHKnownHosts))
-				assert.NilError(t, err)
-				knownHostContent, err := io.ReadAll(knownHostFile)
-				assert.NilError(t, err)
-				assert.Equal(t, string(knownHostContent), vcs.GitHubSSHKey)
 			}
 		})
 	}
