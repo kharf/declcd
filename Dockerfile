@@ -13,11 +13,12 @@
 # limitations under the License.
 FROM alpine:3.14 as builder
 RUN apk add --no-cache git
+RUN ls -la /usr/bin/
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 
-COPY --from=builder /usr/bin/git /usr/bin/git 
+COPY --from=builder --chmod=0700 --chown=65532:65532 /usr/bin/git /usr/bin/git 
 COPY dist/controller_linux_amd64_v1 .
 
 USER 65532:65532
