@@ -65,6 +65,7 @@ func (r *Registry) Close() {
 	if r.httpsServer != nil {
 		r.httpsServer.Close()
 	}
+	os.Setenv("CUE_REGISTRY", "")
 }
 
 // Creates an OCI registry to test tls/https.

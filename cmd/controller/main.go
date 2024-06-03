@@ -104,6 +104,7 @@ func main() {
 		"The file which holds the controller namespace",
 	)
 	flag.Parse()
+
 	opts := ctrlZap.Options{
 		Development: false,
 		Level:       zapcore.Level(logLevel * -1),
@@ -111,7 +112,9 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&opts))
 	ctrl.SetLogger(log)
+
 	cfg := ctrl.GetConfigOrDie()
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
@@ -139,28 +142,36 @@ func main() {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
+
 	if err = os.Setenv("CUE_EXPERIMENT", "modules"); err != nil {
 		setupLog.Error(err, "Unable to set CUE_EXPERIMENT environment variable")
 		os.Exit(1)
 	}
+
 	if err = os.Setenv("CUE_REGISTRY", "ghcr.io/kharf"); err != nil {
 		setupLog.Error(err, "Unable to set CUE_REGISTRY environment variable")
 		os.Exit(1)
 	}
+
 	componentBuilder := component.NewBuilder()
+
 	maxProcs := goRuntime.GOMAXPROCS(0)
 	projectManager := project.NewManager(componentBuilder, log, maxProcs)
+
 	//TODO: downward api read controller from file
 	helmKube.ManagedFieldsManager = project.ControllerName
+
 	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
 	if err != nil {
 		setupLog.Error(err, "Unable to setup Kubernetes client")
 		os.Exit(1)
 	}
+
 	inventoryManager := &inventory.Manager{
 		Log:  log,
 		Path: inventoryPath,
 	}
+
 	chartReconciler := helm.ChartReconciler{
 		KubeConfig:            cfg,
 		Client:                kubeDynamicClient,
@@ -169,6 +180,7 @@ func main() {
 		InsecureSkipTLSverify: false,
 		Log:                   log,
 	}
+
 	namespaceBytes, err := os.ReadFile(namespacePodinfoPath)
 	if err != nil {
 		setupLog.Error(err, "Unable to read current namespace")
@@ -176,12 +188,14 @@ func main() {
 	}
 
 	namespace := strings.TrimSpace(string(namespaceBytes))
+
 	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "declcd",
 		Name:      "reconciliation_duration_seconds",
 		Help:      "Duration of a GitOps Project reconciliation",
 	}, []string{"project", "url"})
 	metrics.Registry.MustRegister(reconciliationHisto)
+
 	if err := (&controller.GitOpsProjectReconciler{
 		Reconciler: project.Reconciler{
 			Log:               log,
@@ -208,14 +222,17 @@ func main() {
 		setupLog.Error(err, "Unable to create controller", "controller", "GitOpsProject")
 		os.Exit(1)
 	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Unable to set up health check")
 		os.Exit(1)
 	}
+
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Unable to set up ready check")
 		os.Exit(1)
 	}
+
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Problem running manager")

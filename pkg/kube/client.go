@@ -125,12 +125,15 @@ func NewDynamicClient(config *rest.Config) (*DynamicClient, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
 		return nil, err
 	}
+
 	cacheClient := memory.NewMemCacheClient(discoveryClient)
 	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cacheClient)
+
 	return &DynamicClient{
 		dynamicClient: dynClient,
 		restMapper:    restMapper,
@@ -159,24 +162,30 @@ func (client *DynamicClient) Apply(
 	for _, opt := range opts {
 		opt.Apply(applyOptions)
 	}
+
 	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
 	if err != nil {
 		return err
 	}
+
 	createOptions := v1.ApplyOptions{
 		FieldManager: fieldManager,
 		Force:        applyOptions.force,
 	}
+
 	if applyOptions.dryRun {
 		createOptions.DryRun = []string{"All"}
 	}
+
 	_, err = resourceInterface.Apply(ctx, obj.GetName(), obj, createOptions)
 	if err != nil {
 		return err
 	}
+
 	if !applyOptions.dryRun {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
+
 		_, err = client.wait(
 			timeoutCtx,
 			obj.GetName(),
@@ -186,10 +195,12 @@ func (client *DynamicClient) Apply(
 			},
 			resourceInterface,
 		)
+
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -206,6 +217,7 @@ func (client *DynamicClient) Update(
 	if err != nil {
 		return err
 	}
+
 	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: fieldManager})
 	if err != nil {
 		if k8sErrors.ReasonForError(err) == v1.StatusReasonAlreadyExists {
@@ -221,6 +233,7 @@ func (client *DynamicClient) Update(
 			if err != nil {
 				return err
 			}
+
 			obj.SetResourceVersion(existingObj.GetResourceVersion())
 			_, err = resourceInterface.Update(
 				ctx,
@@ -234,8 +247,10 @@ func (client *DynamicClient) Update(
 			return err
 		}
 	}
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+
 	_, err = client.wait(
 		timeoutCtx,
 		obj.GetName(),
@@ -245,9 +260,11 @@ func (client *DynamicClient) Update(
 		},
 		resourceInterface,
 	)
+
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -257,33 +274,39 @@ func (client *DynamicClient) wait(
 	typeMeta v1.TypeMeta,
 	resourceInterface dynamic.ResourceInterface,
 ) (bool, error) {
+	if typeMeta.Kind != "CustomResourceDefinition" {
+		return true, nil
+	}
+
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
 	default:
 	}
+
 	obj, err := resourceInterface.Get(ctx, name, v1.GetOptions{
 		TypeMeta: typeMeta,
 	})
 	if err != nil {
 		return false, err
 	}
-	if obj.GetKind() != "CustomResourceDefinition" {
-		return true, nil
-	}
+
 	conditions := getConditions(obj)
 	ok := slices.ContainsFunc(conditions, func(cond condition) bool {
-		return cond.cType == string(apiextensionsv1.Established)
+		return cond.cType == string(apiextensionsv1.Established) &&
+			cond.status == string(apiextensionsv1.ConditionTrue)
 	})
 	if ok {
 		return true, nil
 	}
+
 	time.Sleep(1 * time.Second)
 	return client.wait(ctx, name, typeMeta, resourceInterface)
 }
 
 type condition struct {
-	cType string
+	cType  string
+	status string
 }
 
 func getConditions(obj *unstructured.Unstructured) []condition {
@@ -292,25 +315,36 @@ func getConditions(obj *unstructured.Unstructured) []condition {
 	if !ok {
 		return conditions
 	}
+
 	statusMap, ok := status.(map[string]interface{})
 	if !ok {
 		return conditions
 	}
+
 	conditionsArr, ok := statusMap["conditions"].([]interface{})
 	if !ok {
 		return conditions
 	}
+
 	for _, c := range conditionsArr {
 		cond, ok := c.(map[string]interface{})
 		if !ok {
 			return conditions
 		}
+
 		t, ok := cond["type"].(string)
 		if !ok {
 			return conditions
 		}
-		conditions = append(conditions, condition{cType: t})
+
+		status, ok := cond["status"].(string)
+		if !ok {
+			return conditions
+		}
+
+		conditions = append(conditions, condition{cType: t, status: status})
 	}
+
 	return conditions
 }
 
@@ -349,14 +383,17 @@ func (client *DynamicClient) Get(
 	if !ok {
 		return nil, ErrManifestNoMetadata
 	}
+
 	namespace, ok = metadata["namespace"].(string)
 	if !ok {
 		namespace = ""
 	}
+
 	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), namespace)
 	if err != nil {
 		return nil, err
 	}
+
 	name := metadata["name"].(string)
 	foundObj, err := resourceInterface.Get(ctx, name, v1.GetOptions{
 		TypeMeta: v1.TypeMeta{
@@ -364,9 +401,11 @@ func (client *DynamicClient) Get(
 			APIVersion: obj.GetAPIVersion(),
 		},
 	})
+
 	if err != nil {
 		return nil, err
 	}
+
 	return foundObj, nil
 }
 

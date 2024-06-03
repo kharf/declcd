@@ -18,12 +18,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/kharf/declcd/internal/manifest"
 	"github.com/kharf/declcd/pkg/component"
@@ -31,9 +29,6 @@ import (
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -203,39 +198,16 @@ func (act Action) installObject(
 	unstr *unstructured.Unstructured,
 	fieldManager string,
 ) error {
-	kind, _ := unstr.Object["kind"].(string)
-	if kind == "GitOpsProject" {
-		timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		defer cancel()
-
-		var err error
-		for {
-			select {
-			case <-timeoutCtx.Done():
-				return fmt.Errorf("%w: %w", ctx.Err(), err)
-			default:
-			}
-
-			// clear cache because we just introduced a new crd
-			if err := act.kubeClient.Invalidate(); err != nil {
-				return err
-			}
-
-			err = act.kubeClient.Apply(ctx, unstr, fieldManager)
-			if err == nil {
-				return nil
-			}
-
-			if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound ||
-				!meta.IsNoMatchError(err) {
-				return err
-			}
-
-			time.Sleep(2 * time.Second)
-		}
-	}
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
 		return err
+	}
+
+	kind, _ := unstr.Object["kind"].(string)
+	if kind == "CustomResourceDefinition" {
+		// clear cache because we just introduced a new crd
+		if err := act.kubeClient.Invalidate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

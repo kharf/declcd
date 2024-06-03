@@ -47,7 +47,6 @@ func (env *Environment) Stop() {
 	if env.Environment != nil {
 		env.Environment.Stop()
 	}
-	os.Setenv("CUE_REGISTRY", "")
 	_ = os.RemoveAll(env.TestRoot)
 	_ = os.RemoveAll(env.GitRepository.Directory)
 }
