@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/kharf/declcd/internal/manifest"
 	"github.com/kharf/declcd/pkg/component"
@@ -29,6 +30,7 @@ import (
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -166,7 +168,15 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 		if !ok {
 			return ErrHelmInstallationUnsupported
 		}
-		if err := act.installObject(ctx, &manifest.Content, project.ControllerName); err != nil {
+
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if err := act.installObject(
+			timeoutCtx,
+			&manifest.Content,
+			project.ControllerName,
+		); err != nil {
 			return err
 		}
 	}
@@ -198,7 +208,17 @@ func (act Action) installObject(
 	unstr *unstructured.Unstructured,
 	fieldManager string,
 ) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
+		if k8sErrors.IsNotFound(err) {
+			time.Sleep(1 * time.Second)
+			return act.installObject(ctx, unstr, fieldManager)
+		}
 		return err
 	}
 
