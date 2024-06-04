@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	_ "go.uber.org/automaxprocs"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
