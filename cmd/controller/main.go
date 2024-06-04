@@ -156,7 +156,7 @@ func main() {
 	componentBuilder := component.NewBuilder()
 
 	maxProcs := goRuntime.GOMAXPROCS(0)
-	log.V(1).Info("GOMAXPROCS", maxProcs)
+	log.V(1).Info("GOMAXPROCS", "value", maxProcs)
 
 	projectManager := project.NewManager(componentBuilder, log, maxProcs)
 
