@@ -156,6 +156,8 @@ func main() {
 	componentBuilder := component.NewBuilder()
 
 	maxProcs := goRuntime.GOMAXPROCS(0)
+	log.V(1).Info("GOMAXPROCS", maxProcs)
+
 	projectManager := project.NewManager(componentBuilder, log, maxProcs)
 
 	//TODO: downward api read controller from file
