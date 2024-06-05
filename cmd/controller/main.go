@@ -76,6 +76,7 @@ func main() {
 	var logLevel int
 	var inventoryPath string
 	var namespacePodinfoPath string
+	var insecureSkipTLSverify bool
 	flag.StringVar(
 		&metricsAddr,
 		"metrics-bind-address",
@@ -96,13 +97,19 @@ func main() {
 		&inventoryPath,
 		"inventory-path",
 		"/inventory",
-		"The directory the inventory uses to store cluster state items",
+		"The directory the inventory uses to store cluster state items.",
 	)
 	flag.StringVar(
 		&namespacePodinfoPath,
 		"namespace-podinfo-path",
 		"/podinfo/namespace",
-		"The file which holds the controller namespace",
+		"The file which holds the controller namespace.",
+	)
+	flag.BoolVar(
+		&insecureSkipTLSverify,
+		"insecure-skip-tls-verify",
+		false,
+		"InsecureSkipVerify controls whether the Helm client verifies the server's certificate chain and host name.	",
 	)
 	flag.Parse()
 
@@ -180,7 +187,7 @@ func main() {
 		Client:                kubeDynamicClient,
 		FieldManager:          project.ControllerName,
 		InventoryManager:      inventoryManager,
-		InsecureSkipTLSverify: false,
+		InsecureSkipTLSverify: insecureSkipTLSverify,
 		Log:                   log,
 	}
 

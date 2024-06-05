@@ -74,9 +74,12 @@ type Auth struct {
 // sufficient for installing a set of Kubernetes resources into a Kubernetes cluster.
 type Chart struct {
 	Name string `json:"name"`
+
 	// URL of the repository where the Helm chart is hosted.
 	RepoURL string `json:"repoURL"`
+
 	Version string `json:"version"`
+
 	// Authentication information for private repositories.
 	Auth *Auth `json:"auth,omitempty"`
 }
@@ -85,12 +88,16 @@ type Chart struct {
 // and applies them on a Kubernetes cluster.
 // It stores releases in the inventory, but never collects it.
 type ChartReconciler struct {
-	KubeConfig            *rest.Config
-	Client                kube.Client[unstructured.Unstructured]
-	FieldManager          string
-	InventoryManager      *inventory.Manager
+	KubeConfig       *rest.Config
+	Client           kube.Client[unstructured.Unstructured]
+	FieldManager     string
+	InventoryManager *inventory.Manager
+
+	// InsecureSkipVerify controls whether the Helm client verifies the server's
+	// certificate chain and host name.
 	InsecureSkipTLSverify bool
-	Log                   logr.Logger
+
+	Log logr.Logger
 }
 
 // Reconcile reads a declared Helm Release with its desired state and applies it on a Kubernetes cluster.
