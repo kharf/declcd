@@ -169,7 +169,7 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 			return ErrHelmInstallationUnsupported
 		}
 
-		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 
 		if err := act.installObject(
