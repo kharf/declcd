@@ -77,6 +77,7 @@ func main() {
 	var inventoryPath string
 	var namespacePodinfoPath string
 	var insecureSkipTLSverify bool
+	var plainHTTP bool
 	flag.StringVar(
 		&metricsAddr,
 		"metrics-bind-address",
@@ -109,7 +110,13 @@ func main() {
 		&insecureSkipTLSverify,
 		"insecure-skip-tls-verify",
 		false,
-		"InsecureSkipVerify controls whether the Helm client verifies the server's certificate chain and host name.	",
+		"InsecureSkipVerify controls whether the Helm client verifies the server's certificate chain and host name.",
+	)
+	flag.BoolVar(
+		&plainHTTP,
+		"plain-http",
+		false,
+		"Force http for Helm registries.",
 	)
 	flag.Parse()
 
@@ -188,6 +195,7 @@ func main() {
 		FieldManager:          project.ControllerName,
 		InventoryManager:      inventoryManager,
 		InsecureSkipTLSverify: insecureSkipTLSverify,
+		PlainHTTP:             plainHTTP,
 		Log:                   log,
 	}
 

@@ -97,6 +97,9 @@ type ChartReconciler struct {
 	// certificate chain and host name.
 	InsecureSkipTLSverify bool
 
+	// Force http for Helm registries.
+	PlainHTTP bool
+
 	Log logr.Logger
 }
 
@@ -244,7 +247,7 @@ func (c *ChartReconciler) installOrUpgrade(
 	}
 
 	upgrade := action.NewUpgrade(helmConfig)
-	upgrade.PlainHTTP = false
+	upgrade.PlainHTTP = c.PlainHTTP
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.MaxHistory = 5
@@ -283,7 +286,7 @@ func (c *ChartReconciler) diff(
 	helmConfig *action.Configuration,
 ) (driftType, error) {
 	upgrade := action.NewUpgrade(helmConfig)
-	upgrade.PlainHTTP = false
+	upgrade.PlainHTTP = c.PlainHTTP
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.DryRun = true
@@ -408,7 +411,7 @@ func (c *ChartReconciler) install(
 	helmConfig *action.Configuration,
 ) (*Release, error) {
 	install := action.NewInstall(helmConfig)
-	install.PlainHTTP = false
+	install.PlainHTTP = c.PlainHTTP
 	install.Wait = false
 	install.ReleaseName = desiredRelease.Name
 	install.CreateNamespace = true
@@ -484,7 +487,7 @@ func (c *ChartReconciler) pull(
 			InsecureSkipVerify: c.InsecureSkipTLSverify,
 		},
 	}
-	pull.PlainHTTP = false
+	pull.PlainHTTP = c.PlainHTTP
 	pull.InsecureSkipTLSverify = c.InsecureSkipTLSverify
 
 	var chartRef string
