@@ -498,6 +498,9 @@ func (c *ChartReconciler) pull(
 			registry.ClientOptWriter(os.Stderr),
 			registry.ClientOptHTTPClient(httpClient),
 		}
+		if c.PlainHTTP {
+			opts = append(opts, registry.ClientOptPlainHTTP())
+		}
 		registryClient, err := registry.NewClient(opts...)
 		if err != nil {
 			return err
