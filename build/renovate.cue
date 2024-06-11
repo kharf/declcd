@@ -93,7 +93,7 @@ customManagers: [
 		matchStrings: [
 			"var cueDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
 			"var controllerGenDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
-			"var goreleaserDep  = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
+			"var goreleaserDep = \"(?<depName>.*?)@(?<currentValue>.*?)\"",
 		]
 		datasourceTemplate: "go"
 	},
