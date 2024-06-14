@@ -21,10 +21,6 @@ import (
 	gogitlab "github.com/xanzy/go-gitlab"
 )
 
-const (
-	GitLabSSHKey = "gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf"
-)
-
 type gitlabClient struct {
 	client *gogitlab.Client
 }
@@ -41,7 +37,11 @@ func NewGitlabClient(httpClient *http.Client, token string) (*gitlabClient, erro
 
 var _ providerClient = (*gitlabClient)(nil)
 
-func (g *gitlabClient) CreateDeployKey(ctx context.Context, id string, opts ...deployKeyOption) (*deployKey, error) {
+func (g *gitlabClient) CreateDeployKey(
+	ctx context.Context,
+	id string,
+	opts ...deployKeyOption,
+) (*deployKey, error) {
 	deployKey, err := genDeployKey(opts...)
 	if err != nil {
 		return nil, err
@@ -54,8 +54,4 @@ func (g *gitlabClient) CreateDeployKey(ctx context.Context, id string, opts ...d
 		return nil, err
 	}
 	return deployKey, nil
-}
-
-func (g *gitlabClient) GetHostPublicSSHKey() string {
-	return GitLabSSHKey
 }
