@@ -16,7 +16,6 @@ package vcs_test
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,13 +54,6 @@ func TestRepositoryManager_Load(t *testing.T) {
 				)
 				assert.NilError(t, err)
 
-				home, err := os.UserHomeDir()
-				assert.NilError(t, err)
-				knownHostFile, err := os.Open(filepath.Join(home, ".ssh", vcs.SSHKnownHosts))
-				assert.NilError(t, err)
-				knownHostContent, err := io.ReadAll(knownHostFile)
-				assert.NilError(t, err)
-				assert.Equal(t, string(knownHostContent), vcs.GitHubSSHKey)
 				return env, repository
 			},
 			assert: true,
@@ -302,8 +294,6 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			assert.Assert(t, strings.HasPrefix(string(pubKey), "ssh-ed25519 AAAA"))
 			authType, _ := sec.Data[vcs.K8sSecretDataAuthType]
 			assert.Equal(t, string(authType), vcs.K8sSecretDataAuthTypeSSH)
-			knownHosts, _ := sec.Data[vcs.SSHKnownHosts]
-			assert.Equal(t, string(knownHosts), vcs.GitHubSSHKey)
 			tc.post(env, sec)
 		})
 	}

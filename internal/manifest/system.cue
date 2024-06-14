@@ -172,6 +172,7 @@ clusteRoleBinding: component.#Manifest & {
 statefulSet: component.#Manifest & {
 	dependencies: [
 		ns.id,
+		knownHostsCm.id,
 	]
 	content: {
 		apiVersion: "apps/v1"
@@ -223,11 +224,19 @@ statefulSet: component.#Manifest & {
 								]
 							}
 						},
+						{
+							name: "ssh"
+							configMap: name: knownHostsCm.content.metadata.name
+						},
+						{
+							name: "cache"
+							emptyDir: {}
+						},
 					]
 					containers: [
 						{
 							name:  _name
-							image: "ghcr.io/kharf/declcd:{{.Version}}"
+							image: "ghcr.io/kharf/declcd:{{ .Version }}"
 							command: [
 								"/controller",
 							]
@@ -267,6 +276,16 @@ statefulSet: component.#Manifest & {
 								{
 									name:      "podinfo"
 									mountPath: "/podinfo"
+									readOnly:  true
+								},
+								{
+									name:      "ssh"
+									mountPath: "/.ssh"
+									readOnly:  true
+								},
+								{
+									name:      "cache"
+									mountPath: "/.cache"
 								},
 							]
 						},
@@ -301,6 +320,26 @@ service: component.#Manifest & {
 					targetPort: "http"
 				},
 			]
+		}
+	}
+}
+
+knownHostsCm: component.#Manifest & {
+	dependencies: [
+		ns.id,
+	]
+	content: {
+		apiVersion: "v1"
+		kind:       "ConfigMap"
+		metadata: {
+			name:      "known-hosts"
+			namespace: ns.content.metadata.name
+		}
+		data: {
+			"known_hosts": """
+				github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+				gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf
+				"""
 		}
 	}
 }
