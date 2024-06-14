@@ -250,8 +250,7 @@ AIh1qzZ4das2eAAAAAtzc2gtZWQyNTUxOQAAACDrGFnmApwnObDTPK8nepGtlPKh
 hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 9OsYWeYCnCc5sNM8ryd6ka2U8qGGsDW7o7HaEPksCrn6AAAAAAECAwQF
 -----END OPENSSH PRIVATE KEY-----`),
-				vcs.SSHKnownHosts: []byte(vcs.GitHubSSHKey),
-				vcs.SSHPubKey:     []byte("ssh-ed25519 AAAA"),
+				vcs.SSHPubKey: []byte("ssh-ed25519 AAAA"),
 			},
 		}
 		err = testClient.Create(ctx, &sec)

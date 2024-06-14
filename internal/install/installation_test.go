@@ -227,6 +227,14 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 	)
 	assert.NilError(t, err)
 
+	var knownHostsCm v1.ConfigMap
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "known-hosts", Namespace: project.ControllerNamespace},
+		&knownHostsCm,
+	)
+	assert.NilError(t, err)
+
 	var service v1.Service
 	err = env.TestKubeClient.Get(
 		ctx,

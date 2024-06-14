@@ -48,7 +48,6 @@ func (s WithKeySuffix) apply(opts *deployKeyOptions) {
 
 type providerClient interface {
 	CreateDeployKey(ctx context.Context, repoID string, opts ...deployKeyOption) (*deployKey, error)
-	GetHostPublicSSHKey() string
 }
 
 type Provider string

@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -41,7 +40,6 @@ const (
 	K8sSecretDataAuthTypeSSH = "ssh"
 	SSHKey                   = "identity"
 	SSHPubKey                = "identity.pub"
-	SSHKnownHosts            = "known_hosts"
 )
 
 // A vcs Repository.
@@ -139,14 +137,11 @@ func (manager RepositoryManager) Load(
 	}
 
 	var authMethod transport.AuthMethod
-	var knownHosts []byte
 	if secret != nil {
 		authMethod, err = manager.getAuthMethodFromSecret(*secret)
 		if err != nil {
 			return nil, err
 		}
-
-		knownHosts = secret.Data[SSHKnownHosts]
 	}
 
 	targetPath := options.targetPath
@@ -161,25 +156,6 @@ func (manager RepositoryManager) Load(
 	if err == git.ErrRepositoryNotExists {
 		manager.log.V(1).Info("Repository not cloned yet", logArgs...)
 		manager.log.V(1).Info("Cloning repository", logArgs...)
-
-		if authMethod != nil {
-			switch authMethod.Name() {
-			case ssh.PublicKeysName:
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return nil, err
-				}
-
-				sshDir := filepath.Join(home, ".ssh")
-				if err := os.MkdirAll(sshDir, 0700); err != nil {
-					return nil, err
-				}
-
-				if err := os.WriteFile(filepath.Join(sshDir, SSHKnownHosts), knownHosts, 0600); err != nil {
-					return nil, err
-				}
-			}
-		}
 
 		gitRepository, err = git.PlainClone(
 			targetPath, false,
@@ -336,7 +312,6 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 			SSHKey:                []byte(depKey.privateKeyOpenSSH),
 			SSHPubKey:             []byte(depKey.publicKeyOpenSSH),
 			K8sSecretDataAuthType: []byte(K8sSecretDataAuthTypeSSH),
-			SSHKnownHosts:         []byte(config.provider.GetHostPublicSSHKey()),
 		}
 
 		err = config.kubeClient.Apply(ctx, unstr, fieldManager)
