@@ -22,7 +22,6 @@ import (
 
 	"helm.sh/helm/v3/pkg/action"
 	helmKube "helm.sh/helm/v3/pkg/kube"
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/cli-runtime/pkg/resource"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -96,10 +95,6 @@ type Client[T any] interface {
 	// The object is created when it does not exist.
 	// It errors on conflicts if force is set to false.
 	Apply(ctx context.Context, obj *T, fieldManager string, opts ...ApplyOption) error
-	// Update applies changes to an object.
-	// The object is created when it does not exist.
-	// It does not error on conflicts.
-	Update(ctx context.Context, obj *T, fieldManager string, opts ...ApplyOption) error
 	// Get retrieves the unstructured object from a Kubernetes cluster.
 	Get(ctx context.Context, obj *T) (*T, error)
 	// Delete removes the object from the Kubernetes cluster.
@@ -201,68 +196,11 @@ func (client *DynamicClient) Apply(
 		}
 	}
 
-	return nil
-}
-
-// Update applies changes to an object.
-// The object is created when it does not exist.
-// It does not error on conflicts.
-func (client *DynamicClient) Update(
-	ctx context.Context,
-	obj *unstructured.Unstructured,
-	fieldManager string,
-	opts ...ApplyOption,
-) error {
-	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
-	if err != nil {
-		return err
-	}
-
-	_, err = resourceInterface.Create(ctx, obj, v1.CreateOptions{FieldManager: fieldManager})
-	if err != nil {
-		if k8sErrors.ReasonForError(err) == v1.StatusReasonAlreadyExists {
-			existingObj, err := resourceInterface.Get(
-				ctx,
-				obj.GetName(),
-				v1.GetOptions{TypeMeta: v1.TypeMeta{
-					Kind:       obj.GetKind(),
-					APIVersion: obj.GetAPIVersion(),
-				},
-				},
-			)
-			if err != nil {
-				return err
-			}
-
-			obj.SetResourceVersion(existingObj.GetResourceVersion())
-			_, err = resourceInterface.Update(
-				ctx,
-				obj,
-				v1.UpdateOptions{FieldManager: fieldManager},
-			)
-			if err != nil {
-				return err
-			}
-		} else {
+	if obj.GetKind() == "CustomResourceDefinition" {
+		// clear cache because we just introduced a new crd
+		if err := client.Invalidate(); err != nil {
 			return err
 		}
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	_, err = client.wait(
-		timeoutCtx,
-		obj.GetName(),
-		v1.TypeMeta{
-			Kind:       obj.GetKind(),
-			APIVersion: obj.GetAPIVersion(),
-		},
-		resourceInterface,
-	)
-
-	if err != nil {
-		return err
 	}
 
 	return nil

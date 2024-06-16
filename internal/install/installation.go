@@ -222,12 +222,5 @@ func (act Action) installObject(
 		return err
 	}
 
-	kind, _ := unstr.Object["kind"].(string)
-	if kind == "CustomResourceDefinition" {
-		// clear cache because we just introduced a new crd
-		if err := act.kubeClient.Invalidate(); err != nil {
-			return err
-		}
-	}
 	return nil
 }
