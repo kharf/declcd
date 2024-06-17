@@ -12,7 +12,7 @@ secret: {
 		apiVersion: "v1"
 		kind:       "Secret"
 		data: {
-			foo: '(enc;value omitted)'
+			foo: 'bar'
 		}
 	}
 }

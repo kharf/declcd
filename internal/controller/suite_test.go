@@ -133,7 +133,6 @@ var _ = BeforeSuite(func() {
 		InventoryManager:  env.InventoryManager,
 		Log:               env.Log,
 		GarbageCollector:  env.GarbageCollector,
-		Decrypter:         env.SecretManager.Decrypter,
 		FieldManager:      project.ControllerName,
 		WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
 	}

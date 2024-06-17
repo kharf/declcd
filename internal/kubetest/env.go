@@ -36,7 +36,6 @@ import (
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -55,7 +54,6 @@ type Environment struct {
 	GarbageCollector      garbage.Collector
 	InventoryManager      *inventory.Manager
 	RepositoryManager     vcs.RepositoryManager
-	SecretManager         secret.Manager
 	Ctx                   context.Context
 	clean                 func()
 }
@@ -212,25 +210,6 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	err = testClient.Create(ctx, &declNs)
 	assert.NilError(t, err)
 
-	if options.decryptionKeyCreated {
-		privKey := "AGE-SECRET-KEY-1EYUZS82HMQXK0S83AKAP6NJ7HPW6KMV70DHHMH4TS66S3NURTWWS034Q34"
-		decSec := corev1.Secret{
-			TypeMeta: v1.TypeMeta{
-				Kind:       "Secret",
-				APIVersion: "v1",
-			},
-			ObjectMeta: v1.ObjectMeta{
-				Name:      secret.K8sSecretName,
-				Namespace: nsStr,
-			},
-			Data: map[string][]byte{
-				secret.K8sSecretDataKey: []byte(privKey),
-			},
-		}
-		err = testClient.Create(ctx, &decSec)
-		assert.NilError(t, err)
-	}
-
 	if options.vcsSSHKeyCreated {
 		sec := corev1.Secret{
 			TypeMeta: v1.TypeMeta{
@@ -257,13 +236,6 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		assert.NilError(t, err)
 	}
 
-	manager := secret.NewManager(
-		options.project.testProject,
-		nsStr,
-		client,
-		goRuntime.GOMAXPROCS(0),
-	)
-
 	repositoryManger := vcs.NewRepositoryManager("test", client, log)
 
 	return &Environment{
@@ -274,7 +246,6 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		GarbageCollector:      gc,
 		InventoryManager:      invManager,
 		RepositoryManager:     repositoryManger,
-		SecretManager:         manager,
 		Ctx:                   ctx,
 		clean: func() {
 			if err := testEnv.Stop(); err != nil {

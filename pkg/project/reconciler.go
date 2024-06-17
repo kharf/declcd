@@ -28,7 +28,6 @@ import (
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,7 +36,7 @@ import (
 )
 
 // Reconciler clones, pulls and loads a GitOps Git repository containing the desired cluster state,
-// then decrypts secrets, translates cue definitions to either Kubernetes unstructurd objects or Helm Releases and applies/installs them on a Kubernetes cluster.
+// translates cue definitions to either Kubernetes unstructurd objects or Helm Releases and applies/installs them on a Kubernetes cluster.
 // Every run stores objects in the inventory and collects dangling objects.
 type Reconciler struct {
 	Log logr.Logger
@@ -73,8 +72,6 @@ type Reconciler struct {
 	// the Kubernetes cluster and inventory.
 	GarbageCollector garbage.Collector
 
-	Decrypter secret.Decrypter
-
 	// Managers identify distinct workflows that are modifying the object (especially useful on conflicts!),
 	FieldManager string
 
@@ -92,7 +89,7 @@ type ReconcileResult struct {
 }
 
 // Reconcile clones, pulls and loads a GitOps Git repository containing the desired cluster state,
-// then decrypts secrets, translates cue definitions to either Kubernetes unstructurd objects or Helm Releases and applies/installs them on a Kubernetes cluster.
+// translates cue definitions to either Kubernetes unstructurd objects or Helm Releases and applies/installs them on a Kubernetes cluster.
 // It stores objects in the inventory and collects dangling objects.
 func (reconciler Reconciler) Reconcile(
 	ctx context.Context,
@@ -102,8 +99,10 @@ func (reconciler Reconciler) Reconcile(
 	if *gProject.Spec.Suspend {
 		return &ReconcileResult{Suspended: true}, nil
 	}
+
 	repositoryUID := string(gProject.GetUID())
 	repositoryDir := filepath.Join(os.TempDir(), "declcd", repositoryUID)
+
 	repository, err := reconciler.RepositoryManager.Load(
 		ctx,
 		vcs.WithUrl(gProject.Spec.URL),
@@ -120,6 +119,7 @@ func (reconciler Reconciler) Reconcile(
 		)
 		return nil, err
 	}
+
 	commitHash, err := repository.Pull()
 	if err != nil {
 		log.Error(
@@ -132,24 +132,23 @@ func (reconciler Reconciler) Reconcile(
 		)
 		return nil, err
 	}
-	repositoryDir, err = reconciler.Decrypter.Decrypt(ctx, repositoryDir)
-	if err != nil {
-		log.Error(err, "Unable to decrypt secrets", "project", gProject.GetName())
-		return nil, err
-	}
+
 	dependencyGraph, err := reconciler.ProjectManager.Load(repositoryDir)
 	if err != nil {
 		log.Error(err, "Unable to load declcd project", "project", gProject.GetName())
 		return nil, err
 	}
+
 	componentInstances, err := dependencyGraph.TopologicalSort()
 	if err != nil {
 		log.Error(err, "Unable to resolve dependencies", "project", gProject.GetName())
 		return nil, err
 	}
+
 	if err := reconciler.GarbageCollector.Collect(ctx, dependencyGraph); err != nil {
 		return nil, err
 	}
+
 	if err := reconciler.reconcileComponents(ctx, componentInstances, repositoryDir); err != nil {
 		log.Error(err, "Unable to reconcile components", "project", gProject.GetName())
 		return nil, err

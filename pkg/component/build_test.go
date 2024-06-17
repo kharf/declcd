@@ -89,7 +89,7 @@ func TestBuilder_Build(t *testing.T) {
 								"namespace": "prometheus",
 							},
 							"data": map[string]interface{}{
-								"foo": []byte("(enc;value omitted)"),
+								"foo": []byte("bar"),
 							},
 						},
 					},

@@ -35,7 +35,6 @@ import (
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -94,25 +93,18 @@ func TestAction_Install(t *testing.T) {
 			},
 			post: func(env projecttest.Environment, action install.Action, nsName string) {
 				ctx := context.Background()
-				var getSecrets func() (v1.Secret, v1.Secret)
-				getSecrets = func() (v1.Secret, v1.Secret) {
-					var decKey v1.Secret
-					err := env.TestKubeClient.Get(
-						ctx,
-						types.NamespacedName{Name: secret.K8sSecretName, Namespace: nsName},
-						&decKey,
-					)
-					assert.NilError(t, err)
+				var getSecret func() v1.Secret
+				getSecret = func() v1.Secret {
 					var vcsKey v1.Secret
-					err = env.TestKubeClient.Get(
+					err := env.TestKubeClient.Get(
 						ctx,
 						types.NamespacedName{Name: vcs.K8sSecretName, Namespace: nsName},
 						&vcsKey,
 					)
 					assert.NilError(t, err)
-					return decKey, vcsKey
+					return vcsKey
 				}
-				decKeyBefore, vcsKeyBefore := getSecrets()
+				vcsKeyBefore := getSecret()
 				err := action.Install(
 					ctx,
 					install.Namespace(nsName),
@@ -124,8 +116,7 @@ func TestAction_Install(t *testing.T) {
 				)
 				assert.NilError(t, err)
 				defaultAssertion(t, env, nsName)
-				decKeyAfter, vcsKeyAfter := getSecrets()
-				assert.Assert(t, cmp.Equal(decKeyAfter.Data, decKeyBefore.Data))
+				vcsKeyAfter := getSecret()
 				assert.Assert(t, cmp.Equal(vcsKeyAfter.Data, vcsKeyBefore.Data))
 			},
 		},
@@ -188,14 +179,6 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 	)
 	assert.NilError(t, err)
 
-	var decKey v1.Secret
-	err = env.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: secret.K8sSecretName, Namespace: nsName},
-		&decKey,
-	)
-	assert.NilError(t, err)
-
 	projectFile, err := os.Open(filepath.Join(env.TestProject, "declcd/project.cue"))
 	assert.NilError(t, err)
 
@@ -216,8 +199,6 @@ func defaultAssertion(t *testing.T, env projecttest.Environment, nsName string) 
 	assert.NilError(t, err)
 
 	assert.Equal(t, string(projectContent), projectBuf.String())
-	_, err = os.Open(filepath.Join(env.TestProject, "secrets/recipients.cue"))
-	assert.NilError(t, err)
 
 	var vcsKey v1.Secret
 	err = env.TestKubeClient.Get(
