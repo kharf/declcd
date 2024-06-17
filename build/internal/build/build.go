@@ -39,7 +39,7 @@ func (g apigen) name() string {
 var controllerGenDep = "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0"
 
 // when changed, the renovate customManager has also to be updated.
-var cueDep = "cuelang.org/go/cmd/cue@v0.8.2"
+var cueDep = "cuelang.org/go/cmd/cue@v0.9.1"
 
 func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, error) {
 	gen := request.container.
