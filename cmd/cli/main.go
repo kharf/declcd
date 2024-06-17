@@ -20,16 +20,13 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/secret"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -38,16 +35,7 @@ var OS string
 var Arch string
 
 func main() {
-	cfg, err := initCliConfig()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	root, err := initCli(cfg)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	root := RootCommandBuilder{}
 	if err := root.Build().Execute(); err != nil {
 		fmt.Println(err)
 		return
@@ -59,7 +47,6 @@ type RootCommandBuilder struct {
 	verifyCommandBuilder  VerifyCommandBuilder
 	versionCommandBuilder VersionCommandBuilder
 	installCommandBuilder InstallCommandBuilder
-	encryptCommandBuilder EncryptCommandBuilder
 }
 
 func (builder RootCommandBuilder) Build() *cobra.Command {
@@ -71,7 +58,6 @@ func (builder RootCommandBuilder) Build() *cobra.Command {
 	rootCmd.AddCommand(builder.verifyCommandBuilder.Build())
 	rootCmd.AddCommand(builder.versionCommandBuilder.Build())
 	rootCmd.AddCommand(builder.installCommandBuilder.Build())
-	rootCmd.AddCommand(builder.encryptCommandBuilder.Build())
 	return &rootCmd
 }
 
@@ -182,44 +168,4 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	cmd.Flags().
 		IntVarP(&interval, "interval", "i", 30, "Definition of how often Declcd will reconcile its cluster state. Value is defined in seconds")
 	return cmd
-}
-
-type EncryptCommandBuilder struct {
-	secretEncrypter secret.Encrypter
-}
-
-func (builder EncryptCommandBuilder) Build() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "encrypt",
-		Short: "Encrypt Secrets inside the GitOps Repository",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			if err := builder.secretEncrypter.EncryptPackage(args[0]); err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-	return cmd
-}
-
-func initCliConfig() (*viper.Viper, error) {
-	config := viper.New()
-	config.SetEnvPrefix("declcd")
-	config.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	return config, nil
-}
-
-func initCli(cliConfig *viper.Viper) (*RootCommandBuilder, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	encryptCommand := EncryptCommandBuilder{
-		secretEncrypter: secret.NewEncrypter(wd),
-	}
-	rootCmd := RootCommandBuilder{
-		encryptCommandBuilder: encryptCommand,
-	}
-	return &rootCmd, nil
 }

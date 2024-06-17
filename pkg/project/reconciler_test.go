@@ -279,7 +279,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 				InventoryManager:  env.InventoryManager,
 				GarbageCollector:  env.GarbageCollector,
 				Log:               env.Log,
-				Decrypter:         env.SecretManager.Decrypter,
 				FieldManager:      project.ControllerName,
 				WorkerPoolSize:    runtime.GOMAXPROCS(0),
 			}
@@ -335,7 +334,6 @@ func BenchmarkReconciler_Reconcile(b *testing.B) {
 		InventoryManager:  env.InventoryManager,
 		GarbageCollector:  env.GarbageCollector,
 		Log:               env.Log,
-		Decrypter:         env.SecretManager.Decrypter,
 		FieldManager:      project.ControllerName,
 		WorkerPoolSize:    runtime.GOMAXPROCS(0),
 	}

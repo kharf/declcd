@@ -28,7 +28,6 @@ import (
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -193,10 +192,6 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	}
 
 	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, project.ControllerName); err != nil {
-		return err
-	}
-
-	if err := secret.NewManager(act.projectRoot, instOpts.namespace, act.kubeClient, 1).CreateKeyIfNotExists(ctx, project.ControllerName); err != nil {
 		return err
 	}
 

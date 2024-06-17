@@ -10,6 +10,6 @@ _secret: v1.#Secret & {
 		namespace: #namespace.metadata.name
 	}
 	data: {
-		foo: '(enc;value omitted)'
+		foo: 'bar'
 	}
 }

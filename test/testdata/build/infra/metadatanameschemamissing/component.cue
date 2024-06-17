@@ -13,7 +13,7 @@ secret: component.#Manifest & {
 			namespace: "test"
 		}
 		data: {
-			foo: '(enc;value omitted)'
+			foo: 'bar'
 		}
 	}
 }

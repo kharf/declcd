@@ -24,7 +24,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/secret"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -73,8 +72,7 @@ func (manager *Manager) Load(
 				}
 				if dirEntry.IsDir() {
 					// TODO implement a dynamic way for ignoring directories
-					if path == filepath.Join(projectPath, secret.SecretsStatePackage) ||
-						path == filepath.Join(projectPath, "cue.mod") ||
+					if path == filepath.Join(projectPath, "cue.mod") ||
 						path == filepath.Join(projectPath, ".git") {
 						return filepath.SkipDir
 					}

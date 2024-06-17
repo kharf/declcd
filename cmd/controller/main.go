@@ -54,7 +54,6 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/secret"
 	"github.com/kharf/declcd/pkg/vcs"
 )
 
@@ -231,7 +230,6 @@ func main() {
 				InventoryManager: inventoryManager,
 				WorkerPoolSize:   maxProcs,
 			},
-			Decrypter:      secret.NewDecrypter(namespace, kubeDynamicClient, maxProcs),
 			FieldManager:   project.ControllerName,
 			WorkerPoolSize: maxProcs,
 		},
