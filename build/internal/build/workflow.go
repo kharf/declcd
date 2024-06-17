@@ -34,7 +34,6 @@ func (workflow WorkflowsGen) run(ctx context.Context, request stepRequest) (*ste
 	gen := request.container.
 		WithExec([]string{"mkdir", "-p", workflowsDir}).
 		WithExec([]string{"go", "install", cueDep}).
-		WithEnvVariable("CUE_EXPERIMENT", "modules").
 		WithEnvVariable("CUE_REGISTRY", "ghcr.io/kharf").
 		WithWorkdir("build").
 		WithExec([]string{"../bin/cue", "cmd", "genyamlworkflows"}).

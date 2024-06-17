@@ -92,7 +92,6 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 		WithoutEnvVariable("GOOS").
 		WithoutEnvVariable("GOARCH").
 		WithExec([]string{"go", "install", cueDep}).
-		WithEnvVariable("CUE_EXPERIMENT", "modules").
 		WithEnvVariable("CUE_REGISTRY", "ghcr.io/kharf").
 		WithSecretVariable("GITHUB_TOKEN", token).
 		WithExec([]string{"sh", "-c", "docker login ghcr.io -u kharf -p $GITHUB_TOKEN"}).
