@@ -103,7 +103,6 @@ cd mygitops
 git init
 git remote add origin git@github.com:user/mygitops.git
 # init Declcd gitops repository as a CUE module
-export CUE_EXPERIMENT=modules
 export CUE_REGISTRY=ghcr.io/kharf
 declcd init github.com/user/mygitops@v0
 go mod init mygitops

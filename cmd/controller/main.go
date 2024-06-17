@@ -157,11 +157,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = os.Setenv("CUE_EXPERIMENT", "modules"); err != nil {
-		setupLog.Error(err, "Unable to set CUE_EXPERIMENT environment variable")
-		os.Exit(1)
-	}
-
 	if err = os.Setenv("CUE_REGISTRY", "ghcr.io/kharf"); err != nil {
 		setupLog.Error(err, "Unable to set CUE_REGISTRY environment variable")
 		os.Exit(1)
