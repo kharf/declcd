@@ -42,15 +42,16 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithVCSSSHKeyCreated(),
+						kubetest.WithVCSAuthSecretFor("clone"),
 					),
 				)
 				defer env.Stop()
 
 				repository, err := env.RepositoryManager.Load(
 					env.Ctx,
-					vcs.WithTarget(localRepository),
-					vcs.WithUrl(remoteRepository.Directory),
+					remoteRepository.Directory,
+					localRepository,
+					"clone",
 				)
 				assert.NilError(t, err)
 
@@ -63,20 +64,22 @@ func TestRepositoryManager_Load(t *testing.T) {
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
 					projecttest.WithKubernetes(
-						kubetest.WithVCSSSHKeyCreated(),
+						kubetest.WithVCSAuthSecretFor("open"),
 					),
 				)
 				defer env.Stop()
 				repository, err := env.RepositoryManager.Load(
 					env.Ctx,
-					vcs.WithTarget(localRepository),
-					vcs.WithUrl(remoteRepository.Directory),
+					remoteRepository.Directory,
+					localRepository,
+					"open",
 				)
 				assert.NilError(t, err)
 				repository, err = env.RepositoryManager.Load(
 					env.Ctx,
-					vcs.WithTarget(localRepository),
-					vcs.WithUrl(remoteRepository.Directory),
+					remoteRepository.Directory,
+					localRepository,
+					"open",
 				)
 				assert.NilError(t, err)
 				return env, repository
@@ -90,8 +93,9 @@ func TestRepositoryManager_Load(t *testing.T) {
 				defer env.Stop()
 				repository, err := env.RepositoryManager.Load(
 					env.Ctx,
-					vcs.WithTarget(localRepository),
-					vcs.WithUrl(remoteRepository.Directory),
+					remoteRepository.Directory,
+					localRepository,
+					"secret-missing",
 				)
 				assert.NilError(t, err)
 				return env, repository
@@ -211,15 +215,13 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 	ns := "test"
 	testCases := []struct {
 		name string
-		pre  func() projecttest.Environment
+		pre  func(env projecttest.Environment) []string
 		post func(env projecttest.Environment, sec corev1.Secret)
 	}{
 		{
 			name: "NonExisting",
-			pre: func() projecttest.Environment {
-				env := projecttest.StartProjectEnv(t,
-					projecttest.WithProjectSource("empty"),
-				)
+			pre: func(env projecttest.Environment) []string {
+				projectName := "non-existing"
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
 					env.DynamicTestKubeClient,
@@ -228,18 +230,44 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager")
+				err = configurator.CreateDeployKeySecretIfNotExists(
+					env.Ctx,
+					"manager",
+					projectName,
+				)
 				assert.NilError(t, err)
-				return env
+				return []string{projectName}
+			},
+			post: func(env projecttest.Environment, sec corev1.Secret) {},
+		},
+		{
+			name: "MultipleNonExisting",
+			pre: func(env projecttest.Environment) []string {
+				projectNames := []string{"a", "b"}
+				configurator, err := vcs.NewRepositoryConfigurator(
+					ns,
+					env.DynamicTestKubeClient,
+					client,
+					"git@github.com:kharf/declcd.git",
+					"abcd",
+				)
+				assert.NilError(t, err)
+				for _, projectName := range projectNames {
+					err = configurator.CreateDeployKeySecretIfNotExists(
+						env.Ctx,
+						"manager",
+						projectName,
+					)
+					assert.NilError(t, err)
+				}
+				return projectNames
 			},
 			post: func(env projecttest.Environment, sec corev1.Secret) {},
 		},
 		{
 			name: "Existing",
-			pre: func() projecttest.Environment {
-				env := projecttest.StartProjectEnv(t,
-					projecttest.WithProjectSource("empty"),
-				)
+			pre: func(env projecttest.Environment) []string {
+				projectName := "existing"
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
 					env.DynamicTestKubeClient,
@@ -248,9 +276,9 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager")
+				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager", projectName)
 				assert.NilError(t, err)
-				return env
+				return []string{projectName}
 			},
 			post: func(env projecttest.Environment, sec corev1.Secret) {
 				configurator, err := vcs.NewRepositoryConfigurator(
@@ -261,12 +289,15 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager")
+				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager", "existing")
 				assert.NilError(t, err)
 				var sec2 corev1.Secret
 				err = env.TestKubeClient.Get(
 					env.Ctx,
-					types.NamespacedName{Namespace: ns, Name: vcs.K8sSecretName},
+					types.NamespacedName{
+						Namespace: ns,
+						Name:      vcs.SecretName("existing"),
+					},
 					&sec2,
 				)
 				assert.NilError(t, err)
@@ -278,23 +309,39 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.pre()
-			defer env.Stop()
-			var sec corev1.Secret
-			err := env.TestKubeClient.Get(
-				env.Ctx,
-				types.NamespacedName{Namespace: ns, Name: vcs.K8sSecretName},
-				&sec,
+			env := projecttest.StartProjectEnv(t,
+				projecttest.WithProjectSource("empty"),
 			)
-			assert.NilError(t, err)
-			key, _ := sec.Data[vcs.SSHKey]
-			assert.Assert(t, strings.HasPrefix(string(key), "-----BEGIN OPENSSH PRIVATE KEY-----"))
-			assert.Assert(t, strings.HasSuffix(string(key), "-----END OPENSSH PRIVATE KEY-----\n"))
-			pubKey, _ := sec.Data[vcs.SSHPubKey]
-			assert.Assert(t, strings.HasPrefix(string(pubKey), "ssh-ed25519 AAAA"))
-			authType, _ := sec.Data[vcs.K8sSecretDataAuthType]
-			assert.Equal(t, string(authType), vcs.K8sSecretDataAuthTypeSSH)
-			tc.post(env, sec)
+			defer env.Stop()
+
+			projectNames := tc.pre(env)
+
+			for _, projectName := range projectNames {
+				var sec corev1.Secret
+				err := env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{
+						Namespace: ns,
+						Name:      vcs.SecretName(projectName),
+					},
+					&sec,
+				)
+				assert.NilError(t, err)
+				key, _ := sec.Data[vcs.SSHKey]
+				assert.Assert(
+					t,
+					strings.HasPrefix(string(key), "-----BEGIN OPENSSH PRIVATE KEY-----"),
+				)
+				assert.Assert(
+					t,
+					strings.HasSuffix(string(key), "-----END OPENSSH PRIVATE KEY-----\n"),
+				)
+				pubKey, _ := sec.Data[vcs.SSHPubKey]
+				assert.Assert(t, strings.HasPrefix(string(pubKey), "ssh-ed25519 AAAA"))
+				authType, _ := sec.Data[vcs.K8sSecretDataAuthType]
+				assert.Equal(t, string(authType), vcs.K8sSecretDataAuthTypeSSH)
+				tc.post(env, sec)
+			}
 		})
 	}
 }

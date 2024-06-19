@@ -16,23 +16,27 @@ package controller
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"time"
 
 	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/internal/install"
+	"github.com/kharf/declcd/internal/helmtest"
+	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/project"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 // Define utility constants for object names and testing timeouts/durations and intervals.
 const (
-	GitOpsProjectName      = "test"
-	GitOpsProjectNamespace = "default"
+	gitOpsProjectNamespace = "declcd-system"
 
 	duration                = time.Second * 30
 	intervalInSeconds       = 5
@@ -41,74 +45,151 @@ const (
 	projectCreationInterval = 1
 )
 
-var _ = Describe("GitOpsProject controller", func() {
-	When("Creating GitOpsProject", func() {
+var _ = Describe("GitOpsProject controller", Ordered, func() {
+
+	BeforeAll(func() {
+		err := os.Mkdir("/podinfo", 0700)
+		Expect(err).NotTo(HaveOccurred())
+		err = os.WriteFile("/podinfo/name", []byte("project-controller-primary"), 0600)
+		Expect(err).NotTo(HaveOccurred())
+		err = os.WriteFile("/podinfo/namespace", []byte(project.ControllerNamespace), 0600)
+		Expect(err).NotTo(HaveOccurred())
+		err = os.WriteFile("/podinfo/shard", []byte("primary"), 0600)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	AfterAll(func() {
+		err := os.RemoveAll("/podinfo")
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	When("Creating a GitOpsProject", func() {
+
+		var (
+			env           projecttest.Environment
+			k8sClient     client.Client
+			installAction project.InstallAction
+		)
+
+		BeforeEach(func() {
+			env = projecttest.StartProjectEnv(test,
+				projecttest.WithKubernetes(),
+			)
+			var err error
+
+			testProject := env.Projects[0]
+			err = helmtest.ReplaceTemplate(
+				helmtest.Template{
+					TestProjectPath:         testProject.TargetPath,
+					RelativeReleaseFilePath: "infra/prometheus/releases.cue",
+					Name:                    "test",
+					RepoURL:                 helmEnvironment.ChartServer.URL(),
+				},
+				testProject.GitRepository,
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			installAction = project.NewInstallAction(
+				env.DynamicTestKubeClient,
+				httpClient,
+				testProject.TargetPath,
+			)
+
+			k8sClient, err = client.New(
+				env.ControlPlane.Config,
+				client.Options{Scheme: scheme},
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient).NotTo(BeNil())
+		})
+
+		AfterEach(func() {
+			env.Stop()
+			metrics.Registry = prometheus.NewRegistry()
+		})
+
 		When("The pull interval is less than 5 seconds", func() {
+
 			It("Should not allow a pull interval less than 5 seconds", func() {
-				err := project.Init("github.com/kharf/declcd/controller", env.TestProject, "1.0.0")
+				var gitOpsProjectName = "test"
+				testProject := env.Projects[0]
+				err := project.Init(
+					"github.com/kharf/declcd/controller",
+					"primary",
+					false,
+					testProject.TargetPath,
+					"1.0.0",
+				)
 				Expect(err).NotTo(HaveOccurred())
 				err = installAction.Install(
 					env.Ctx,
-					install.Namespace(GitOpsProjectNamespace),
-					install.URL(env.TestProject),
-					install.Branch("main"),
-					install.Name(GitOpsProjectName),
-					install.Interval(0),
-					install.Token("abcd"),
+					project.InstallOptions{
+						Url:      testProject.TargetPath,
+						Branch:   "main",
+						Name:     gitOpsProjectName,
+						Shard:    "primary",
+						Interval: 0,
+						Token:    "abcd",
+					},
 				)
 				Expect(err).To(HaveOccurred())
 				Expect(
 					err.Error(),
-				).To(Equal("GitOpsProject.gitops.declcd.io \"" + GitOpsProjectName + "\" " +
+				).To(Equal("GitOpsProject.gitops.declcd.io \"" + "test" + "\" " +
 					"is invalid: spec.pullIntervalSeconds: " +
 					"Invalid value: 0: spec.pullIntervalSeconds in body should be greater than or equal to 5"))
 			})
 		})
 
 		When("The pull interval is greater than or equal to 5 seconds", func() {
-			AfterEach(func() {
-				err := k8sClient.DeleteAllOf(
-					env.Ctx,
-					&gitops.GitOpsProject{},
-					client.InNamespace(GitOpsProjectNamespace),
-				)
-				Expect(err).NotTo(HaveOccurred())
-				err = k8sClient.DeleteAllOf(
-					env.Ctx,
-					&appsv1.Deployment{},
-					client.InNamespace("podinfo"),
-				)
-				Expect(err).NotTo(HaveOccurred())
-			})
+			var gitOpsProjectName = "test"
 
 			It(
 				"Should reconcile the declared cluster state with the current cluster state",
 				func() {
+					testProject := env.Projects[0]
 					ctx := context.Background()
 					err := project.Init(
 						"github.com/kharf/declcd/controller",
-						env.TestProject,
+						"primary",
+						false,
+						testProject.TargetPath,
 						"1.0.0",
 					)
 					Expect(err).NotTo(HaveOccurred())
 					err = installAction.Install(
 						env.Ctx,
-						install.Namespace(GitOpsProjectNamespace),
-						install.URL(env.TestProject),
-						install.Branch("main"),
-						install.Name(GitOpsProjectName),
-						install.Interval(intervalInSeconds),
-						install.Token("abcd"),
+						project.InstallOptions{
+							Url:      testProject.TargetPath,
+							Branch:   "main",
+							Name:     gitOpsProjectName,
+							Shard:    "primary",
+							Interval: intervalInSeconds,
+							Token:    "abcd",
+						},
 					)
 					Expect(err).NotTo(HaveOccurred())
+
+					mgr, err := Setup(
+						env.ControlPlane.Config,
+						InsecureSkipTLSverify(true),
+						MetricsAddr("0"),
+					)
+					Expect(err).NotTo(HaveOccurred())
+
+					go func() {
+						defer GinkgoRecover()
+						err := mgr.Start(env.Ctx)
+						Expect(err).ToNot(HaveOccurred(), "failed to run manager")
+					}()
 
 					Eventually(func(g Gomega) {
 						var project gitops.GitOpsProject
 						err := k8sClient.Get(
 							ctx,
 							types.NamespacedName{
-								Name:      GitOpsProjectName,
-								Namespace: GitOpsProjectNamespace,
+								Name:      gitOpsProjectName,
+								Namespace: gitOpsProjectNamespace,
 							},
 							&project,
 						)
@@ -116,12 +197,8 @@ var _ = Describe("GitOpsProject controller", func() {
 						g.Expect(project.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
 						suspend := false
 						g.Expect(project.Spec.Suspend).To(Equal(&suspend))
-						g.Expect(project.Spec.URL).To(Equal(env.TestProject))
+						g.Expect(project.Spec.URL).To(Equal(testProject.TargetPath))
 					}, duration, assertionInterval).Should(Succeed())
-
-					By(
-						"Cloning a decl gitops repository, building manifests and applying them onto the cluster",
-					)
 
 					Eventually(func() (string, error) {
 						var namespace corev1.Namespace
@@ -144,8 +221,8 @@ var _ = Describe("GitOpsProject controller", func() {
 						err := k8sClient.Get(
 							ctx,
 							types.NamespacedName{
-								Name:      GitOpsProjectName,
-								Namespace: GitOpsProjectNamespace,
+								Name:      gitOpsProjectName,
+								Namespace: gitOpsProjectNamespace,
 							},
 							&updatedGitOpsProject,
 						)
@@ -158,6 +235,198 @@ var _ = Describe("GitOpsProject controller", func() {
 				},
 			)
 		})
+	})
 
+	When("Creating multiple GitOpsProjects", func() {
+
+		var (
+			env           projecttest.Environment
+			k8sClient     client.Client
+			installAction project.InstallAction
+		)
+
+		BeforeAll(func() {
+			var err error
+
+			env = projecttest.StartProjectEnv(test,
+				projecttest.WithKubernetes(),
+				projecttest.WithProjectSource("simple"),
+				projecttest.WithProjectSource("mini"),
+			)
+
+			k8sClient, err = client.New(
+				env.ControlPlane.Config,
+				client.Options{Scheme: scheme},
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient).NotTo(BeNil())
+
+			for _, testProject := range env.Projects {
+				releaseFilePath := "infra/prometheus/releases.cue"
+				_, err := os.Stat(
+					filepath.Join(testProject.TargetPath, "infra", "monitoring", "releases.cue"),
+				)
+				if err == nil {
+					releaseFilePath = "infra/monitoring/releases.cue"
+				}
+
+				err = helmtest.ReplaceTemplate(
+					helmtest.Template{
+						TestProjectPath:         testProject.TargetPath,
+						RelativeReleaseFilePath: releaseFilePath,
+						Name:                    testProject.Name,
+						RepoURL:                 helmEnvironment.ChartServer.URL(),
+					},
+					testProject.GitRepository,
+				)
+				Expect(err).NotTo(HaveOccurred())
+
+				installAction = project.NewInstallAction(
+					env.DynamicTestKubeClient,
+					httpClient,
+					testProject.TargetPath,
+				)
+
+				err = project.Init(
+					"github.com/kharf/declcd/controller",
+					"primary",
+					false,
+					testProject.TargetPath,
+					"1.0.0",
+				)
+				Expect(err).NotTo(HaveOccurred())
+
+				err = installAction.Install(
+					env.Ctx,
+					project.InstallOptions{
+						Url:      testProject.TargetPath,
+						Branch:   "main",
+						Name:     testProject.Name,
+						Shard:    "primary",
+						Interval: intervalInSeconds,
+						Token:    "abcd",
+					},
+				)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			mgr, err := Setup(
+				env.ControlPlane.Config,
+				InsecureSkipTLSverify(true),
+			)
+			Expect(err).NotTo(HaveOccurred())
+
+			go func() {
+				defer GinkgoRecover()
+				err := mgr.Start(env.Ctx)
+				Expect(err).ToNot(HaveOccurred(), "failed to run manager")
+			}()
+		})
+
+		AfterAll(func() {
+			env.Stop()
+		})
+
+		It(
+			"Should reconcile the declared cluster state with the current cluster state",
+			func() {
+				ctx := context.Background()
+
+				simpleProject := env.Projects[0]
+				miniProject := env.Projects[1]
+
+				Eventually(func(g Gomega) {
+					var project gitops.GitOpsProject
+					err := k8sClient.Get(
+						ctx,
+						types.NamespacedName{
+							Name:      simpleProject.Name,
+							Namespace: gitOpsProjectNamespace,
+						},
+						&project,
+					)
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(project.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
+					suspend := false
+					g.Expect(project.Spec.Suspend).To(Equal(&suspend))
+					g.Expect(project.Spec.URL).To(Equal(simpleProject.TargetPath))
+				}, duration, assertionInterval).Should(Succeed())
+
+				Eventually(func(g Gomega) {
+					var project gitops.GitOpsProject
+					err := k8sClient.Get(
+						ctx,
+						types.NamespacedName{
+							Name:      miniProject.Name,
+							Namespace: gitOpsProjectNamespace,
+						},
+						&project,
+					)
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(project.Spec.PullIntervalSeconds).To(Equal(intervalInSeconds))
+					suspend := false
+					g.Expect(project.Spec.Suspend).To(Equal(&suspend))
+					g.Expect(project.Spec.URL).To(Equal(miniProject.TargetPath))
+				}, duration, assertionInterval).Should(Succeed())
+
+				Eventually(func(g Gomega) {
+					var updatedGitOpsProject gitops.GitOpsProject
+					err := k8sClient.Get(
+						ctx,
+						types.NamespacedName{
+							Name:      simpleProject.Name,
+							Namespace: gitOpsProjectNamespace,
+						},
+						&updatedGitOpsProject,
+					)
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
+					g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
+						To(BeFalse())
+					g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
+				}, duration, assertionInterval).Should(Succeed())
+
+				Eventually(func(g Gomega) {
+					var updatedGitOpsProject gitops.GitOpsProject
+					err := k8sClient.Get(
+						ctx,
+						types.NamespacedName{
+							Name:      miniProject.Name,
+							Namespace: gitOpsProjectNamespace,
+						},
+						&updatedGitOpsProject,
+					)
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
+					g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
+						To(BeFalse())
+					g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
+				}, duration, assertionInterval).Should(Succeed())
+
+				Eventually(func() (string, error) {
+					var namespace corev1.Namespace
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prometheus", Namespace: ""}, &namespace); err != nil {
+						return "", err
+					}
+					return namespace.GetName(), nil
+				}, duration, assertionInterval).Should(Equal("prometheus"))
+
+				Eventually(func() (string, error) {
+					var deployment appsv1.Deployment
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"}, &deployment); err != nil {
+						return "", err
+					}
+					return deployment.GetName(), nil
+				}, duration, assertionInterval).Should(Equal("mysubcomponent"))
+
+				Eventually(func() (string, error) {
+					var namespace corev1.Namespace
+					if err := k8sClient.Get(ctx, types.NamespacedName{Name: "monitoring", Namespace: ""}, &namespace); err != nil {
+						return "", err
+					}
+					return namespace.GetName(), nil
+				}, duration, assertionInterval).Should(Equal("monitoring"))
+			},
+		)
 	})
 })

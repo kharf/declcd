@@ -15,9 +15,8 @@
 package project
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -30,9 +29,7 @@ import (
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/vcs"
 	"golang.org/x/sync/errgroup"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/client-go/rest"
 )
 
 // Reconciler clones, pulls and loads a GitOps Git repository containing the desired cluster state,
@@ -41,13 +38,7 @@ import (
 type Reconciler struct {
 	Log logr.Logger
 
-	// DynamicClient connects to a Kubernetes cluster
-	// to create, read, update and delete standard Kubernetes manifests/objects.
-	Client client.Client
-
-	// DynamicClient connects to a Kubernetes cluster
-	// to create, read, update and delete manifests/objects.
-	DynamicClient kube.Client[unstructured.Unstructured]
+	KubeConfig *rest.Config
 
 	// Manager loads a declcd project and resolves the component dependency graph.
 	ProjectManager Manager
@@ -58,25 +49,18 @@ type Reconciler struct {
 	// ComponentBuilder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
 	ComponentBuilder component.Builder
 
-	// ChartReconciler reads Helm Packages with their desired state
-	// and applies them on a Kubernetes cluster.
-	// It stores releases in the inventory, but never collects it.
-	ChartReconciler helm.ChartReconciler
-
-	// InventoryManager is responsible for maintaining the current cluster state.
-	// It can store, delete and read items from the inventory.
-	InventoryManager *inventory.Manager
-
-	// GarbageCollector inspects the inventory for dangling manifests or helm releases,
-	// which are undefined in the declcd gitops repository, and uninstalls them from
-	// the Kubernetes cluster and inventory.
-	GarbageCollector garbage.Collector
-
 	// Managers identify distinct workflows that are modifying the object (especially useful on conflicts!),
 	FieldManager string
 
 	// Defines the concurrency level of Declcd operations.
 	WorkerPoolSize int
+
+	// InsecureSkipVerify controls whether Helm clients verify server
+	// certificate chains and host names.
+	InsecureSkipTLSverify bool
+
+	// Force http for Helm registries.
+	PlainHTTP bool
 }
 
 // ReconcileResult reports the outcome and metadata of a reconciliation.
@@ -91,31 +75,82 @@ type ReconcileResult struct {
 // Reconcile clones, pulls and loads a GitOps Git repository containing the desired cluster state,
 // translates cue definitions to either Kubernetes unstructurd objects or Helm Releases and applies/installs them on a Kubernetes cluster.
 // It stores objects in the inventory and collects dangling objects.
-func (reconciler Reconciler) Reconcile(
+func (reconciler *Reconciler) Reconcile(
 	ctx context.Context,
 	gProject gitops.GitOpsProject,
 ) (*ReconcileResult, error) {
-	log := reconciler.Log
 	if *gProject.Spec.Suspend {
 		return &ReconcileResult{Suspended: true}, nil
 	}
+	log := reconciler.Log
 
-	repositoryUID := string(gProject.GetUID())
-	repositoryDir := filepath.Join(os.TempDir(), "declcd", repositoryUID)
+	cfg := reconciler.KubeConfig
+	if gProject.Spec.ServiceAccountName != "" {
+		cfg.Impersonate = rest.ImpersonationConfig{
+			UserName: fmt.Sprintf(
+				"system:serviceaccount:%s:%s",
+				gProject.Namespace,
+				gProject.Spec.ServiceAccountName,
+			),
+		}
+	}
+
+	log = log.WithValues(
+		"project",
+		gProject.GetName(),
+		"namespace",
+		gProject.Namespace,
+		"repository",
+		gProject.Spec.URL,
+		"impersonated",
+		gProject.Spec.ServiceAccountName,
+	)
+
+	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
+	if err != nil {
+		log.Error(
+			err,
+			"Unable to create Kubernetes Client",
+		)
+		return nil, err
+	}
+
+	projectUID := string(gProject.GetUID())
+	repositoryDir := filepath.Join(os.TempDir(), "declcd", projectUID)
+
+	inventoryInstance := &inventory.Instance{
+		// /inventory is mounted as volume.
+		Path: filepath.Join("/inventory", projectUID),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		KubeConfig:            cfg,
+		Client:                kubeDynamicClient,
+		FieldManager:          reconciler.FieldManager,
+		InventoryInstance:     inventoryInstance,
+		InsecureSkipTLSverify: reconciler.InsecureSkipTLSverify,
+		PlainHTTP:             reconciler.PlainHTTP,
+		Log:                   log,
+	}
+
+	garbageCollector := garbage.Collector{
+		Log:               log,
+		Client:            kubeDynamicClient,
+		KubeConfig:        cfg,
+		InventoryInstance: inventoryInstance,
+		WorkerPoolSize:    reconciler.WorkerPoolSize,
+	}
 
 	repository, err := reconciler.RepositoryManager.Load(
 		ctx,
-		vcs.WithUrl(gProject.Spec.URL),
-		vcs.WithTarget(repositoryDir),
+		gProject.Spec.URL,
+		repositoryDir,
+		gProject.Name,
 	)
 	if err != nil {
 		log.Error(
 			err,
 			"Unable to load gitops project repository",
-			"project",
-			gProject.GetName(),
-			"repository",
-			gProject.Spec.URL,
 		)
 		return nil, err
 	}
@@ -125,32 +160,45 @@ func (reconciler Reconciler) Reconcile(
 		log.Error(
 			err,
 			"Unable to pull gitops project repository",
-			"project",
-			gProject.GetName(),
-			"repository",
-			gProject.Spec.URL,
 		)
 		return nil, err
 	}
 
 	dependencyGraph, err := reconciler.ProjectManager.Load(repositoryDir)
 	if err != nil {
-		log.Error(err, "Unable to load declcd project", "project", gProject.GetName())
+		log.Error(
+			err,
+			"Unable to load declcd project",
+		)
 		return nil, err
 	}
 
 	componentInstances, err := dependencyGraph.TopologicalSort()
 	if err != nil {
-		log.Error(err, "Unable to resolve dependencies", "project", gProject.GetName())
+		log.Error(
+			err,
+			"Unable to resolve dependencies",
+		)
 		return nil, err
 	}
 
-	if err := reconciler.GarbageCollector.Collect(ctx, dependencyGraph); err != nil {
+	if err := garbageCollector.Collect(ctx, dependencyGraph); err != nil {
 		return nil, err
 	}
 
-	if err := reconciler.reconcileComponents(ctx, componentInstances, repositoryDir); err != nil {
-		log.Error(err, "Unable to reconcile components", "project", gProject.GetName())
+	componentReconciler := component.Reconciler{
+		Log:               log,
+		DynamicClient:     kubeDynamicClient,
+		ChartReconciler:   chartReconciler,
+		InventoryInstance: inventoryInstance,
+		FieldManager:      reconciler.FieldManager,
+	}
+
+	if err := reconciler.reconcileComponents(ctx, componentReconciler, componentInstances); err != nil {
+		log.Error(
+			err,
+			"Unable to reconcile components",
+		)
 		return nil, err
 	}
 
@@ -160,10 +208,10 @@ func (reconciler Reconciler) Reconcile(
 	}, nil
 }
 
-func (reconciler Reconciler) reconcileComponents(
+func (reconciler *Reconciler) reconcileComponents(
 	ctx context.Context,
+	componentReconciler component.Reconciler,
 	componentInstances []component.Instance,
-	repositoryDir string,
 ) error {
 	eg := errgroup.Group{}
 	eg.SetLimit(reconciler.WorkerPoolSize)
@@ -171,9 +219,8 @@ func (reconciler Reconciler) reconcileComponents(
 		// TODO: implement SCC decomposition for better concurrency/parallelism
 		if len(instance.GetDependencies()) == 0 {
 			eg.Go(func() error {
-				return reconciler.reconcileComponent(
+				return componentReconciler.Reconcile(
 					ctx,
-					repositoryDir,
 					instance,
 				)
 			})
@@ -181,9 +228,8 @@ func (reconciler Reconciler) reconcileComponents(
 			if err := eg.Wait(); err != nil {
 				return err
 			}
-			if err := reconciler.reconcileComponent(
+			if err := componentReconciler.Reconcile(
 				ctx,
-				repositoryDir,
 				instance,
 			); err != nil {
 				return err
@@ -191,51 +237,4 @@ func (reconciler Reconciler) reconcileComponents(
 		}
 	}
 	return eg.Wait()
-}
-
-func (reconciler Reconciler) reconcileComponent(
-	ctx context.Context,
-	repositoryDir string,
-	componentInstance component.Instance,
-) error {
-	switch componentInstance := componentInstance.(type) {
-	case *component.Manifest:
-		reconciler.Log.Info(
-			"Applying manifest",
-			"namespace",
-			componentInstance.Content.GetNamespace(),
-			"name",
-			componentInstance.Content.GetName(),
-			"kind",
-			componentInstance.Content.GetKind(),
-		)
-		if err := reconciler.DynamicClient.Apply(ctx, &componentInstance.Content, reconciler.FieldManager, kube.Force(true)); err != nil {
-			return err
-		}
-		invManifest := &inventory.ManifestItem{
-			ID: componentInstance.ID,
-			TypeMeta: v1.TypeMeta{
-				Kind:       componentInstance.Content.GetKind(),
-				APIVersion: componentInstance.Content.GetAPIVersion(),
-			},
-			Name:      componentInstance.Content.GetName(),
-			Namespace: componentInstance.Content.GetNamespace(),
-		}
-		buf := &bytes.Buffer{}
-		if err := json.NewEncoder(buf).Encode(componentInstance.Content.Object); err != nil {
-			return err
-		}
-		if err := reconciler.InventoryManager.StoreItem(invManifest, buf); err != nil {
-			return err
-		}
-	case *component.HelmRelease:
-		if _, err := reconciler.ChartReconciler.Reconcile(
-			ctx,
-			componentInstance.Content,
-			componentInstance.ID,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
 }

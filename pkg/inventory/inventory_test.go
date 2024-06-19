@@ -18,39 +18,20 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"strconv"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/inventory"
 	"go.uber.org/goleak"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
-	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(
-		m,
-	)
-}
-
-func setUp() logr.Logger {
-	zapConfig := zap.NewDevelopmentConfig()
-	zapConfig.OutputPaths = []string{"stdout"}
-	logOpts := ctrlZap.Options{
-		Development: true,
-		Level:       zapcore.Level(-3),
-	}
-	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
-	return log
-}
-
 func TestManager_Load(t *testing.T) {
-	logger := setUp()
+	defer goleak.VerifyNone(
+		t,
+	)
+
 	testCases := []struct {
 		name  string
 		items []inventory.Item
@@ -80,8 +61,7 @@ func TestManager_Load(t *testing.T) {
 			path, err := os.MkdirTemp("", "")
 			assert.NilError(t, err)
 			defer os.Remove(path)
-			manager := inventory.Manager{
-				Log:  logger,
+			manager := inventory.Instance{
 				Path: path,
 			}
 			for _, item := range tc.items {
@@ -112,34 +92,4 @@ func TestManager_Load(t *testing.T) {
 			}
 		})
 	}
-}
-
-var storageResult *inventory.Storage
-
-func BenchmarkManager_Load(b *testing.B) {
-	logger := setUp()
-	path, err := os.MkdirTemp("", "")
-	assert.NilError(b, err)
-	manager := inventory.Manager{
-		Log:  logger,
-		Path: path,
-	}
-	for i := 0; i < 1000; i++ {
-		item := &inventory.ManifestItem{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Deployment",
-				APIVersion: "apps/v1",
-			},
-			Name:      strconv.Itoa(i),
-			Namespace: "namespace",
-		}
-		err := manager.StoreItem(item, nil)
-		assert.NilError(b, err)
-	}
-	var storage *inventory.Storage
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		storage, err = manager.Load()
-	}
-	storageResult = storage
 }

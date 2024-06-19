@@ -16,6 +16,7 @@ package project
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"os"
 	"path/filepath"
@@ -26,15 +27,22 @@ import (
 
 const (
 	ControllerNamespace = "declcd-system"
-	ControllerName      = "gitops-controller"
+	controllerName      = "project-controller"
 )
 
-func Init(module string, path string, version string) error {
+func Init(
+	module string,
+	shard string,
+	isSecondary bool,
+	path string,
+	version string,
+) error {
 	moduleDir := filepath.Join(path, "cue.mod")
 	_, err := os.Stat(moduleDir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+
 	if os.IsNotExist(err) {
 		moduleFile := modfile.File{
 			Module: module,
@@ -47,46 +55,82 @@ func Init(module string, path string, version string) error {
 				},
 			},
 		}
+
 		content, err := moduleFile.Format()
 		if err != nil {
 			return err
 		}
+
 		if _, err := modfile.Parse(content, "module.cue"); err != nil {
 			return err
 		}
+
 		if err := os.MkdirAll(moduleDir, 0755); err != nil {
 			return err
 		}
+
 		if err := os.WriteFile(filepath.Join(moduleDir, "module.cue"), content, 0666); err != nil {
 			return err
 		}
 	}
+
 	declcdDir := filepath.Join(path, "declcd")
 	_, err = os.Stat(declcdDir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+
 	if os.IsNotExist(err) {
-		tmpl, err := template.New("").Parse(manifest.System)
-		if err != nil {
-			return err
-		}
-		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, map[string]string{
-			"Name":    ControllerName,
-			"Version": version,
-		}); err != nil {
-			return err
-		}
 		if err := os.MkdirAll(declcdDir, 0700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(declcdDir, "system.cue"), buf.Bytes(), 0666); err != nil {
+
+	}
+
+	if !isSecondary {
+		tmpl, err := template.New("").Parse(manifest.Primary)
+		if err != nil {
 			return err
 		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, map[string]string{
+			"Name":  getControllerName(shard),
+			"Shard": shard,
+		}); err != nil {
+			return err
+		}
+
+		if err := os.WriteFile(filepath.Join(declcdDir, "primary.cue"), buf.Bytes(), 0666); err != nil {
+			return err
+		}
+
 		if err := os.WriteFile(filepath.Join(declcdDir, "crd.cue"), []byte(manifest.CRD), 0666); err != nil {
 			return err
 		}
 	}
+
+	tmpl, err := template.New("").Parse(manifest.System)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, map[string]string{
+		"Name":    getControllerName(shard),
+		"Shard":   shard,
+		"Version": version,
+	}); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(filepath.Join(declcdDir, fmt.Sprintf("%s_system.cue", shard)), buf.Bytes(), 0666); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func getControllerName(shard string) string {
+	return fmt.Sprintf("%s-%s", controllerName, shard)
 }

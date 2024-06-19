@@ -103,7 +103,7 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 				},
 			})
 		case "HelmRelease":
-			instances = append(instances, &HelmRelease{
+			instances = append(instances, &helm.ReleaseComponent{
 				ID:           instance.ID,
 				Dependencies: instance.Dependencies,
 				Content: helm.ReleaseDeclaration{

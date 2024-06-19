@@ -35,7 +35,6 @@ import (
 )
 
 const (
-	K8sSecretName            = "vcs-auth"
 	K8sSecretDataAuthType    = "auth"
 	K8sSecretDataAuthTypeSSH = "ssh"
 	SSHKey                   = "identity"
@@ -77,32 +76,6 @@ func NewRepositoryManager(
 	}
 }
 
-// LoadOptions define configuration how to load a vcs repository.
-type LoadOptions struct {
-	// Location of the remote vcs repository.
-	// mandatory
-	url string
-	// Location to where the vcs repository is loaded.
-	// mandatory
-	targetPath string
-}
-
-type loadOption = func(opt *LoadOptions)
-
-// WithUrl provides a URL configuration for the load function.
-func WithUrl(url string) loadOption {
-	return func(opt *LoadOptions) {
-		opt.url = url
-	}
-}
-
-// WithTarget provides a local path to where the vcs repository is cloned.
-func WithTarget(path string) loadOption {
-	return func(opt *LoadOptions) {
-		opt.targetPath = path
-	}
-}
-
 func (manager RepositoryManager) getAuthMethodFromSecret(
 	secret v1.Secret,
 ) (transport.AuthMethod, error) {
@@ -122,14 +95,17 @@ func (manager RepositoryManager) getAuthMethodFromSecret(
 // Load loads a remote vcs repository to a local path or opens it if it exists.
 func (manager RepositoryManager) Load(
 	ctx context.Context,
-	opts ...loadOption,
+	remoteURL string,
+	targetPath string,
+	projectName string,
 ) (*Repository, error) {
-	options := &LoadOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
+	log := manager.log.WithValues(
+		"remote url", remoteURL,
+		"target path", targetPath,
+	)
 
-	secret, err := getAuthSecret(ctx, manager.kubeClient, manager.controllerNamespace)
+	projectName = strings.ToLower(projectName)
+	secret, err := getAuthSecret(ctx, manager.kubeClient, manager.controllerNamespace, projectName)
 	if err != nil {
 		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
 			return nil, err
@@ -144,9 +120,7 @@ func (manager RepositoryManager) Load(
 		}
 	}
 
-	targetPath := options.targetPath
-	logArgs := []interface{}{"remote url", options.url, "target path", targetPath}
-	manager.log.V(1).Info("Opening repository", logArgs...)
+	log.V(1).Info("Opening repository")
 
 	gitRepository, err := git.PlainOpen(targetPath)
 	if err != nil && err != git.ErrRepositoryNotExists {
@@ -154,13 +128,13 @@ func (manager RepositoryManager) Load(
 	}
 
 	if err == git.ErrRepositoryNotExists {
-		manager.log.V(1).Info("Repository not cloned yet", logArgs...)
-		manager.log.V(1).Info("Cloning repository", logArgs...)
+		log.V(1).Info("Repository not cloned yet")
+		log.V(1).Info("Cloning repository")
 
 		gitRepository, err = git.PlainClone(
 			targetPath, false,
 			&git.CloneOptions{
-				URL:      options.url,
+				URL:      remoteURL,
 				Progress: os.Stdout,
 				Auth:     authMethod,
 			},
@@ -197,9 +171,10 @@ func getAuthSecret(
 	ctx context.Context,
 	kubeClient kube.Client[unstructured.Unstructured],
 	controllerNamespace string,
+	projectName string,
 ) (*v1.Secret, error) {
 	unstr := &unstructured.Unstructured{}
-	unstr.SetName(K8sSecretName)
+	unstr.SetName(SecretName(projectName))
 	unstr.SetNamespace(controllerNamespace)
 	unstr.SetKind("Secret")
 	unstr.SetAPIVersion("v1")
@@ -285,8 +260,11 @@ func NewRepositoryConfigurator(
 func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 	ctx context.Context,
 	fieldManager string,
+	projectName string,
 ) error {
-	sec, err := getAuthSecret(ctx, config.kubeClient, config.controllerNamespace)
+	projectName = strings.ToLower(projectName)
+
+	sec, err := getAuthSecret(ctx, config.kubeClient, config.controllerNamespace, projectName)
 	if err != nil {
 		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
 			return err
@@ -304,7 +282,7 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 
 	if depKey != nil {
 		unstr := &unstructured.Unstructured{}
-		unstr.SetName(K8sSecretName)
+		unstr.SetName(SecretName(projectName))
 		unstr.SetNamespace(config.controllerNamespace)
 		unstr.SetKind("Secret")
 		unstr.SetAPIVersion("v1")
@@ -321,4 +299,8 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 	}
 
 	return nil
+}
+
+func SecretName(projectName string) string {
+	return fmt.Sprintf("%s-%s", "vcs-auth", projectName)
 }

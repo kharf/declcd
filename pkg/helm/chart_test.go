@@ -22,9 +22,7 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/go-logr/logr"
 	_ "github.com/kharf/declcd/test/workingdir"
-	"go.uber.org/zap/zapcore"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/release"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,79 +43,9 @@ import (
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	. "github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
-	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
-
-var (
-	log                       logr.Logger
-	publicHelmEnvironment     *helmtest.Environment
-	privateHelmEnvironment    *helmtest.Environment
-	publicOciHelmEnvironment  *helmtest.Environment
-	privateOciHelmEnvironment *helmtest.Environment
-	gcpHelmEnvironment        *helmtest.Environment
-	azureHelmEnvironment      *helmtest.Environment
-	awsEnvironment            *cloudtest.AWSEnvironment
-)
-
-func TestMain(m *testing.M) {
-	opts := ctrlZap.Options{
-		Development: true,
-		Level:       zapcore.Level(-3),
-	}
-	log = ctrlZap.New(ctrlZap.UseFlagOptions(&opts))
-
-	testRoot, err := os.MkdirTemp("", "declcd-cue-registry*")
-	assertError(err)
-
-	dnsServer, err := dnstest.NewDNSServer()
-	assertError(err)
-	defer dnsServer.Close()
-
-	cueModuleRegistry, err := ocitest.StartCUERegistry(testRoot)
-	assertError(err)
-	defer cueModuleRegistry.Close()
-
-	publicHelmEnvironment = newHelmEnvironment(false, false, "")
-	defer publicHelmEnvironment.Close()
-
-	privateHelmEnvironment = newHelmEnvironment(false, true, "")
-	defer privateHelmEnvironment.Close()
-
-	publicOciHelmEnvironment = newHelmEnvironment(true, false, "")
-	defer publicOciHelmEnvironment.Close()
-
-	privateOciHelmEnvironment = newHelmEnvironment(true, true, "")
-	defer privateOciHelmEnvironment.Close()
-
-	gcpHelmEnvironment = newHelmEnvironment(true, true, cloud.GCP)
-	defer gcpHelmEnvironment.Close()
-	gcpCloudEnvironment, err := cloudtest.NewGCPEnvironment()
-	assertError(err)
-	defer gcpCloudEnvironment.Close()
-
-	azureHelmEnvironment = newHelmEnvironment(true, true, cloud.Azure)
-	defer azureHelmEnvironment.Close()
-	azureCloudEnvironment, err := cloudtest.NewAzureEnvironment()
-	assertError(err)
-	defer azureCloudEnvironment.Close()
-
-	awsHelmEnvironment := newHelmEnvironment(true, true, cloud.AWS)
-	defer awsHelmEnvironment.Close()
-	awsEnvironment, err = cloudtest.NewAWSEnvironment(
-		awsHelmEnvironment.ChartServer.Addr(),
-	)
-	assertError(err)
-	defer awsEnvironment.Close()
-
-	cloudEnvironment, err := cloudtest.NewMetaServer(
-		azureCloudEnvironment.OIDCIssuerServer.URL,
-	)
-	assertError(err)
-	defer cloudEnvironment.Close()
-
-	os.Exit(m.Run())
-}
 
 func newHelmEnvironment(
 	oci bool,
@@ -162,6 +90,55 @@ type testCaseContext struct {
 }
 
 func TestChartReconciler_Reconcile(t *testing.T) {
+	testRoot, err := os.MkdirTemp("", "declcd-cue-registry*")
+	assertError(err)
+
+	dnsServer, err := dnstest.NewDNSServer()
+	assertError(err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(testRoot)
+	assertError(err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	privateHelmEnvironment := newHelmEnvironment(false, true, "")
+	defer privateHelmEnvironment.Close()
+
+	publicOciHelmEnvironment := newHelmEnvironment(true, false, "")
+	defer publicOciHelmEnvironment.Close()
+
+	privateOciHelmEnvironment := newHelmEnvironment(true, true, "")
+	defer privateOciHelmEnvironment.Close()
+
+	gcpHelmEnvironment := newHelmEnvironment(true, true, cloud.GCP)
+	defer gcpHelmEnvironment.Close()
+	gcpCloudEnvironment, err := cloudtest.NewGCPEnvironment()
+	assertError(err)
+	defer gcpCloudEnvironment.Close()
+
+	azureHelmEnvironment := newHelmEnvironment(true, true, cloud.Azure)
+	defer azureHelmEnvironment.Close()
+	azureCloudEnvironment, err := cloudtest.NewAzureEnvironment()
+	assertError(err)
+	defer azureCloudEnvironment.Close()
+
+	awsHelmEnvironment := newHelmEnvironment(true, true, cloud.AWS)
+	defer awsHelmEnvironment.Close()
+	awsEnvironment, err := cloudtest.NewAWSEnvironment(
+		awsHelmEnvironment.ChartServer.Addr(),
+	)
+	assertError(err)
+	defer awsEnvironment.Close()
+
+	cloudEnvironment, err := cloudtest.NewMetaServer(
+		azureCloudEnvironment.OIDCIssuerServer.URL,
+	)
+	assertError(err)
+	defer cloudEnvironment.Close()
+
 	testCases := []struct {
 		name    string
 		setup   func() testCaseContext
@@ -513,13 +490,15 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				actualRelease, err := context.chartReconciler.Reconcile(
 					ctx,
-					context.releaseDeclaration,
-					fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
 				)
 				assert.NilError(t, err)
 
@@ -550,8 +529,9 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				}
 			},
 			postRun: func(context testCaseContext) {
+				testProject := context.environment.Projects[0]
 				releasesFilePath := filepath.Join(
-					context.environment.TestProject,
+					testProject.TargetPath,
 					"infra",
 					"prometheus",
 					"releases.cue",
@@ -564,7 +544,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				releasesFile, err := os.Create(
 					filepath.Join(
-						context.environment.TestProject,
+						testProject.TargetPath,
 						"infra",
 						"prometheus",
 						"releases.cue",
@@ -584,7 +564,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				})
 				assert.NilError(t, err)
 
-				_, err = context.environment.GitRepository.CommitFile(
+				_, err = testProject.GitRepository.CommitFile(
 					"infra/prometheus/releases.cue",
 					"update chart to v2",
 				)
@@ -599,13 +579,15 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				context.releaseDeclaration.Chart = chart
 				actualRelease, err := context.chartReconciler.Reconcile(
 					context.environment.Ctx,
-					context.releaseDeclaration,
-					fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
 				)
 				assert.NilError(t, err)
 
@@ -638,13 +620,15 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			postRun: func(context testCaseContext) {
 				actualRelease, err := context.chartReconciler.Reconcile(
 					context.environment.Ctx,
-					context.releaseDeclaration,
-					fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
 				)
 				assert.NilError(t, err)
 
@@ -699,13 +683,15 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				actualRelease, err := context.chartReconciler.Reconcile(
 					context.environment.Ctx,
-					context.releaseDeclaration,
-					fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
 				)
 				assert.NilError(t, err)
 
@@ -751,13 +737,15 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				actualRelease, err := context.chartReconciler.Reconcile(
 					context.environment.Ctx,
-					context.releaseDeclaration,
-					fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
 				)
 				assert.NilError(t, err)
 
@@ -801,13 +789,15 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 
 				actualRelease, err := context.chartReconciler.Reconcile(
 					context.environment.Ctx,
-					context.releaseDeclaration,
-					fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
 				)
 				assert.NilError(t, err)
 
@@ -833,6 +823,10 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				context.environment = &env
 			}
 
+			inventoryInstance := &inventory.Instance{
+				Path: filepath.Join(context.environment.TestRoot, "inventory"),
+			}
+
 			auth := context.releaseDeclaration.Chart.Auth
 			if auth != nil && auth.SecretRef != nil && context.createAuthSecret {
 				applyRepoAuthSecret(
@@ -847,32 +841,39 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			defer Remove(context.releaseDeclaration.Chart)
 			assert.NilError(t, err)
 
+			testProject := context.environment.Projects[0]
 			err = helmtest.ReplaceTemplate(
-				context.environment.TestProject,
-				context.environment.GitRepository,
-				context.chartServer.URL(),
+				helmtest.Template{
+					Name:                    "test",
+					TestProjectPath:         testProject.TargetPath,
+					RelativeReleaseFilePath: "infra/prometheus/releases.cue",
+					RepoURL:                 context.chartServer.URL(),
+				},
+				testProject.GitRepository,
 			)
 			assert.NilError(t, err)
 
 			chartReconciler := helm.ChartReconciler{
+				Log:                   context.environment.Log,
 				KubeConfig:            context.environment.ControlPlane.Config,
 				Client:                context.environment.DynamicTestKubeClient,
 				FieldManager:          "controller",
-				InventoryManager:      context.environment.InventoryManager,
+				InventoryInstance:     inventoryInstance,
 				InsecureSkipTLSverify: true,
-				Log:                   context.environment.Log,
 			}
 			context.chartReconciler = chartReconciler
 
 			release, err := chartReconciler.Reconcile(
 				context.environment.Ctx,
-				context.releaseDeclaration,
-				fmt.Sprintf(
-					"%s_%s_%s",
-					context.releaseDeclaration.Name,
-					context.releaseDeclaration.Namespace,
-					"HelmRelease",
-				),
+				&helm.ReleaseComponent{
+					ID: fmt.Sprintf(
+						"%s_%s_%s",
+						context.releaseDeclaration.Name,
+						context.releaseDeclaration.Namespace,
+						"HelmRelease",
+					),
+					Content: context.releaseDeclaration,
+				},
 			)
 
 			context.assertFunc(
@@ -930,7 +931,7 @@ func createReleaseDeclaration(
 		Chart: Chart{
 			Name:    "test",
 			RepoURL: url,
-			Version: "1.0.0",
+			Version: version,
 			Auth:    auth,
 		},
 		Values: values,

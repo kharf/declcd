@@ -59,20 +59,4 @@ func (m *Manifest) GetDependencies() []string {
 	return m.Dependencies
 }
 
-// HelmRelease represents a Declcd component with its id, dependencies and content..
-// It is the Go equivalent of the CUE definition the user interacts with.
-// See [helm.ReleaseDeclaration] for more.
-type HelmRelease struct {
-	ID           string
-	Dependencies []string
-	Content      helm.ReleaseDeclaration
-}
-
-var _ Instance = (*HelmRelease)(nil)
-
-func (hr *HelmRelease) GetID() string {
-	return hr.ID
-}
-func (hr *HelmRelease) GetDependencies() []string {
-	return hr.Dependencies
-}
+var _ Instance = (*helm.ReleaseComponent)(nil)

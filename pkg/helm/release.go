@@ -14,6 +14,22 @@
 
 package helm
 
+// ReleaseComponent represents a Declcd component with its id, dependencies and content.
+// It is the Go equivalent of the CUE definition the user interacts with.
+// See [ReleaseDeclaration] for more.
+type ReleaseComponent struct {
+	ID           string
+	Dependencies []string
+	Content      ReleaseDeclaration
+}
+
+func (hr *ReleaseComponent) GetID() string {
+	return hr.ID
+}
+func (hr *ReleaseComponent) GetDependencies() []string {
+	return hr.Dependencies
+}
+
 // ReleaseDeclaration is a Declaration of the desired state (Release) in a Git repository.
 type ReleaseDeclaration struct {
 	// Name influences the name of the installed objects of a Helm Chart.

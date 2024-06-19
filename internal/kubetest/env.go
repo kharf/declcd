@@ -17,24 +17,16 @@ package kubetest
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
-	goRuntime "runtime"
-
 	"gotest.tools/v3/assert"
-	ctrl "sigs.k8s.io/controller-runtime"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/internal/gittest"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/garbage"
-	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/vcs"
 	_ "github.com/kharf/declcd/test/workingdir"
@@ -42,17 +34,12 @@ import (
 	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 type Environment struct {
 	ControlPlane          *envtest.Environment
-	ControllerManager     manager.Manager
 	TestKubeClient        client.Client
 	DynamicTestKubeClient *kube.DynamicClient
-	GarbageCollector      garbage.Collector
-	InventoryManager      *inventory.Manager
 	RepositoryManager     vcs.RepositoryManager
 	Ctx                   context.Context
 	clean                 func()
@@ -60,18 +47,6 @@ type Environment struct {
 
 func (env Environment) Stop() {
 	env.clean()
-}
-
-type projectOption struct {
-	repo        *gittest.LocalGitRepository
-	testProject string
-	testRoot    string
-}
-
-var _ Option = (*projectOption)(nil)
-
-func (opt projectOption) apply(opts *options) {
-	opts.project = opt
 }
 
 type enabled bool
@@ -82,27 +57,19 @@ func (opt enabled) apply(opts *options) {
 	opts.enabled = bool(opt)
 }
 
-type decryptionKeyCreated bool
-
-var _ Option = (*decryptionKeyCreated)(nil)
-
-func (opt decryptionKeyCreated) apply(opts *options) {
-	opts.decryptionKeyCreated = bool(opt)
+type vcsAuthSecret struct {
+	projectName string
 }
 
-type vcsSSHKeyCreated bool
+var _ Option = (*vcsAuthSecret)(nil)
 
-var _ Option = (*vcsSSHKeyCreated)(nil)
-
-func (opt vcsSSHKeyCreated) apply(opts *options) {
-	opts.vcsSSHKeyCreated = bool(opt)
+func (opt *vcsAuthSecret) apply(opts *options) {
+	opts.vcsAuthSecret = opt
 }
 
 type options struct {
-	enabled              bool
-	decryptionKeyCreated bool
-	vcsSSHKeyCreated     bool
-	project              projectOption
+	enabled       bool
+	vcsAuthSecret *vcsAuthSecret
 }
 
 type Option interface {
@@ -113,32 +80,15 @@ func WithEnabled(isEnabled bool) enabled {
 	return enabled(isEnabled)
 }
 
-func WithDecryptionKeyCreated() decryptionKeyCreated {
-	return true
-}
-
-func WithVCSSSHKeyCreated() vcsSSHKeyCreated {
-	return true
-}
-
-func WithProject(
-	repo *gittest.LocalGitRepository,
-	testProject string,
-	testRoot string,
-) projectOption {
-	return projectOption{
-		repo:        repo,
-		testProject: testProject,
-		testRoot:    testRoot,
+func WithVCSAuthSecretFor(projectName string) *vcsAuthSecret {
+	return &vcsAuthSecret{
+		projectName: projectName,
 	}
 }
 
 func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environment {
-	logf.SetLogger(log)
 	options := &options{
-		enabled:              true,
-		decryptionKeyCreated: false,
-		vcsSSHKeyCreated:     false,
+		enabled: true,
 	}
 	for _, o := range opts {
 		o.apply(options)
@@ -163,17 +113,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 		t.Fatal(err)
 	}
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
-		Metrics: server.Options{
-			BindAddress: "0",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.Background())
 	testClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		t.Fatal(err)
@@ -182,21 +122,6 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	client, err := kube.NewDynamicClient(testEnv.Config)
 	assert.NilError(t, err)
 
-	inventoryPath, err := os.MkdirTemp(options.project.testRoot, "inventory-*")
-	assert.NilError(t, err)
-
-	invManager := &inventory.Manager{
-		Log:  log,
-		Path: inventoryPath,
-	}
-
-	gc := garbage.Collector{
-		Log:              log,
-		Client:           client,
-		KubeConfig:       cfg,
-		InventoryManager: invManager,
-		WorkerPoolSize:   goRuntime.GOMAXPROCS(0),
-	}
 	nsStr := "test"
 	declNs := corev1.Namespace{
 		TypeMeta: v1.TypeMeta{
@@ -210,14 +135,14 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	err = testClient.Create(ctx, &declNs)
 	assert.NilError(t, err)
 
-	if options.vcsSSHKeyCreated {
+	if options.vcsAuthSecret != nil {
 		sec := corev1.Secret{
 			TypeMeta: v1.TypeMeta{
 				Kind:       "Secret",
 				APIVersion: "v1",
 			},
 			ObjectMeta: v1.ObjectMeta{
-				Name:      vcs.K8sSecretName,
+				Name:      vcs.SecretName(options.vcsAuthSecret.projectName),
 				Namespace: nsStr,
 			},
 			Data: map[string][]byte{
@@ -240,18 +165,15 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 
 	return &Environment{
 		ControlPlane:          testEnv,
-		ControllerManager:     mgr,
 		TestKubeClient:        testClient,
 		DynamicTestKubeClient: client,
-		GarbageCollector:      gc,
-		InventoryManager:      invManager,
 		RepositoryManager:     repositoryManger,
 		Ctx:                   ctx,
 		clean: func() {
+			cancel()
 			if err := testEnv.Stop(); err != nil {
 				fmt.Println(err)
 			}
-			cancel()
 		},
 	}
 }

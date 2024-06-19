@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package install
+package project
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"os"
@@ -27,7 +28,6 @@ import (
 	"github.com/kharf/declcd/internal/manifest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/vcs"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -37,92 +37,35 @@ var (
 	ErrHelmInstallationUnsupported = errors.New("Helm installation not supported yet")
 )
 
-type options struct {
-	namespace string
-	branch    string
-	url       string
-	name      string
-	token     string
-	interval  int
+type InstallOptions struct {
+	Branch   string
+	Url      string
+	Name     string
+	Token    string
+	Interval int
+	Shard    string
 }
 
-type option interface {
-	Apply(opts *options)
-}
-
-type Namespace string
-
-var _ option = (*Namespace)(nil)
-
-func (ns Namespace) Apply(opts *options) {
-	opts.namespace = string(ns)
-}
-
-type URL string
-
-var _ option = (*URL)(nil)
-
-func (url URL) Apply(opts *options) {
-	opts.url = string(url)
-}
-
-type Branch string
-
-var _ option = (*Branch)(nil)
-
-func (branch Branch) Apply(opts *options) {
-	opts.branch = string(branch)
-}
-
-type Name string
-
-var _ option = (*Name)(nil)
-
-func (name Name) Apply(opts *options) {
-	opts.name = string(name)
-}
-
-type Token string
-
-var _ option = (*Token)(nil)
-
-func (token Token) Apply(opts *options) {
-	opts.token = string(token)
-}
-
-type Interval int
-
-var _ option = (*Interval)(nil)
-
-func (interval Interval) Apply(opts *options) {
-	opts.interval = int(interval)
-}
-
-type Action struct {
+type InstallAction struct {
 	kubeClient       *kube.DynamicClient
 	httpClient       *http.Client
 	componentBuilder component.Builder
 	projectRoot      string
 }
 
-func NewAction(
+func NewInstallAction(
 	kubeClient *kube.DynamicClient,
 	httpClient *http.Client,
 	projectRoot string,
-) Action {
-	return Action{
+) InstallAction {
+	return InstallAction{
 		kubeClient:  kubeClient,
 		projectRoot: projectRoot,
 		httpClient:  httpClient,
 	}
 }
 
-func (act Action) Install(ctx context.Context, opts ...option) error {
-	instOpts := options{}
-	for _, o := range opts {
-		o.Apply(&instOpts)
-	}
-
+func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error {
 	var projectBuf bytes.Buffer
 	projectTmpl, err := template.New("").Parse(manifest.Project)
 	if err != nil {
@@ -130,17 +73,18 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 	}
 
 	if err := projectTmpl.Execute(&projectBuf, map[string]interface{}{
-		"Name":                instOpts.name,
-		"Namespace":           instOpts.namespace,
-		"Branch":              instOpts.branch,
-		"PullIntervalSeconds": instOpts.interval,
-		"Url":                 instOpts.url,
+		"Name":                opts.Name,
+		"Namespace":           ControllerNamespace,
+		"Branch":              opts.Branch,
+		"PullIntervalSeconds": opts.Interval,
+		"Shard":               opts.Shard,
+		"Url":                 opts.Url,
 	}); err != nil {
 		return err
 	}
 
 	declcdDir := filepath.Join(act.projectRoot, "declcd")
-	if err := os.WriteFile(filepath.Join(declcdDir, "project.cue"), projectBuf.Bytes(), 0666); err != nil {
+	if err := os.WriteFile(filepath.Join(declcdDir, fmt.Sprintf("%s_project.cue", opts.Name)), projectBuf.Bytes(), 0666); err != nil {
 		return err
 	}
 
@@ -162,43 +106,46 @@ func (act Action) Install(ctx context.Context, opts ...option) error {
 		return err
 	}
 
+	controllerName := getControllerName(opts.Shard)
 	for _, instance := range instances {
 		manifest, ok := instance.(*component.Manifest)
 		if !ok {
 			return ErrHelmInstallationUnsupported
 		}
 
-		timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		defer cancel()
+		if opts.Shard == manifest.Content.GetLabels()["declcd/shard"] {
+			timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
 
-		if err := act.installObject(
-			timeoutCtx,
-			&manifest.Content,
-			project.ControllerName,
-		); err != nil {
-			return err
+			if err := act.installObject(
+				timeoutCtx,
+				&manifest.Content,
+				controllerName,
+			); err != nil {
+				return err
+			}
 		}
 	}
 
 	repoConfigurator, err := vcs.NewRepositoryConfigurator(
-		instOpts.namespace,
+		ControllerNamespace,
 		act.kubeClient,
 		act.httpClient,
-		instOpts.url,
-		instOpts.token,
+		opts.Url,
+		opts.Token,
 	)
 	if err != nil {
 		return err
 	}
 
-	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, project.ControllerName); err != nil {
+	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, controllerName, opts.Name); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (act Action) installObject(
+func (act InstallAction) installObject(
 	ctx context.Context,
 	unstr *unstructured.Unstructured,
 	fieldManager string,
@@ -210,6 +157,7 @@ func (act Action) installObject(
 	}
 
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
+		fmt.Println("installing ", unstr.GetName(), " in ", unstr.GetNamespace())
 		if k8sErrors.IsNotFound(err) {
 			time.Sleep(1 * time.Second)
 			return act.installObject(ctx, unstr, fieldManager)

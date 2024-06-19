@@ -16,6 +16,7 @@ package projecttest
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,12 +35,17 @@ import (
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+type Project struct {
+	Name          string
+	GitRepository *gittest.LocalGitRepository
+	TargetPath    string
+}
+
 type Environment struct {
-	ProjectManager project.Manager
-	GitRepository  *gittest.LocalGitRepository
-	TestRoot       string
-	TestProject    string
 	Log            logr.Logger
+	ProjectManager project.Manager
+	TestRoot       string
+	Projects       []Project
 	*kubetest.Environment
 }
 
@@ -48,7 +54,10 @@ func (env *Environment) Stop() {
 		env.Environment.Stop()
 	}
 	_ = os.RemoveAll(env.TestRoot)
-	_ = os.RemoveAll(env.GitRepository.Directory)
+
+	for _, project := range env.Projects {
+		_ = os.RemoveAll(project.GitRepository.Directory)
+	}
 }
 
 type Option interface {
@@ -56,8 +65,8 @@ type Option interface {
 }
 
 type options struct {
-	projectSource string
-	kubeOpts      []kubetest.Option
+	projectSources []string
+	kubeOpts       []kubetest.Option
 }
 
 type WithProjectSource string
@@ -65,7 +74,7 @@ type WithProjectSource string
 var _ Option = (*WithProjectSource)(nil)
 
 func (opt WithProjectSource) Apply(opts *options) {
-	opts.projectSource = string(opt)
+	opts.projectSources = append(opts.projectSources, string(opt))
 }
 
 type withKubernetes []kubetest.Option
@@ -81,26 +90,39 @@ func (opt withKubernetes) Apply(opts *options) {
 }
 
 func StartProjectEnv(t testing.TB, opts ...Option) Environment {
-	options := options{
-		projectSource: "simple",
-	}
+	options := options{}
 	for _, o := range opts {
 		o.Apply(&options)
 	}
-	testRoot, err := os.MkdirTemp("", "declcd-*")
-	assert.NilError(t, err)
-	testProject, err := os.MkdirTemp(testRoot, "")
-	assert.NilError(t, err)
-	err = copy.Copy(filepath.Join("test/testdata", options.projectSource), testProject)
-	assert.NilError(t, err)
+	if len(options.projectSources) == 0 {
+		options.projectSources = []string{"simple"}
+	}
+
 	logOpts := ctrlZap.Options{
 		Development: false,
 		Level:       zapcore.Level(-1),
 	}
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
-	repo, err := gittest.InitGitRepository(testProject)
+
+	testRoot, err := os.MkdirTemp("", "declcd-*")
 	assert.NilError(t, err)
-	kubeOpts := append(options.kubeOpts, kubetest.WithProject(repo, testProject, testRoot))
+
+	var projects []Project
+	for _, source := range options.projectSources {
+		testProject, err := os.MkdirTemp(testRoot, fmt.Sprintf("%s-*", source))
+		assert.NilError(t, err)
+
+		err = copy.Copy(filepath.Join("test/testdata", source), testProject)
+		assert.NilError(t, err)
+
+		repo, err := gittest.InitGitRepository(testProject)
+		assert.NilError(t, err)
+		projects = append(projects, Project{
+			Name:          source,
+			GitRepository: repo,
+			TargetPath:    testProject,
+		})
+	}
 
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -111,14 +133,13 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	// set to to true globally as CUE for example uses the DefaultTransport
 	http.DefaultTransport = transport
 
-	env := kubetest.StartKubetestEnv(t, log, kubeOpts...)
+	env := kubetest.StartKubetestEnv(t, log, options.kubeOpts...)
 	projectManager := project.NewManager(component.NewBuilder(), log, runtime.GOMAXPROCS(0))
 
 	return Environment{
 		ProjectManager: projectManager,
-		GitRepository:  repo,
 		TestRoot:       testRoot,
-		TestProject:    testProject,
+		Projects:       projects,
 		Environment:    env,
 		Log:            log,
 	}

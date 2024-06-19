@@ -22,21 +22,19 @@ import (
 
 // GitOpsProjectSpec defines the desired state of GitOpsProject
 type GitOpsProjectSpec struct {
-	//+kubebuilder:validation:MinLength=1
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName"`
 
+	//+kubebuilder:validation:MinLength=1
 	// The url to the gitops repository.
 	URL string `json:"url"`
-	//+kubebuilder:validation:MinLength=1
 
+	//+kubebuilder:validation:MinLength=1
 	// The branch of the gitops repository holding the declcd configuration.
 	Branch string `json:"branch"`
 
-	// The name of the owner of the declcd configuration.
-	Name string `json:"name"`
-
 	//+kubebuilder:validation:Minimum=5
-
-	// This defines how often decl will try to fetch changes from the gitops repository.
+	// This defines how often declcd will try to fetch changes from the gitops repository.
 	PullIntervalSeconds int `json:"pullIntervalSeconds"`
 
 	// This flag tells the controller to suspend subsequent executions, it does
