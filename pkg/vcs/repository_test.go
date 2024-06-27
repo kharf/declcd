@@ -16,6 +16,7 @@ package vcs_test
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,77 +211,26 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 }
 
 func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
-	server, client := gittest.MockGitProvider(t, vcs.GitHub)
-	defer server.Close()
 	ns := "test"
 	testCases := []struct {
-		name string
-		pre  func(env projecttest.Environment) []string
-		post func(env projecttest.Environment, sec corev1.Secret)
+		name         string
+		projectNames []string
+		post         func(env projecttest.Environment, sec corev1.Secret, client *http.Client)
 	}{
 		{
-			name: "NonExisting",
-			pre: func(env projecttest.Environment) []string {
-				projectName := "non-existing"
-				configurator, err := vcs.NewRepositoryConfigurator(
-					ns,
-					env.DynamicTestKubeClient,
-					client,
-					"git@github.com:kharf/declcd.git",
-					"abcd",
-				)
-				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(
-					env.Ctx,
-					"manager",
-					projectName,
-				)
-				assert.NilError(t, err)
-				return []string{projectName}
-			},
-			post: func(env projecttest.Environment, sec corev1.Secret) {},
+			name:         "NonExisting",
+			projectNames: []string{"non-existing"},
+			post:         func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {},
 		},
 		{
-			name: "MultipleNonExisting",
-			pre: func(env projecttest.Environment) []string {
-				projectNames := []string{"a", "b"}
-				configurator, err := vcs.NewRepositoryConfigurator(
-					ns,
-					env.DynamicTestKubeClient,
-					client,
-					"git@github.com:kharf/declcd.git",
-					"abcd",
-				)
-				assert.NilError(t, err)
-				for _, projectName := range projectNames {
-					err = configurator.CreateDeployKeySecretIfNotExists(
-						env.Ctx,
-						"manager",
-						projectName,
-					)
-					assert.NilError(t, err)
-				}
-				return projectNames
-			},
-			post: func(env projecttest.Environment, sec corev1.Secret) {},
+			name:         "MultipleNonExisting",
+			projectNames: []string{"a", "b"},
+			post:         func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {},
 		},
 		{
-			name: "Existing",
-			pre: func(env projecttest.Environment) []string {
-				projectName := "existing"
-				configurator, err := vcs.NewRepositoryConfigurator(
-					ns,
-					env.DynamicTestKubeClient,
-					client,
-					"git@github.com:kharf/declcd.git",
-					"abcd",
-				)
-				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager", projectName)
-				assert.NilError(t, err)
-				return []string{projectName}
-			},
-			post: func(env projecttest.Environment, sec corev1.Secret) {
+			name:         "Existing",
+			projectNames: []string{"existing"},
+			post: func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
 					env.DynamicTestKubeClient,
@@ -314,11 +264,28 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			)
 			defer env.Stop()
 
-			projectNames := tc.pre(env)
+			projectNames := tc.projectNames
 
 			for _, projectName := range projectNames {
+				server, client := gittest.MockGitProvider(
+					t,
+					vcs.GitHub,
+					fmt.Sprintf("declcd-%s", projectName),
+				)
+
+				configurator, err := vcs.NewRepositoryConfigurator(
+					ns,
+					env.DynamicTestKubeClient,
+					client,
+					"git@github.com:kharf/declcd.git",
+					"abcd",
+				)
+				assert.NilError(t, err)
+				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager", projectName)
+				assert.NilError(t, err)
+
 				var sec corev1.Secret
-				err := env.TestKubeClient.Get(
+				err = env.TestKubeClient.Get(
 					env.Ctx,
 					types.NamespacedName{
 						Namespace: ns,
@@ -340,7 +307,8 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 				assert.Assert(t, strings.HasPrefix(string(pubKey), "ssh-ed25519 AAAA"))
 				authType, _ := sec.Data[vcs.K8sSecretDataAuthType]
 				assert.Equal(t, string(authType), vcs.K8sSecretDataAuthTypeSSH)
-				tc.post(env, sec)
+				tc.post(env, sec, client)
+				server.Close()
 			}
 		})
 	}

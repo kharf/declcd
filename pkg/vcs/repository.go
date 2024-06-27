@@ -275,7 +275,7 @@ func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
 		return nil
 	}
 
-	depKey, err := config.provider.CreateDeployKey(ctx, config.repoID)
+	depKey, err := config.provider.CreateDeployKey(ctx, config.repoID, WithKeySuffix(projectName))
 	if err != nil {
 		return err
 	}

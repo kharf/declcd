@@ -16,6 +16,7 @@ package vcs_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/kharf/declcd/internal/gittest"
@@ -24,7 +25,7 @@ import (
 )
 
 func TestGithubClient_CreateDeployKey(t *testing.T) {
-	server, client := gittest.MockGitProvider(t, vcs.GitHub)
+	server, client := gittest.MockGitProvider(t, vcs.GitHub, fmt.Sprintf("declcd-%s", `dev`))
 	defer server.Close()
 	githubClient := vcs.NewGithubClient(client, "abcd")
 	ctx := context.Background()
@@ -34,7 +35,7 @@ func TestGithubClient_CreateDeployKey(t *testing.T) {
 }
 
 func TestGitlabClient_CreateDeployKey(t *testing.T) {
-	server, client := gittest.MockGitProvider(t, vcs.GitLab)
+	server, client := gittest.MockGitProvider(t, vcs.GitLab, fmt.Sprintf("declcd-%s", `dev`))
 	defer server.Close()
 	gitlabClient, err := vcs.NewGitlabClient(client, "abcd")
 	assert.NilError(t, err)

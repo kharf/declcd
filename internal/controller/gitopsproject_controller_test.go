@@ -16,14 +16,17 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	gitops "github.com/kharf/declcd/api/v1beta1"
+	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/project"
+	"github.com/kharf/declcd/pkg/vcs"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -66,9 +69,8 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 	When("Creating a GitOpsProject", func() {
 
 		var (
-			env           projecttest.Environment
-			k8sClient     client.Client
-			installAction project.InstallAction
+			env       projecttest.Environment
+			k8sClient client.Client
 		)
 
 		BeforeEach(func() {
@@ -88,12 +90,6 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				testProject.GitRepository,
 			)
 			Expect(err).NotTo(HaveOccurred())
-
-			installAction = project.NewInstallAction(
-				env.DynamicTestKubeClient,
-				httpClient,
-				testProject.TargetPath,
-			)
 
 			k8sClient, err = client.New(
 				env.ControlPlane.Config,
@@ -121,6 +117,20 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 					"1.0.0",
 				)
 				Expect(err).NotTo(HaveOccurred())
+
+				gitServer, httpClient := gittest.MockGitProvider(
+					test,
+					vcs.GitHub,
+					fmt.Sprintf("declcd-%s", gitOpsProjectName),
+				)
+				defer gitServer.Close()
+
+				installAction := project.NewInstallAction(
+					env.DynamicTestKubeClient,
+					httpClient,
+					testProject.TargetPath,
+				)
+
 				err = installAction.Install(
 					env.Ctx,
 					project.InstallOptions{
@@ -157,6 +167,19 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 						"1.0.0",
 					)
 					Expect(err).NotTo(HaveOccurred())
+					gitServer, httpClient := gittest.MockGitProvider(
+						test,
+						vcs.GitHub,
+						fmt.Sprintf("declcd-%s", gitOpsProjectName),
+					)
+					defer gitServer.Close()
+
+					installAction := project.NewInstallAction(
+						env.DynamicTestKubeClient,
+						httpClient,
+						testProject.TargetPath,
+					)
+
 					err = installAction.Install(
 						env.Ctx,
 						project.InstallOptions{
@@ -280,6 +303,13 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 					testProject.GitRepository,
 				)
 				Expect(err).NotTo(HaveOccurred())
+
+				gitServer, httpClient := gittest.MockGitProvider(
+					test,
+					vcs.GitHub,
+					fmt.Sprintf("declcd-%s", testProject.Name),
+				)
+				defer gitServer.Close()
 
 				installAction = project.NewInstallAction(
 					env.DynamicTestKubeClient,

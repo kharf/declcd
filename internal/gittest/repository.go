@@ -145,7 +145,11 @@ type request struct {
 	Title string `json:"title"`
 }
 
-func MockGitProvider(t *testing.T, provider vcs.Provider) (*httptest.Server, *http.Client) {
+func MockGitProvider(
+	t *testing.T,
+	provider vcs.Provider,
+	expectedTitle string,
+) (*httptest.Server, *http.Client) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bodyBytes, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -167,7 +171,7 @@ func MockGitProvider(t *testing.T, provider vcs.Provider) (*httptest.Server, *ht
 		var req request
 		err = json.Unmarshal(bodyBytes, &req)
 		assert.NilError(t, err)
-		assert.Assert(t, strings.HasPrefix(req.Title, "declcd"))
+		assert.Equal(t, req.Title, expectedTitle)
 		assert.Assert(t, strings.HasPrefix(req.Key, "ssh-ed25519 AAAA"))
 		w.Write([]byte(`{
 				"key" : "ssh-rsa AAAA...",

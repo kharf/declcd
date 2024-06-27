@@ -103,6 +103,17 @@ func TestInstallAction_Install(t *testing.T) {
 				)
 				assert.NilError(t, err)
 
+				server, client := gittest.MockGitProvider(
+					t,
+					vcs.GitHub,
+					fmt.Sprintf("declcd-%s", "secondary"),
+				)
+				defer server.Close()
+
+				kubeClient, err := kube.NewDynamicClient(env.ControlPlane.Config)
+				assert.NilError(t, err)
+
+				action = project.NewInstallAction(kubeClient, client, env.Projects[0].TargetPath)
 				ctx := context.Background()
 				err = action.Install(
 					ctx,
@@ -174,7 +185,11 @@ func TestInstallAction_Install(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			server, client := gittest.MockGitProvider(t, vcs.GitHub)
+			server, client := gittest.MockGitProvider(
+				t,
+				vcs.GitHub,
+				fmt.Sprintf("declcd-%s", tc.project.name),
+			)
 			defer server.Close()
 
 			env := projecttest.StartProjectEnv(t)

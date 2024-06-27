@@ -17,8 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -26,10 +24,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/pkg/vcs"
 
 	_ "github.com/kharf/declcd/test/workingdir"
 )
@@ -38,8 +34,6 @@ var (
 	dnsServer         *dnstest.DNSServer
 	cueModuleRegistry *ocitest.Registry
 	helmEnvironment   *helmtest.Environment
-	httpClient        *http.Client
-	gitServer         *httptest.Server
 	test              *testing.T
 )
 
@@ -68,12 +62,10 @@ var _ = BeforeSuite(func() {
 	)
 	Expect(err).NotTo(HaveOccurred())
 
-	gitServer, httpClient = gittest.MockGitProvider(test, vcs.GitHub)
 })
 
 var _ = AfterSuite(func() {
 	dnsServer.Close()
 	cueModuleRegistry.Close()
 	helmEnvironment.Close()
-	gitServer.Close()
 })
