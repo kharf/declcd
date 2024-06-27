@@ -32,19 +32,29 @@ import (
 // which are undefined in the declcd gitops repository, and uninstalls them from
 // the Kubernetes cluster and inventory.
 type Collector struct {
-	Log              logr.Logger
-	Client           *kube.DynamicClient
-	KubeConfig       *rest.Config
-	InventoryManager *inventory.Manager
-	WorkerPoolSize   int
+	Log logr.Logger
+
+	Client     *kube.DynamicClient
+	KubeConfig *rest.Config
+
+	// Instance is a representation of an inventory.
+	// It can store, delete and read items.
+	// The object does not include the storage itself, it only holds a reference to the storage.
+	InventoryInstance *inventory.Instance
+
+	WorkerPoolSize int
 }
 
 // Collect inspects the inventory for dangling manifests or helm releases,
 // which are undefined in the declcd gitops repository, and uninstalls them from
 // the Kubernetes cluster and inventory.
 // The DependencyGraph is a representation of the gitops repository.
-func (c *Collector) Collect(ctx context.Context, dag *component.DependencyGraph) error {
-	storage, err := c.InventoryManager.Load()
+func (c *Collector) Collect(
+	ctx context.Context,
+	dag *component.DependencyGraph,
+) error {
+	inventoryInstance := c.InventoryInstance
+	storage, err := inventoryInstance.Load()
 	if err != nil {
 		return err
 	}
@@ -83,7 +93,9 @@ func (c *Collector) collect(
 	return nil
 }
 
-func (c *Collector) collectHelmRelease(invHr *inventory.HelmReleaseItem) error {
+func (c *Collector) collectHelmRelease(
+	invHr *inventory.HelmReleaseItem,
+) error {
 	c.Log.Info(
 		"Collecting unreferenced helm release",
 		"namespace",
@@ -102,7 +114,7 @@ func (c *Collector) collectHelmRelease(invHr *inventory.HelmReleaseItem) error {
 	if err != nil {
 		return err
 	}
-	if err := c.InventoryManager.DeleteItem(invHr); err != nil {
+	if err := c.InventoryInstance.DeleteItem(invHr); err != nil {
 		return err
 	}
 	return nil
@@ -129,7 +141,7 @@ func (c *Collector) collectManifest(
 	if err := c.Client.Delete(ctx, unstr); err != nil {
 		return err
 	}
-	if err := c.InventoryManager.DeleteItem(invManifest); err != nil {
+	if err := c.InventoryInstance.DeleteItem(invManifest); err != nil {
 		return err
 	}
 	return nil

@@ -33,7 +33,6 @@ import (
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/project"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	helmKube "helm.sh/helm/v3/pkg/kube"
@@ -45,7 +44,7 @@ import (
 
 func ConfigureHelm(cfg *rest.Config) (*action.Configuration, error) {
 	helmCfg := action.Configuration{}
-	helmKube.ManagedFieldsManager = project.ControllerName
+	helmKube.ManagedFieldsManager = "controller"
 
 	k8sClient, err := kube.NewDynamicClient(cfg)
 	if err != nil {
@@ -430,16 +429,21 @@ func createChartArchive(chart string, version string) (*os.File, error) {
 	return archive, nil
 }
 
+type Template struct {
+	TestProjectPath         string
+	RelativeReleaseFilePath string
+	Name                    string
+	RepoURL                 string
+}
+
 func ReplaceTemplate(
-	testProject string,
-	repo *gittest.LocalGitRepository,
-	repoURL string,
+	tmpl Template,
+	gitRepository *gittest.LocalGitRepository,
 ) error {
+
 	releasesFilePath := filepath.Join(
-		testProject,
-		"infra",
-		"prometheus",
-		"releases.cue",
+		tmpl.TestProjectPath,
+		tmpl.RelativeReleaseFilePath,
 	)
 
 	releasesContent, err := os.ReadFile(releasesFilePath)
@@ -447,7 +451,7 @@ func ReplaceTemplate(
 		return err
 	}
 
-	tmpl, err := template.New("releases").Parse(string(releasesContent))
+	parsedTemplate, err := template.New("releases").Parse(string(releasesContent))
 	if err != nil {
 		return err
 	}
@@ -458,20 +462,21 @@ func ReplaceTemplate(
 	}
 	defer releasesFile.Close()
 
-	err = tmpl.Execute(releasesFile, struct {
+	err = parsedTemplate.Execute(releasesFile, struct {
 		Name    string
-		RepoUrl string
-		Version string
+		RepoURL string
 	}{
-		Name:    "test",
-		RepoUrl: repoURL,
-		Version: "1.0.0",
+		Name:    tmpl.Name,
+		RepoURL: tmpl.RepoURL,
 	})
 	if err != nil {
 		return err
 	}
 
-	_, err = repo.CommitFile("infra/prometheus/releases.cue", "overwrite template")
+	_, err = gitRepository.CommitFile(
+		tmpl.RelativeReleaseFilePath,
+		"overwrite template",
+	)
 	if err != nil {
 		return err
 	}

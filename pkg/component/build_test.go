@@ -95,7 +95,7 @@ func TestBuilder_Build(t *testing.T) {
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
-				&HelmRelease{
+				&helm.ReleaseComponent{
 					ID: "test_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
 						Name:      "{{.Name}}",
@@ -113,7 +113,7 @@ func TestBuilder_Build(t *testing.T) {
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
-				&HelmRelease{
+				&helm.ReleaseComponent{
 					ID: "test-secret-ref_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
 						Name:      "{{.Name}}",
@@ -137,7 +137,7 @@ func TestBuilder_Build(t *testing.T) {
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
-				&HelmRelease{
+				&helm.ReleaseComponent{
 					ID: "test-workload-identity_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
 						Name:      "{{.Name}}",
@@ -254,8 +254,8 @@ func TestBuilder_Build(t *testing.T) {
 						assert.Equal(t, current.ID, expected.ID)
 						assert.DeepEqual(t, current.Dependencies, expected.Dependencies)
 						assert.DeepEqual(t, current.Content, expected.Content)
-					case *HelmRelease:
-						current, ok := current.(*HelmRelease)
+					case *helm.ReleaseComponent:
+						current, ok := current.(*helm.ReleaseComponent)
 						assert.Assert(t, ok)
 						assert.Equal(t, current.ID, expected.ID)
 						assert.DeepEqual(t, current.Content.Values, expected.Content.Values)

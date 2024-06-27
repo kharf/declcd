@@ -22,7 +22,6 @@ import (
 	"runtime"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/internal/install"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
@@ -64,18 +63,30 @@ func (builder RootCommandBuilder) Build() *cobra.Command {
 type InitCommandBuilder struct{}
 
 func (builder InitCommandBuilder) Build() *cobra.Command {
+	var shard string
+	var isSecondary bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Init a Declcd Repository in the current directory",
+		Short: "Init a Declcd Project in the current directory",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
-			return project.Init(args[0], cwd, Version)
+			return project.Init(
+				args[0],
+				shard,
+				isSecondary,
+				cwd,
+				Version,
+			)
 		},
 	}
+	cmd.Flags().
+		StringVar(&shard, "shard", "primary", "Instance of the Declcd Project")
+	cmd.Flags().
+		BoolVar(&isSecondary, "secondary", false, "Indicates a secondary Declcd instance")
 	return cmd
 }
 
@@ -127,6 +138,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	var name string
 	var token string
 	var interval int
+	var shard string
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install Declcd on a Kubernetes Cluster",
@@ -145,14 +157,16 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 				return err
 			}
 			httpClient := http.DefaultClient
-			action := install.NewAction(client, httpClient, wd)
+			action := project.NewInstallAction(client, httpClient, wd)
 			if err := action.Install(ctx,
-				install.Namespace(project.ControllerNamespace),
-				install.URL(url),
-				install.Branch(branch),
-				install.Name(name),
-				install.Interval(interval),
-				install.Token(token),
+				project.InstallOptions{
+					Url:      url,
+					Branch:   branch,
+					Name:     name,
+					Interval: interval,
+					Token:    token,
+					Shard:    shard,
+				},
 			); err != nil {
 				return err
 			}
@@ -160,12 +174,17 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		},
 	}
 	cmd.Flags().
-		StringVarP(&branch, "branch", "b", "main", "Branch of a gitops repository containing project configuration")
-	cmd.Flags().StringVarP(&url, "url", "u", "", "Url to a gitops repository")
+		StringVarP(&branch, "branch", "b", "main", "Branch of the GitOps Repository containing project configuration")
+	cmd.Flags().StringVarP(&url, "url", "u", "", "Url to the GitOps repository")
 	cmd.Flags().
-		StringVarP(&name, "name", "", "", "Name of the GitOpsProject")
+		StringVar(&name, "name", "", "Name of the GitOps Project")
 	cmd.Flags().StringVarP(&token, "token", "t", "", "Access token used for authentication")
 	cmd.Flags().
 		IntVarP(&interval, "interval", "i", 30, "Definition of how often Declcd will reconcile its cluster state. Value is defined in seconds")
+	cmd.Flags().
+		StringVar(&shard, "shard", "primary", "Instance associated with the Declcd Project")
+
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("url")
 	return cmd
 }

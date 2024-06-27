@@ -20,12 +20,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
+	"path/filepath"
+	goRuntime "runtime"
 	"testing"
 
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
@@ -39,20 +41,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var (
-	helmEnvironment *helmtest.Environment
-)
-
-func TestMain(m *testing.M) {
-	var err error
-	helmEnvironment, err = helmtest.NewHelmEnvironment(
-		helmtest.WithOCI(false),
-		helmtest.WithPrivate(false),
-	)
-	assertError(err)
-	defer helmEnvironment.Close()
-}
-
 func assertError(err error) {
 	if err != nil {
 		fmt.Println(err)
@@ -60,7 +48,22 @@ func assertError(err error) {
 	}
 }
 
+type testCaseContext struct {
+	ctx               context.Context
+	env               projecttest.Environment
+	inventoryInstance *inventory.Instance
+	collector         garbage.Collector
+}
+
 func TestCollector_Collect(t *testing.T) {
+	var err error
+	helmEnvironment, err := helmtest.NewHelmEnvironment(
+		helmtest.WithOCI(false),
+		helmtest.WithPrivate(false),
+	)
+	assertError(err)
+	defer helmEnvironment.Close()
+
 	nsA := &inventory.ManifestItem{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -113,29 +116,48 @@ func TestCollector_Collect(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		runCase func(context.Context, projecttest.Environment)
+		runCase func(context testCaseContext)
 	}{
 		{
 			name: "Deleted-DepB-and-HR",
-			runCase: func(ctx context.Context, env projecttest.Environment) {
+			runCase: func(context testCaseContext) {
 				dag := component.NewDependencyGraph()
-				prepareManifests(ctx, t, invManifests, env, dag)
+				ctx := context.ctx
+				env := context.env
+				inventoryInstance := context.inventoryInstance
+
+				prepareManifests(ctx,
+					t,
+					invManifests,
+					env,
+					inventoryInstance,
+					dag,
+				)
 
 				chartReconciler := helm.ChartReconciler{
 					KubeConfig:            env.ControlPlane.Config,
 					Client:                env.DynamicTestKubeClient,
 					FieldManager:          "controller",
-					InventoryManager:      env.InventoryManager,
 					InsecureSkipTLSverify: true,
+					InventoryInstance:     inventoryInstance,
 					Log:                   env.Log,
 				}
-				prepareHelmReleases(ctx, t, invHelmReleases, env, chartReconciler, dag)
 
-				storage, err := env.InventoryManager.Load()
+				prepareHelmReleases(
+					ctx,
+					t,
+					helmEnvironment,
+					invHelmReleases,
+					chartReconciler,
+					inventoryInstance,
+					dag,
+				)
+
+				storage, err := inventoryInstance.Load()
 				assert.NilError(t, err)
 
 				assertItems(t, invManifests, invHelmReleases, storage)
-				assertRunningAll := func(ctx context.Context, t *testing.T, env projecttest.Environment) {
+				assertRunningAll := func(t *testing.T) {
 					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
 						Object: map[string]interface{}{
 							"apiVersion": "apps/v1",
@@ -169,16 +191,16 @@ func TestCollector_Collect(t *testing.T) {
 						},
 					})
 				}
-				assertRunningAll(ctx, t, env)
+				assertRunningAll(t)
 
-				err = env.GarbageCollector.Collect(ctx, &dag)
+				err = context.collector.Collect(ctx, &dag)
 				assert.NilError(t, err)
 
-				storage, err = env.InventoryManager.Load()
+				storage, err = inventoryInstance.Load()
 				assert.NilError(t, err)
 
 				assertItems(t, invManifests, invHelmReleases, storage)
-				assertRunningAll(ctx, t, env)
+				assertRunningAll(t)
 
 				renderedManifests := []*inventory.ManifestItem{
 					nsA,
@@ -187,9 +209,9 @@ func TestCollector_Collect(t *testing.T) {
 				}
 
 				dag = component.NewDependencyGraph()
-				prepareManifests(ctx, t, renderedManifests, env, dag)
+				prepareManifests(ctx, t, renderedManifests, env, inventoryInstance, dag)
 
-				err = env.GarbageCollector.Collect(ctx, &dag)
+				err = context.collector.Collect(ctx, &dag)
 				assert.NilError(t, err)
 
 				assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
@@ -228,15 +250,19 @@ func TestCollector_Collect(t *testing.T) {
 		},
 		{
 			name: "Deleted-Deployment-But-Still-In-Inventory",
-			runCase: func(ctx context.Context, env projecttest.Environment) {
+			runCase: func(context testCaseContext) {
 				renderedManifests := []*inventory.ManifestItem{
 					nsA,
 					depA,
 				}
 
 				dag := component.NewDependencyGraph()
-				prepareManifests(ctx, t, renderedManifests, env, dag)
-				storage, err := env.InventoryManager.Load()
+				ctx := context.ctx
+				env := context.env
+				inventoryInstance := context.inventoryInstance
+
+				prepareManifests(ctx, t, renderedManifests, env, inventoryInstance, dag)
+				storage, err := inventoryInstance.Load()
 				assert.NilError(t, err)
 				assertItems(t, renderedManifests, []*inventory.HelmReleaseItem{}, storage)
 
@@ -248,14 +274,14 @@ func TestCollector_Collect(t *testing.T) {
 				err = env.DynamicTestKubeClient.Delete(ctx, unstr)
 				assert.NilError(t, err)
 
-				storage, err = env.InventoryManager.Load()
+				storage, err = inventoryInstance.Load()
 				assert.NilError(t, err)
 				assertItems(t, renderedManifests, []*inventory.HelmReleaseItem{}, storage)
 
-				err = env.GarbageCollector.Collect(ctx, &dag)
+				err = context.collector.Collect(ctx, &dag)
 				assert.NilError(t, err)
 
-				storage, err = env.InventoryManager.Load()
+				storage, err = inventoryInstance.Load()
 				assert.NilError(t, err)
 
 				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
@@ -279,8 +305,25 @@ func TestCollector_Collect(t *testing.T) {
 			)
 			defer env.Stop()
 
+			inventoryInstance := &inventory.Instance{
+				Path: filepath.Join(env.TestRoot, "inventory"),
+			}
+
+			collector := garbage.Collector{
+				Log:               env.Log,
+				Client:            env.DynamicTestKubeClient,
+				KubeConfig:        env.ControlPlane.Config,
+				InventoryInstance: inventoryInstance,
+				WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
+			}
+
 			ctx := context.Background()
-			tc.runCase(ctx, env)
+			tc.runCase(testCaseContext{
+				ctx:               ctx,
+				env:               env,
+				inventoryInstance: inventoryInstance,
+				collector:         collector,
+			})
 		})
 	}
 }
@@ -337,9 +380,10 @@ func assertItems(
 func prepareHelmReleases(
 	ctx context.Context,
 	t *testing.T,
+	helmEnvironment *helmtest.Environment,
 	invHelmReleases []*inventory.HelmReleaseItem,
-	env projecttest.Environment,
 	chartReconciler helm.ChartReconciler,
+	inventoryInstance *inventory.Instance,
 	dag component.DependencyGraph,
 ) {
 	releases := make([]helm.ReleaseDeclaration, 0, len(invHelmReleases))
@@ -355,16 +399,22 @@ func prepareHelmReleases(
 			Values: helm.Values{},
 		}
 		id := fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace)
-		_, err := chartReconciler.Reconcile(ctx, release, id)
+		_, err := chartReconciler.Reconcile(
+			ctx,
+			&helm.ReleaseComponent{
+				ID:      id,
+				Content: release,
+			},
+		)
 		assert.NilError(t, err)
 		releases = append(releases, release)
-		err = env.InventoryManager.StoreItem(&inventory.HelmReleaseItem{
+		err = inventoryInstance.StoreItem(&inventory.HelmReleaseItem{
 			Name:      release.Name,
 			Namespace: release.Namespace,
 			ID:        id,
 		}, nil)
 		assert.NilError(t, err)
-		dag.Insert(&component.HelmRelease{
+		dag.Insert(&helm.ReleaseComponent{
 			ID:           hrMetadata.ID,
 			Dependencies: []string{},
 			Content:      release,
@@ -377,6 +427,7 @@ func prepareManifests(
 	t *testing.T,
 	invManifests []*inventory.ManifestItem,
 	env projecttest.Environment,
+	inventoryInstance *inventory.Instance,
 	dag component.DependencyGraph,
 ) {
 	for _, im := range invManifests {
@@ -386,7 +437,7 @@ func prepareManifests(
 		assert.NilError(t, err)
 		buf := &bytes.Buffer{}
 		json.NewEncoder(buf).Encode(unstr.Object)
-		err = env.InventoryManager.StoreItem(im, buf)
+		err = inventoryInstance.StoreItem(im, buf)
 		assert.NilError(t, err)
 		dag.Insert(
 			&component.Manifest{
@@ -463,68 +514,4 @@ func deployment(invManifest *inventory.ManifestItem) client.Object {
 				}},
 		},
 	}
-
-}
-
-var errResult error
-
-func BenchmarkCollector_Collect(b *testing.B) {
-	env := projecttest.StartProjectEnv(
-		b,
-	)
-	defer env.Stop()
-	dag := component.NewDependencyGraph()
-	converter := runtime.DefaultUnstructuredConverter
-	for i := 0; i < 1000; i++ {
-		name := "component-" + strconv.Itoa(i)
-		nsItem := &inventory.ManifestItem{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Namespace",
-				APIVersion: "v1",
-			},
-			Name: name,
-			ID:   "",
-		}
-		err := env.InventoryManager.StoreItem(nsItem, nil)
-		assert.NilError(b, err)
-		obj, err := converter.ToUnstructured(toObject(nsItem))
-		unstr := unstructured.Unstructured{Object: obj}
-		err = env.DynamicTestKubeClient.Apply(env.Ctx, &unstr, "test")
-		assert.NilError(b, err)
-		depItem := &inventory.ManifestItem{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Deployment",
-				APIVersion: "apps/v1",
-			},
-			Name:      name,
-			Namespace: name,
-			ID:        fmt.Sprintf("%s_%s_apps_Deployment", name, name),
-		}
-		err = env.InventoryManager.StoreItem(depItem, nil)
-		assert.NilError(b, err)
-		obj, err = converter.ToUnstructured(toObject(depItem))
-		unstr = unstructured.Unstructured{Object: obj}
-		err = env.DynamicTestKubeClient.Apply(env.Ctx, &unstr, "test")
-		assert.NilError(b, err)
-		nsNode := &component.Manifest{
-			Dependencies: []string{},
-			Content: unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"kind":       nsItem.TypeMeta.Kind,
-					"apiVersion": nsItem.TypeMeta.APIVersion,
-					"metadata": map[string]interface{}{
-						"name": nsItem.GetName(),
-					},
-				},
-			},
-		}
-		err = dag.Insert(nsNode)
-		assert.NilError(b, err)
-	}
-	var err error
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		err = env.GarbageCollector.Collect(env.Ctx, &dag)
-	}
-	errResult = err
 }

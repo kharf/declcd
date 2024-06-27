@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/go-logr/logr"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -114,20 +113,20 @@ func (inv Storage) HasItem(item Item) bool {
 	return false
 }
 
-// Manager is responsible for maintaining the current cluster state.
-// It can store, delete and read items from the inventory.
-type Manager struct {
-	Log  logr.Logger
+// Instance is a representation of an inventory.
+// It can store, delete and read items.
+// The object does not include the storage itself, it only holds a reference to the storage.
+type Instance struct {
 	Path string
 }
 
-// Load reads the current inventory and returns all the stored components.
-func (manager *Manager) Load() (*Storage, error) {
-	if err := os.MkdirAll(manager.Path, 0700); err != nil {
+// Load returns all the stored components in this inventory.
+func (instance *Instance) Load() (*Storage, error) {
+	if err := os.MkdirAll(instance.Path, 0700); err != nil {
 		return nil, err
 	}
 	items := make(map[string]Item)
-	err := filepath.WalkDir(manager.Path, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(instance.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -193,8 +192,8 @@ func (manager *Manager) Load() (*Storage, error) {
 
 // GetItem opens the item file for reading.
 // If there is an error, it will be of type *PathError.
-func (manager Manager) GetItem(item Item) (io.ReadCloser, error) {
-	itemFile, err := os.Open(filepath.Join(manager.Path, itemNs(item), item.GetID()))
+func (instance Instance) GetItem(item Item) (io.ReadCloser, error) {
+	itemFile, err := os.Open(filepath.Join(instance.Path, itemNs(item), item.GetID()))
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +201,8 @@ func (manager Manager) GetItem(item Item) (io.ReadCloser, error) {
 }
 
 // StoreItem persists given item with optional content in the inventory.
-func (manager Manager) StoreItem(item Item, contentReader io.Reader) error {
-	dir := filepath.Join(manager.Path, itemNs(item))
+func (instance Instance) StoreItem(item Item, contentReader io.Reader) error {
+	dir := filepath.Join(instance.Path, itemNs(item))
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -236,8 +235,8 @@ func (manager Manager) StoreItem(item Item, contentReader io.Reader) error {
 
 // DeleteItem removes the item from the inventory.
 // Declcd will not be tracking its current state anymore.
-func (manager Manager) DeleteItem(item Item) error {
-	dir := filepath.Join(manager.Path, itemNs(item))
+func (instance Instance) DeleteItem(item Item) error {
+	dir := filepath.Join(instance.Path, itemNs(item))
 	dirFile, err := os.Open(dir)
 	if err != nil {
 		return err

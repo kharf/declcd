@@ -27,30 +27,71 @@ import (
 
 func TestInit(t *testing.T) {
 	testCases := []struct {
-		name        string
-		expectedErr string
-		module      string
-		pre         func() string
-		assert      func(path string)
+		name          string
+		run           func() string
+		expectedFiles []string
+		assert        func(path string, expectedFiles []string)
 	}{
 		{
-			name:        "Success",
-			expectedErr: "",
-			module:      "github.com/kharf/declcd/init@v0",
-			pre: func() string {
+			name: "Primary",
+			run: func() string {
 				path, err := os.MkdirTemp("", "")
+				assert.NilError(t, err)
+				err = project.Init(
+					"github.com/kharf/declcd/init@v0",
+					"primary",
+					false,
+					path,
+					"0.1.0",
+				)
 				assert.NilError(t, err)
 				return path
 			},
-			assert: func(path string) {
-				assertModule(t, path, "github.com/kharf/declcd/init@v0")
+			expectedFiles: []string{
+				"declcd/primary.cue",
+				"declcd/primary_system.cue",
+				"declcd/crd.cue",
+			},
+			assert: func(path string, expectedFiles []string) {
+				assertModule(t, path, "github.com/kharf/declcd/init@v0", expectedFiles)
 			},
 		},
 		{
-			name:        "Exists",
-			expectedErr: "",
-			module:      "github.com/kharf/declcd/init@v0",
-			pre: func() string {
+			name: "Secondary",
+			run: func() string {
+				path, err := os.MkdirTemp("", "")
+				assert.NilError(t, err)
+				err = project.Init(
+					"github.com/kharf/declcd/init@v0",
+					"primary",
+					false,
+					path,
+					"0.1.0",
+				)
+				assert.NilError(t, err)
+				err = project.Init(
+					"github.com/kharf/declcd/init@v0",
+					"secondary",
+					true,
+					path,
+					"0.1.0",
+				)
+				assert.NilError(t, err)
+				return path
+			},
+			expectedFiles: []string{
+				"declcd/primary.cue",
+				"declcd/primary_system.cue",
+				"declcd/crd.cue",
+				"declcd/secondary_system.cue",
+			},
+			assert: func(path string, expectedFiles []string) {
+				assertModule(t, path, "github.com/kharf/declcd/init@v0", expectedFiles)
+			},
+		},
+		{
+			name: "Exists",
+			run: func() string {
 				path, err := os.MkdirTemp("", "")
 				assert.NilError(t, err)
 				moduleFile := modfile.File{
@@ -71,41 +112,36 @@ func TestInit(t *testing.T) {
 				assert.NilError(t, err)
 				err = os.WriteFile(filepath.Join(moduleDir, "module.cue"), content, 0666)
 				assert.NilError(t, err)
-				return path
-			},
-			assert: func(path string) {
-				assertModule(t, path, "mymodule@v0")
-			},
-		},
-		{
-			name:        "WrongModuleFormat",
-			expectedErr: "module path \"github.com/kharf/declcd/init\" in module.cue does not contain major version",
-			module:      "github.com/kharf/declcd/init",
-			pre: func() string {
-				path, err := os.MkdirTemp("", "")
+				err = project.Init(
+					"github.com/kharf/declcd/init@v0",
+					"primary",
+					false,
+					path,
+					"0.1.0",
+				)
 				assert.NilError(t, err)
 				return path
 			},
-			assert: func(path string) {
+			expectedFiles: []string{
+				"declcd/primary.cue",
+				"declcd/primary_system.cue",
+				"declcd/crd.cue",
+			},
+			assert: func(path string, expectedFiles []string) {
+				assertModule(t, path, "mymodule@v0", expectedFiles)
 			},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			path := tc.pre()
+			path := tc.run()
 			defer os.RemoveAll(path)
-			err := project.Init(tc.module, path, "0.1.0")
-			if tc.expectedErr != "" {
-				assert.Error(t, err, tc.expectedErr)
-			} else {
-				assert.NilError(t, err)
-				tc.assert(path)
-			}
+			tc.assert(path, tc.expectedFiles)
 		})
 	}
 }
 
-func assertModule(t *testing.T, path string, module string) {
+func assertModule(t *testing.T, path string, module string, expectedFiles []string) {
 	info, err := os.Stat(path)
 	assert.NilError(t, err)
 	assert.Assert(t, info.IsDir())
@@ -128,11 +164,7 @@ func assertModule(t *testing.T, path string, module string) {
 	assert.Equal(t, *schemaModule, modfile.Dep{
 		Version: "v0.1.0",
 	})
-	declcdSystemFiles := []string{
-		"declcd/system.cue",
-		"declcd/crd.cue",
-	}
-	for _, file := range declcdSystemFiles {
+	for _, file := range expectedFiles {
 		_, err = os.Open(filepath.Join(path, file))
 		assert.NilError(t, err)
 

@@ -22,8 +22,10 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
+	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
@@ -51,22 +53,44 @@ func TestManager_Load(t *testing.T) {
 	defer goleak.VerifyNone(
 		t,
 	)
+
+	var err error
+	dnsServer, err := dnstest.NewDNSServer()
+	assertError(err)
+	defer dnsServer.Close()
+
+	registryPath, err := os.MkdirTemp("", "declcd-cue-registry*")
+	assertError(err)
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(registryPath)
+	assertError(err)
+	defer cueModuleRegistry.Close()
+
 	env := projecttest.StartProjectEnv(t,
 		projecttest.WithKubernetes(
 			kubetest.WithEnabled(false),
 		),
 	)
 	defer env.Stop()
-	helmtest.ReplaceTemplate(
-		env.TestProject,
-		env.GitRepository,
-		"oci://empty",
+	testProject := env.Projects[0]
+	err = helmtest.ReplaceTemplate(
+		helmtest.Template{
+			Name:                    "test",
+			TestProjectPath:         testProject.TargetPath,
+			RelativeReleaseFilePath: "infra/prometheus/releases.cue",
+			RepoURL:                 "oci://empty",
+		},
+		testProject.GitRepository,
 	)
+	assert.NilError(t, err)
+
 	logger := setUp()
-	root := env.TestProject
+	root := testProject.TargetPath
+
 	pm := project.NewManager(component.NewBuilder(), logger, runtime.GOMAXPROCS(0))
 	dag, err := pm.Load(root)
 	assert.NilError(t, err)
+
 	linkerd := dag.Get("linkerd___Namespace")
 	assert.Assert(t, linkerd != nil)
 	linkerdManifest, ok := linkerd.(*component.Manifest)
@@ -74,6 +98,7 @@ func TestManager_Load(t *testing.T) {
 	assert.Assert(t, linkerdManifest.Content.GetAPIVersion() == "v1")
 	assert.Assert(t, linkerdManifest.Content.GetKind() == "Namespace")
 	assert.Assert(t, linkerdManifest.Content.GetName() == "linkerd")
+
 	prometheus := dag.Get("prometheus___Namespace")
 	assert.Assert(t, prometheus != nil)
 	prometheusRelease := dag.Get("test_prometheus_HelmRelease")

@@ -19,6 +19,9 @@ import _ "embed"
 //go:embed system.cue
 var System string
 
+//go:embed primary.cue
+var Primary string
+
 //go:embed crd.cue
 var CRD string
 

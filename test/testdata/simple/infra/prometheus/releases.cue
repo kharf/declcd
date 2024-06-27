@@ -14,8 +14,8 @@ release: component.#HelmRelease & {
 	namespace: #namespace.metadata.name
 	chart: {
 		name:    "test"
-		repoURL: "{{.RepoUrl}}"
-		version: "{{.Version}}"
+		repoURL: "{{.RepoURL}}"
+		version: "1.0.0"
 	}
 	values: {
 		autoscaling: enabled: true
