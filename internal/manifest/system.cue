@@ -22,7 +22,7 @@ _{{.Shard}}Labels: {
 	}
 }
 
-_{{.Shard}}ClusteRoleBinding: component.#Manifest & {
+{{.Shard}}ClusteRoleBinding: component.#Manifest & {
 	dependencies: [
 		ns.id,
 		clusterRole.id,
