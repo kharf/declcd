@@ -32,7 +32,7 @@ clusterRole: component.#Manifest & {
 		apiVersion: "rbac.authorization.k8s.io/v1"
 		kind:       "ClusterRole"
 		metadata: {
-			name:   "{{.Name}}"
+			name:   "project-controller"
 			labels: _{{.Shard}}Labels
 		}
 		rules: [
@@ -64,33 +64,6 @@ clusterRole: component.#Manifest & {
 	}
 }
 
-clusteRoleBinding: component.#Manifest & {
-	dependencies: [
-		ns.id,
-		clusterRole.id,
-		{{.Shard}}ServiceAccount.id,
-	]
-	content: {
-		apiVersion: "rbac.authorization.k8s.io/v1"
-		kind:       "ClusterRoleBinding"
-		metadata: {
-			name:   "{{.Name}}"
-			labels: _{{.Shard}}Labels
-		}
-		roleRef: {
-			apiGroup: "rbac.authorization.k8s.io"
-			kind:     clusterRole.content.kind
-			name:     clusterRole.content.metadata.name
-		}
-		subjects: [
-			{
-				kind:      {{.Shard}}ServiceAccount.content.kind
-				name:      {{.Shard}}ServiceAccount.content.metadata.name
-				namespace: {{.Shard}}ServiceAccount.content.metadata.namespace
-			},
-		]
-	}
-}
 
 knownHostsCm: component.#Manifest & {
 	dependencies: [

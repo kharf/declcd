@@ -22,6 +22,34 @@ _{{.Shard}}Labels: {
 	}
 }
 
+_{{.Shard}}ClusteRoleBinding: component.#Manifest & {
+	dependencies: [
+		ns.id,
+		clusterRole.id,
+		{{.Shard}}ServiceAccount.id,
+	]
+	content: {
+		apiVersion: "rbac.authorization.k8s.io/v1"
+		kind:       "ClusterRoleBinding"
+		metadata: {
+			name:   "{{.Name}}"
+			labels: _{{.Shard}}Labels
+		}
+		roleRef: {
+			apiGroup: "rbac.authorization.k8s.io"
+			kind:     clusterRole.content.kind
+			name:     clusterRole.content.metadata.name
+		}
+		subjects: [
+			{
+				kind:      {{.Shard}}ServiceAccount.content.kind
+				name:      {{.Shard}}ServiceAccount.content.metadata.name
+				namespace: {{.Shard}}ServiceAccount.content.metadata.namespace
+			},
+		]
+	}
+}
+
 _{{.Shard}}LeaderRoleName: "{{.Shard}}-leader-election"
 {{.Shard}}LeaderRole: component.#Manifest & {
 	dependencies: [ns.id]
@@ -178,7 +206,6 @@ _{{.Shard}}LeaderRoleName: "{{.Shard}}-leader-election"
 								"/controller",
 							]
 							args: [
-								"--leader-elect",
 								"--log-level=0",
 							]
 							securityContext: {
