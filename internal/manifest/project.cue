@@ -4,7 +4,6 @@ import (
 	"github.com/kharf/declcd/schema/component"
 )
 
-
 {{.Name}}: component.#Manifest & {
 	dependencies: [
 		crd.id,

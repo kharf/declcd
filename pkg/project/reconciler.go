@@ -98,8 +98,6 @@ func (reconciler *Reconciler) Reconcile(
 	log = log.WithValues(
 		"project",
 		gProject.GetName(),
-		"namespace",
-		gProject.Namespace,
 		"repository",
 		gProject.Spec.URL,
 		"impersonated",
