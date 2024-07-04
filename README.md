@@ -3,7 +3,7 @@
 	<img src="./docs/declcd-light.png#gh-light-mode-only">
 	<img src="/docs/declcd.png#gh-dark-mode-only">
   <p align="center">
-		<strong>A Declarative Continuous Delivery Toolkit For Kubernetes</strong>
+		<strong>A Type Safe Declarative Continuous Delivery Toolkit For Kubernetes</strong>
   </p>
   <p>
 		<img src="https://img.shields.io/github/actions/workflow/status/kharf/declcd/test.yaml"/>
