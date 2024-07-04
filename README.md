@@ -16,7 +16,9 @@
 GitOps is a way of implementing Continuous Deployment for cloud native applications by having a Git repository that contains declarative descriptions of the desired infrastructure and applications and an automated process to reconcile the production environment with the desired state in the repository.
 
 ## Why Declcd?
-Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity. Declcd leverages [CUE](https://cuelang.org/), a configuration language with a more concise and expressive syntax, making it easier to define and maintain your desired cluster state.
+Traditional GitOps tools often rely on YAML for configuration, which can lead to verbosity and complexity.
+Declcd leverages [CUE](https://cuelang.org/), a type safe configuration language with a more concise and expressive syntax and the benefits of general-purpose programming languages,
+making it easier to define and maintain your desired cluster state.
 
 ![Overview](./docs/declcd-flow.png)
 
