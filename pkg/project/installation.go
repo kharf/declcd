@@ -66,26 +66,35 @@ func NewInstallAction(
 }
 
 func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error {
-	var projectBuf bytes.Buffer
-	projectTmpl, err := template.New("").Parse(manifest.Project)
-	if err != nil {
-		return err
-	}
-
-	if err := projectTmpl.Execute(&projectBuf, map[string]interface{}{
-		"Name":                opts.Name,
-		"Namespace":           ControllerNamespace,
-		"Branch":              opts.Branch,
-		"PullIntervalSeconds": opts.Interval,
-		"Shard":               opts.Shard,
-		"Url":                 opts.Url,
-	}); err != nil {
-		return err
-	}
-
 	declcdDir := filepath.Join(act.projectRoot, "declcd")
-	if err := os.WriteFile(filepath.Join(declcdDir, fmt.Sprintf("%s_project.cue", opts.Name)), projectBuf.Bytes(), 0666); err != nil {
+	projectFileName := filepath.Join(declcdDir, fmt.Sprintf("%s_project.cue", opts.Name))
+
+	_, err := os.Stat(projectFileName)
+	if err != nil && !os.IsNotExist(err) {
 		return err
+	}
+
+	if os.IsNotExist(err) {
+		var projectBuf bytes.Buffer
+		projectTmpl, err := template.New("").Parse(manifest.Project)
+		if err != nil {
+			return err
+		}
+
+		if err := projectTmpl.Execute(&projectBuf, map[string]interface{}{
+			"Name":                opts.Name,
+			"Namespace":           ControllerNamespace,
+			"Branch":              opts.Branch,
+			"PullIntervalSeconds": opts.Interval,
+			"Shard":               opts.Shard,
+			"Url":                 opts.Url,
+		}); err != nil {
+			return err
+		}
+
+		if err := os.WriteFile(projectFileName, projectBuf.Bytes(), 0666); err != nil {
+			return err
+		}
 	}
 
 	instances, err := act.componentBuilder.Build(
@@ -138,7 +147,7 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 		return err
 	}
 
-	if err := repoConfigurator.CreateDeployKeySecretIfNotExists(ctx, controllerName, opts.Name); err != nil {
+	if err := repoConfigurator.CreateDeployKeyIfNotExists(ctx, controllerName, opts.Name); err != nil {
 		return err
 	}
 
@@ -157,7 +166,6 @@ func (act InstallAction) installObject(
 	}
 
 	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
-		fmt.Println("installing ", unstr.GetName(), " in ", unstr.GetNamespace())
 		if k8sErrors.IsNotFound(err) {
 			time.Sleep(1 * time.Second)
 			return act.installObject(ctx, unstr, fieldManager)

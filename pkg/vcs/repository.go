@@ -257,7 +257,7 @@ func NewRepositoryConfigurator(
 	}, nil
 }
 
-func (config RepositoryConfigurator) CreateDeployKeySecretIfNotExists(
+func (config RepositoryConfigurator) CreateDeployKeyIfNotExists(
 	ctx context.Context,
 	fieldManager string,
 	projectName string,

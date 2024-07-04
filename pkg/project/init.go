@@ -84,48 +84,66 @@ func Init(
 		if err := os.MkdirAll(declcdDir, 0700); err != nil {
 			return err
 		}
-
 	}
 
 	if !isSecondary {
-		tmpl, err := template.New("").Parse(manifest.Primary)
+		primaryFile := filepath.Join(declcdDir, "primary.cue")
+
+		_, err = os.Stat(primaryFile)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+
+		if os.IsNotExist(err) {
+			tmpl, err := template.New("").Parse(manifest.Primary)
+			if err != nil {
+				return err
+			}
+
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, map[string]string{
+				"Name":  getControllerName(shard),
+				"Shard": shard,
+			}); err != nil {
+				return err
+			}
+
+			if err := os.WriteFile(primaryFile, buf.Bytes(), 0666); err != nil {
+				return err
+			}
+		}
+
+		crdFile := filepath.Join(declcdDir, "crd.cue")
+
+		if err := os.WriteFile(crdFile, []byte(manifest.CRD), 0666); err != nil {
+			return err
+		}
+	}
+
+	shardSystemFile := filepath.Join(declcdDir, fmt.Sprintf("%s_system.cue", shard))
+	_, err = os.Stat(shardSystemFile)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	if os.IsNotExist(err) {
+		tmpl, err := template.New("").Parse(manifest.System)
 		if err != nil {
 			return err
 		}
 
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, map[string]string{
-			"Name":  getControllerName(shard),
-			"Shard": shard,
+			"Name":    getControllerName(shard),
+			"Shard":   shard,
+			"Version": version,
 		}); err != nil {
 			return err
 		}
 
-		if err := os.WriteFile(filepath.Join(declcdDir, "primary.cue"), buf.Bytes(), 0666); err != nil {
+		if err := os.WriteFile(shardSystemFile, buf.Bytes(), 0666); err != nil {
 			return err
 		}
-
-		if err := os.WriteFile(filepath.Join(declcdDir, "crd.cue"), []byte(manifest.CRD), 0666); err != nil {
-			return err
-		}
-	}
-
-	tmpl, err := template.New("").Parse(manifest.System)
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]string{
-		"Name":    getControllerName(shard),
-		"Shard":   shard,
-		"Version": version,
-	}); err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(filepath.Join(declcdDir, fmt.Sprintf("%s_system.cue", shard)), buf.Bytes(), 0666); err != nil {
-		return err
 	}
 
 	return nil

@@ -90,7 +90,7 @@ func TestInit(t *testing.T) {
 			},
 		},
 		{
-			name: "Exists",
+			name: "ModuleExists",
 			run: func() string {
 				path, err := os.MkdirTemp("", "")
 				assert.NilError(t, err)
@@ -129,6 +129,74 @@ func TestInit(t *testing.T) {
 			},
 			assert: func(path string, expectedFiles []string) {
 				assertModule(t, path, "mymodule@v0", expectedFiles)
+			},
+		},
+		{
+			name: "PrimaryFileExists",
+			run: func() string {
+				path, err := os.MkdirTemp("", "")
+				assert.NilError(t, err)
+				declcdDir := filepath.Join(path, "declcd")
+				err = os.MkdirAll(declcdDir, 0755)
+				assert.NilError(t, err)
+				content := []byte("hello")
+				err = os.WriteFile(filepath.Join(declcdDir, "primary.cue"), content, 0666)
+				assert.NilError(t, err)
+				err = project.Init(
+					"github.com/kharf/declcd/init",
+					"primary",
+					false,
+					path,
+					"0.1.0",
+				)
+				assert.NilError(t, err)
+				return path
+			},
+			expectedFiles: []string{
+				"declcd/primary.cue",
+				"declcd/primary_system.cue",
+				"declcd/crd.cue",
+			},
+			assert: func(path string, expectedFiles []string) {
+				assertModule(t, path, "github.com/kharf/declcd/init", expectedFiles)
+				declcdDir := filepath.Join(path, "declcd")
+				content, err := os.ReadFile(filepath.Join(declcdDir, "primary.cue"))
+				assert.NilError(t, err)
+				assert.Equal(t, string(content), "hello")
+			},
+		},
+		{
+			name: "PrimarySystemFileExists",
+			run: func() string {
+				path, err := os.MkdirTemp("", "")
+				assert.NilError(t, err)
+				declcdDir := filepath.Join(path, "declcd")
+				err = os.MkdirAll(declcdDir, 0755)
+				assert.NilError(t, err)
+				content := []byte("hello")
+				err = os.WriteFile(filepath.Join(declcdDir, "primary_system.cue"), content, 0666)
+				assert.NilError(t, err)
+				err = project.Init(
+					"github.com/kharf/declcd/init",
+					"primary",
+					false,
+					path,
+					"0.1.0",
+				)
+				assert.NilError(t, err)
+				return path
+			},
+			expectedFiles: []string{
+				"declcd/primary.cue",
+				"declcd/primary_system.cue",
+				"declcd/crd.cue",
+			},
+			assert: func(path string, expectedFiles []string) {
+				assertModule(t, path, "github.com/kharf/declcd/init", expectedFiles)
+				declcdDir := filepath.Join(path, "declcd")
+				content, err := os.ReadFile(filepath.Join(declcdDir, "primary_system.cue"))
+				assert.NilError(t, err)
+				assert.Equal(t, string(content), "hello")
 			},
 		},
 	}

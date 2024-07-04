@@ -138,10 +138,10 @@ func TestInstallAction_Install(t *testing.T) {
 			},
 		},
 		{
-			name: "Idempotence",
+			name: "RunTwice",
 			project: testProject{
-				name:        "idempotence",
-				shard:       "idempotence",
+				name:        "runtwice",
+				shard:       "runtwice",
 				isSecondary: false,
 			},
 			assertion: func(env projecttest.Environment, testProject testProject) {

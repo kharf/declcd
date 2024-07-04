@@ -239,7 +239,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager", "existing")
+				err = configurator.CreateDeployKeyIfNotExists(env.Ctx, "manager", "existing")
 				assert.NilError(t, err)
 				var sec2 corev1.Secret
 				err = env.TestKubeClient.Get(
@@ -281,7 +281,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeySecretIfNotExists(env.Ctx, "manager", projectName)
+				err = configurator.CreateDeployKeyIfNotExists(env.Ctx, "manager", projectName)
 				assert.NilError(t, err)
 
 				var sec corev1.Secret
