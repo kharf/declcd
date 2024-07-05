@@ -76,6 +76,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 		BeforeEach(func() {
 			env = projecttest.StartProjectEnv(test,
 				projecttest.WithKubernetes(),
+				projecttest.WithProjectSource("simple"),
 			)
 			var err error
 

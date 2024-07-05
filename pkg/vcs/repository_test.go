@@ -42,6 +42,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 			name: "Clone",
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
+					projecttest.WithProjectSource("simple"),
 					projecttest.WithKubernetes(
 						kubetest.WithVCSAuthSecretFor("clone"),
 					),
@@ -64,6 +65,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 			name: "Open",
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
 				env := projecttest.StartProjectEnv(t,
+					projecttest.WithProjectSource("simple"),
 					projecttest.WithKubernetes(
 						kubetest.WithVCSAuthSecretFor("open"),
 					),
@@ -90,7 +92,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 		{
 			name: "SecretMissing",
 			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
-				env := projecttest.StartProjectEnv(t)
+				env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("simple"))
 				defer env.Stop()
 				repository, err := env.RepositoryManager.Load(
 					env.Ctx,

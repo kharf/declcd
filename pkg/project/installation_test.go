@@ -192,7 +192,7 @@ func TestInstallAction_Install(t *testing.T) {
 			)
 			defer server.Close()
 
-			env := projecttest.StartProjectEnv(t)
+			env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("simple"))
 			defer env.Stop()
 
 			ctx := context.Background()

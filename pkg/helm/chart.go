@@ -249,7 +249,7 @@ func (c *ChartReconciler) installOrUpgrade(
 		return nil, err
 	}
 
-	if drift.driftType == driftTypeNone {
+	if drift.driftType == none {
 		log.Info("No changes")
 		latestInternalRelease := releases[len(releases)-1]
 		return &Release{
@@ -257,6 +257,7 @@ func (c *ChartReconciler) installOrUpgrade(
 			Namespace: latestInternalRelease.Namespace,
 			Chart:     desiredRelease.Chart,
 			Values:    desiredRelease.Values,
+			CRDs:      desiredRelease.CRDs,
 			Version:   latestInternalRelease.Version,
 		}, nil
 	}
@@ -268,11 +269,26 @@ func (c *ChartReconciler) installOrUpgrade(
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.MaxHistory = 5
-	if drift.driftType == driftTypeConflict {
+	if drift.driftType == conflict {
 		upgrade.Force = true
 	}
 
 	log.Info("Upgrading release")
+
+	// CRDs are always only upgraded, never deleted
+	if desiredRelease.CRDs.AllowUpgrade {
+		for _, crd := range chrt.CRDObjects() {
+			decoder := yaml.NewDecoder(bytes.NewBuffer(crd.File.Data))
+			manifest, err := decodeManifest(decoder)
+			if err != nil {
+				return nil, err
+			}
+
+			if err := c.Client.Apply(ctx, manifest, c.FieldManager, kube.Force(true)); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	release, err := upgrade.Run(desiredRelease.Name, chrt, desiredRelease.Values)
 	if err != nil {
@@ -284,6 +300,7 @@ func (c *ChartReconciler) installOrUpgrade(
 		Namespace: release.Namespace,
 		Chart:     desiredRelease.Chart,
 		Values:    desiredRelease.Values,
+		CRDs:      desiredRelease.CRDs,
 		Version:   release.Version,
 	}, nil
 }
@@ -297,10 +314,10 @@ type drift struct {
 type driftType string
 
 const (
-	driftTypeConflict driftType = "conflict"
-	driftTypeDeleted  driftType = "deleted"
-	driftTypeUpdate   driftType = "update"
-	driftTypeNone     driftType = "none"
+	conflict driftType = "conflict"
+	deleted            = "deleted"
+	update             = "update"
+	none               = "none"
 )
 
 func (c *ChartReconciler) diff(
@@ -331,62 +348,47 @@ func (c *ChartReconciler) diff(
 		}
 
 		return &drift{
-			driftType: driftTypeUpdate,
+			driftType: update,
 			cause:     err,
 		}, nil
 	}
 
-	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
-	for {
-		var unstr map[string]interface{}
-		if err := decoder.Decode(&unstr); err != nil {
+	crds := loadedChart.CRDObjects()
+	for _, crd := range crds {
+		decoder := yaml.NewDecoder(bytes.NewBuffer(crd.File.Data))
+		drift, err := c.diffManifest(
+			ctx,
+			decoder,
+			releaseDeclaration.Namespace,
+		)
+		if err != nil {
 			if err == io.EOF {
 				break
 			}
 			return nil, err
 		}
-		if len(unstr) == 0 {
-			continue
-		}
 
-		newManifest := &unstructured.Unstructured{Object: unstr}
-		// manifests with no namespace are set to the release namespace on installation/upgrade.
-		// Kube client checks whether the manifest is namespaced or not,
-		// so we dont care if we set it on non namespaced manifests.
-		if newManifest.GetNamespace() == "" {
-			newManifest.SetNamespace(releaseDeclaration.Namespace)
+		if drift.driftType != none {
+			return drift, nil
 		}
+	}
 
-		obj, err := c.Client.Get(ctx, newManifest)
+	decoder := yaml.NewDecoder(bytes.NewBufferString(release.Manifest))
+	for {
+		drift, err := c.diffManifest(
+			ctx,
+			decoder,
+			releaseDeclaration.Namespace,
+		)
 		if err != nil {
-			switch k8sErrors.ReasonForError(err) {
-			case v1.StatusReasonNotFound:
-				return &drift{
-					driftType:        driftTypeDeleted,
-					affectedManifest: newManifest,
-					cause:            err,
-				}, nil
+			if err == io.EOF {
+				break
 			}
 			return nil, err
 		}
-		if obj == nil {
-			return &drift{
-				driftType:        driftTypeDeleted,
-				affectedManifest: newManifest,
-			}, nil
-		}
 
-		if err := c.Client.Apply(ctx, newManifest, c.FieldManager, kube.DryRun(true)); err != nil {
-			switch k8sErrors.ReasonForError(err) {
-			case v1.StatusReasonUnknown:
-				return nil, err
-			}
-
-			return &drift{
-				driftType:        driftTypeConflict,
-				affectedManifest: newManifest,
-				cause:            err,
-			}, nil
+		if drift.driftType != none {
+			return drift, nil
 		}
 	}
 
@@ -400,7 +402,7 @@ func (c *ChartReconciler) diff(
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return &drift{
-				driftType: driftTypeDeleted,
+				driftType: deleted,
 				cause:     err,
 			}, nil
 		}
@@ -420,13 +422,87 @@ func (c *ChartReconciler) diff(
 		Values:    storedRelease.Values,
 	}); isEqual {
 		return &drift{
-			driftType: driftTypeNone,
+			driftType: none,
 		}, nil
 	}
 
 	return &drift{
-		driftType: driftTypeUpdate,
+		driftType: update,
 	}, nil
+}
+
+func (c *ChartReconciler) diffManifest(
+	ctx context.Context,
+	decoder *yaml.Decoder,
+	namespace string,
+) (*drift, error) {
+	newManifest, err := decodeManifest(decoder)
+	if err != nil {
+		if err == ErrNoManifest {
+			return &drift{
+				driftType: none,
+			}, nil
+		}
+		return nil, err
+	}
+
+	// manifests with no namespace are set to the release namespace on installation/upgrade.
+	// Kube client checks whether the manifest is namespaced or not,
+	// so we dont care if we set it on non namespaced manifests.
+	if newManifest.GetNamespace() == "" {
+		newManifest.SetNamespace(namespace)
+	}
+
+	obj, err := c.Client.Get(ctx, newManifest)
+	if err != nil {
+		switch k8sErrors.ReasonForError(err) {
+		case v1.StatusReasonNotFound:
+			return &drift{
+				driftType:        deleted,
+				affectedManifest: newManifest,
+				cause:            err,
+			}, nil
+		}
+		return nil, err
+	}
+	if obj == nil {
+		return &drift{
+			driftType:        deleted,
+			affectedManifest: newManifest,
+		}, nil
+	}
+
+	if err := c.Client.Apply(ctx, newManifest, c.FieldManager, kube.DryRun(true)); err != nil {
+		switch k8sErrors.ReasonForError(err) {
+		case v1.StatusReasonUnknown:
+			return nil, err
+		}
+
+		return &drift{
+			driftType:        conflict,
+			affectedManifest: newManifest,
+			cause:            err,
+		}, nil
+	}
+
+	return &drift{
+		driftType: none,
+	}, nil
+}
+
+var ErrNoManifest = errors.New("Object is no Kubernetes Object")
+
+func decodeManifest(decoder *yaml.Decoder) (*unstructured.Unstructured, error) {
+	var unstr map[string]interface{}
+	if err := decoder.Decode(&unstr); err != nil {
+		return nil, err
+	}
+	if len(unstr) == 0 {
+		return nil, ErrNoManifest
+	}
+
+	newManifest := &unstructured.Unstructured{Object: unstr}
+	return newManifest, nil
 }
 
 func logDrift(
@@ -489,6 +565,7 @@ func (c *ChartReconciler) install(
 		Namespace: release.Namespace,
 		Chart:     desiredRelease.Chart,
 		Values:    desiredRelease.Values,
+		CRDs:      desiredRelease.CRDs,
 		Version:   release.Version,
 	}, nil
 }

@@ -233,6 +233,11 @@ func NewHelmEnvironment(opts ...Option) (*Environment, error) {
 		return nil, err
 	}
 
+	v3Archive, err := createChartArchive("testv3", "3.0.0")
+	if err != nil {
+		return nil, err
+	}
+
 	var chartServer Server
 	if options.oci {
 		var err error
@@ -316,6 +321,14 @@ func NewHelmEnvironment(opts ...Option) (*Environment, error) {
 								},
 								URLs: []string{chartServer.URL() + "/test-2.0.0.tgz"},
 							},
+							&repo.ChartVersion{
+								Metadata: &chart.Metadata{
+									APIVersion: "v1",
+									Version:    "3.0.0",
+									Name:       "test",
+								},
+								URLs: []string{chartServer.URL() + "/test-3.0.0.tgz"},
+							},
 						},
 					},
 				}
@@ -333,8 +346,11 @@ func NewHelmEnvironment(opts ...Option) (*Environment, error) {
 				return
 			}
 			archive := v1Archive
-			if strings.Contains(r.URL.Path, "2.0.0") {
+			switch {
+			case strings.Contains(r.URL.Path, "2.0.0"):
 				archive = v2Archive
+			case strings.Contains(r.URL.Path, "3.0.0"):
+				archive = v3Archive
 			}
 
 			w.Header().Set("Content-Type", "application/gzip")

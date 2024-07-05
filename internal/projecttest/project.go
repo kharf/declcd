@@ -94,9 +94,6 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 	for _, o := range opts {
 		o.Apply(&options)
 	}
-	if len(options.projectSources) == 0 {
-		options.projectSources = []string{"simple"}
-	}
 
 	logOpts := ctrlZap.Options{
 		Development: false,

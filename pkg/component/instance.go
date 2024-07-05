@@ -36,6 +36,7 @@ type internalInstance struct {
 	Content      map[string]interface{} `json:"content"`
 	Name         string                 `json:"name"`
 	Namespace    string                 `json:"namespace"`
+	CRDs         helm.CRDs              `json:"crds"`
 	Chart        helm.Chart             `json:"chart"`
 	Values       map[string]interface{} `json:"values"`
 }

@@ -67,6 +67,7 @@ func TestManager_Load(t *testing.T) {
 	defer cueModuleRegistry.Close()
 
 	env := projecttest.StartProjectEnv(t,
+		projecttest.WithProjectSource("simple"),
 		projecttest.WithKubernetes(
 			kubetest.WithEnabled(false),
 		),

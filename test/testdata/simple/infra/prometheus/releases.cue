@@ -17,6 +17,9 @@ release: component.#HelmRelease & {
 		repoURL: "{{.RepoURL}}"
 		version: "1.0.0"
 	}
+	crds: {
+		allowUpgrade: true
+	}
 	values: {
 		autoscaling: enabled: true
 	}

@@ -16,11 +16,11 @@ package helm_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-	"text/template"
 
 	_ "github.com/kharf/declcd/test/workingdir"
 	"helm.sh/helm/v3/pkg/action"
@@ -68,15 +68,49 @@ func assertError(err error) {
 	}
 }
 
-type assertFunc func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName string, namespace string)
+type assertFunc func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName string, namespace string)
 
 func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
-	return func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 		assert.NilError(t, reconcileErr)
 		assertChartv1(t, env, liveName, namespace)
 		assert.Equal(t, actualRelease.Version, 1)
 		assert.Equal(t, actualRelease.Name, release.Name)
 		assert.Equal(t, actualRelease.Namespace, release.Namespace)
+
+		contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+		})
+		defer contentReader.Close()
+
+		storedRelease := helm.Release{}
+		err = json.NewDecoder(contentReader).Decode(&storedRelease)
+		assert.NilError(t, err)
+		assert.DeepEqual(t, storedRelease, release)
+	}
+}
+
+func defaultV2AssertionFunc(release ReleaseDeclaration) assertFunc {
+	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+		assert.NilError(t, reconcileErr)
+		assertChartv2(t, env, liveName, namespace)
+		assert.Equal(t, actualRelease.Version, 1)
+		assert.Equal(t, actualRelease.Name, release.Name)
+		assert.Equal(t, actualRelease.Namespace, release.Namespace)
+
+		contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+		})
+		defer contentReader.Close()
+
+		storedRelease := helm.Release{}
+		err = json.NewDecoder(contentReader).Decode(&storedRelease)
+		assert.NilError(t, err)
+		assert.DeepEqual(t, storedRelease, release)
 	}
 }
 
@@ -152,6 +186,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{
 						"autoscaling": map[string]interface{}{
 							"enabled": true,
@@ -192,13 +227,14 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Namespace: "default",
 						},
 					},
+					false,
 					Values{},
 				)
 
 				return testCaseContext{
 					releaseDeclaration: release,
 					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 						assert.Error(t, reconcileErr, "secrets \"repauth\" not found")
 					},
 				}
@@ -216,13 +252,14 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					&Auth{
 						SecretRef: nil,
 					},
+					false,
 					Values{},
 				)
 
 				return testCaseContext{
 					releaseDeclaration: release,
 					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 						assert.ErrorIs(t, reconcileErr, helm.ErrAuthSecretValueNotFound)
 					},
 				}
@@ -243,6 +280,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Namespace: "default",
 						},
 					},
+					false,
 					Values{},
 				)
 
@@ -264,6 +302,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicOciHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -289,6 +328,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Namespace: "default",
 						},
 					},
+					false,
 					Values{},
 				)
 
@@ -296,7 +336,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					releaseDeclaration: release,
 					createAuthSecret:   false,
 					chartServer:        privateHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 						assert.Error(t, reconcileErr, "secrets \"regauth\" not found")
 					},
 				}
@@ -317,6 +357,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Namespace: "default",
 						},
 					},
+					false,
 					Values{},
 				)
 
@@ -340,13 +381,14 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					&Auth{
 						SecretRef: nil,
 					},
+					false,
 					Values{},
 				)
 
 				return testCaseContext{
 					releaseDeclaration: release,
 					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 						assert.ErrorIs(t, reconcileErr, helm.ErrAuthSecretValueNotFound)
 					},
 				}
@@ -366,6 +408,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Provider: string(cloud.GCP),
 						},
 					},
+					false,
 					Values{},
 				)
 
@@ -390,6 +433,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Provider: string(cloud.AWS),
 						},
 					},
+					false,
 					Values{},
 				)
 
@@ -414,6 +458,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 							Provider: string(cloud.Azure),
 						},
 					},
+					false,
 					Values{},
 				)
 
@@ -434,6 +479,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -460,6 +506,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					flakyHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -519,6 +566,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -529,51 +577,108 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				}
 			},
 			postRun: func(context testCaseContext) {
-				testProject := context.environment.Projects[0]
-				releasesFilePath := filepath.Join(
-					testProject.TargetPath,
-					"infra",
-					"prometheus",
-					"releases.cue",
-				)
-				releasesContent, err := os.ReadFile(releasesFilePath)
-				assert.NilError(t, err)
-
-				tmpl, err := template.New("releases").Parse(string(releasesContent))
-				assert.NilError(t, err)
-
-				releasesFile, err := os.Create(
-					filepath.Join(
-						testProject.TargetPath,
-						"infra",
-						"prometheus",
-						"releases.cue",
-					),
-				)
-				assert.NilError(t, err)
-				defer releasesFile.Close()
-
-				err = tmpl.Execute(releasesFile, struct {
-					Name    string
-					RepoUrl string
-					Version string
-				}{
-					Name:    "test",
-					RepoUrl: context.chartServer.URL(),
-					Version: "2.0.0",
-				})
-				assert.NilError(t, err)
-
-				_, err = testProject.GitRepository.CommitFile(
-					"infra/prometheus/releases.cue",
-					"update chart to v2",
-				)
-				assert.NilError(t, err)
-
 				chart := Chart{
 					Name:    "test",
 					RepoURL: context.chartServer.URL(),
 					Version: "2.0.0",
+				}
+
+				context.releaseDeclaration.Chart = chart
+				actualRelease, err := context.chartReconciler.Reconcile(
+					context.environment.Ctx,
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
+				)
+				assert.NilError(t, err)
+
+				assertChartv2(
+					t,
+					context.environment.Environment,
+					actualRelease.Name,
+					actualRelease.Namespace,
+				)
+				assert.Equal(t, actualRelease.Version, 2)
+			},
+		},
+		{
+			name: "Upgrade-CRDs",
+			setup: func() testCaseContext {
+				release := createReleaseDeclaration(
+					"default",
+					publicHelmEnvironment.ChartServer.URL(),
+					"2.0.0",
+					nil,
+					true,
+					Values{},
+				)
+
+				return testCaseContext{
+					releaseDeclaration: release,
+					chartServer:        publicHelmEnvironment.ChartServer,
+					assertFunc:         defaultV2AssertionFunc(release),
+				}
+			},
+			postRun: func(context testCaseContext) {
+				chart := Chart{
+					Name:    "test",
+					RepoURL: context.chartServer.URL(),
+					Version: "3.0.0",
+				}
+
+				context.releaseDeclaration.Chart = chart
+				actualRelease, err := context.chartReconciler.Reconcile(
+					context.environment.Ctx,
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
+				)
+				assert.NilError(t, err)
+
+				assertChartv3(
+					t,
+					context.environment.Environment,
+					actualRelease.Name,
+					actualRelease.Namespace,
+				)
+				assert.Equal(t, actualRelease.Version, 2)
+			},
+		},
+		{
+			name: "No-Allowance-To-Upgrade-CRDs",
+			setup: func() testCaseContext {
+				release := createReleaseDeclaration(
+					"default",
+					publicHelmEnvironment.ChartServer.URL(),
+					"2.0.0",
+					nil,
+					false,
+					Values{},
+				)
+
+				return testCaseContext{
+					releaseDeclaration: release,
+					chartServer:        publicHelmEnvironment.ChartServer,
+					assertFunc:         defaultV2AssertionFunc(release),
+				}
+			},
+			postRun: func(context testCaseContext) {
+				chart := Chart{
+					Name:    "test",
+					RepoURL: context.chartServer.URL(),
+					Version: "3.0.0",
 				}
 
 				context.releaseDeclaration.Chart = chart
@@ -608,6 +713,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -649,6 +755,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -712,6 +819,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -766,6 +874,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
+					false,
 					Values{},
 				)
 
@@ -823,7 +932,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				context.environment = &env
 			}
 
-			inventoryInstance := &inventory.Instance{
+			inventoryInstance := inventory.Instance{
 				Path: filepath.Join(context.environment.TestRoot, "inventory"),
 			}
 
@@ -841,27 +950,27 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			defer Remove(context.releaseDeclaration.Chart)
 			assert.NilError(t, err)
 
-			testProject := context.environment.Projects[0]
-			err = helmtest.ReplaceTemplate(
-				helmtest.Template{
-					Name:                    "test",
-					TestProjectPath:         testProject.TargetPath,
-					RelativeReleaseFilePath: "infra/prometheus/releases.cue",
-					RepoURL:                 context.chartServer.URL(),
-				},
-				testProject.GitRepository,
-			)
-			assert.NilError(t, err)
-
 			chartReconciler := helm.ChartReconciler{
 				Log:                   context.environment.Log,
 				KubeConfig:            context.environment.ControlPlane.Config,
 				Client:                context.environment.DynamicTestKubeClient,
 				FieldManager:          "controller",
-				InventoryInstance:     inventoryInstance,
+				InventoryInstance:     &inventoryInstance,
 				InsecureSkipTLSverify: true,
 			}
 			context.chartReconciler = chartReconciler
+
+			ns := &unstructured.Unstructured{}
+			ns.SetAPIVersion("v1")
+			ns.SetKind("Namespace")
+			ns.SetName(context.releaseDeclaration.Namespace)
+
+			err = context.environment.DynamicTestKubeClient.Apply(
+				context.environment.Ctx,
+				ns,
+				"controller",
+			)
+			assert.NilError(t, err)
 
 			release, err := chartReconciler.Reconcile(
 				context.environment.Ctx,
@@ -879,6 +988,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			context.assertFunc(
 				t,
 				context.environment.Environment,
+				inventoryInstance,
 				err,
 				release,
 				context.releaseDeclaration.Name,
@@ -923,11 +1033,15 @@ func createReleaseDeclaration(
 	url string,
 	version string,
 	auth *Auth,
+	allowUpgrade bool,
 	values Values,
 ) ReleaseDeclaration {
 	release := helm.ReleaseDeclaration{
 		Name:      "test",
 		Namespace: namespace,
+		CRDs: CRDs{
+			AllowUpgrade: allowUpgrade,
+		},
 		Chart: Chart{
 			Name:    "test",
 			RepoURL: url,
@@ -950,6 +1064,7 @@ func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, nam
 	assert.NilError(t, err)
 	assert.Equal(t, deployment.Name, liveName)
 	assert.Equal(t, deployment.Namespace, namespace)
+
 	var svc corev1.Service
 	err = env.TestKubeClient.Get(
 		ctx,
@@ -959,6 +1074,7 @@ func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, nam
 	assert.NilError(t, err)
 	assert.Equal(t, svc.Name, liveName)
 	assert.Equal(t, svc.Namespace, namespace)
+
 	var svcAcc corev1.ServiceAccount
 	err = env.TestKubeClient.Get(
 		ctx,
@@ -968,6 +1084,34 @@ func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, nam
 	assert.NilError(t, err)
 	assert.Equal(t, svcAcc.Name, liveName)
 	assert.Equal(t, svcAcc.Namespace, namespace)
+	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient)
+}
+
+func assertCRDNoChanges(t *testing.T, ctx context.Context, dynamicClient *kube.DynamicClient) {
+	crontabCRD := &unstructured.Unstructured{}
+	crontabCRDName := "crontabs.stable.example.com"
+	crontabCRD.SetName(crontabCRDName)
+	crontabCRD.SetAPIVersion("apiextensions.k8s.io/v1")
+	crontabCRD.SetKind("CustomResourceDefinition")
+	crontabCRD, err := dynamicClient.Get(ctx, crontabCRD)
+	assert.NilError(t, err)
+
+	replicas, _ := getReplicas(crontabCRD)
+	propType, _ := replicas["type"].(string)
+	assert.Equal(t, propType, "integer")
+}
+
+func getReplicas(crontabCRD *unstructured.Unstructured) (map[string]interface{}, bool) {
+	spec, _ := crontabCRD.Object["spec"].(map[string]interface{})
+	versions, _ := spec["versions"].([]interface{})
+	version, _ := versions[0].(map[string]interface{})
+	schema, _ := version["schema"].(map[string]interface{})
+	openAPISchema, _ := schema["openAPIV3Schema"].(map[string]interface{})
+	properties, _ := openAPISchema["properties"].(map[string]interface{})
+	propSpec, _ := properties["spec"].(map[string]interface{})
+	specProperties, _ := propSpec["properties"].(map[string]interface{})
+	replicas, ok := specProperties["replicas"].(map[string]interface{})
+	return replicas, ok
 }
 
 func assertChartv2(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
@@ -1004,4 +1148,55 @@ func assertChartv2(t *testing.T, env *kubetest.Environment, liveName string, nam
 		&svcAcc,
 	)
 	assert.Error(t, err, "serviceaccounts \"test\" not found")
+	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient)
+}
+
+func assertChartv3(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
+	ctx := context.Background()
+	var deployment appsv1.Deployment
+	err := env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&deployment,
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, deployment.Name, liveName)
+	assert.Equal(t, deployment.Namespace, namespace)
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&hpa,
+	)
+	assert.Error(t, err, "horizontalpodautoscalers.autoscaling \"test\" not found")
+	var svc corev1.Service
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svc,
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, svc.Name, liveName)
+	assert.Equal(t, svc.Namespace, namespace)
+	var svcAcc corev1.ServiceAccount
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svcAcc,
+	)
+	assert.Error(t, err, "serviceaccounts \"test\" not found")
+	assertCRDChartv3(t, ctx, env.DynamicTestKubeClient)
+}
+
+func assertCRDChartv3(t *testing.T, ctx context.Context, dynamicClient *kube.DynamicClient) {
+	crontabCRD := &unstructured.Unstructured{}
+	crontabCRDName := "crontabs.stable.example.com"
+	crontabCRD.SetName(crontabCRDName)
+	crontabCRD.SetAPIVersion("apiextensions.k8s.io/v1")
+	crontabCRD.SetKind("CustomResourceDefinition")
+	crontabCRD, err := dynamicClient.Get(ctx, crontabCRD)
+	assert.NilError(t, err)
+
+	_, ok := getReplicas(crontabCRD)
+	assert.Assert(t, !ok)
 }
