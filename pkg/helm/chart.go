@@ -601,7 +601,7 @@ func (c *ChartReconciler) load(
 	if err != nil {
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
-			log.Info("Pulling chart")
+			log.V(1).Info("Pulling chart")
 			if err := c.pull(ctx, chartRequest, archivePath.dir); err != nil {
 				return nil, err
 			}
