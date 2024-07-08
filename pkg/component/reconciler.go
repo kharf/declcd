@@ -43,7 +43,7 @@ func (reconciler *Reconciler) Reconcile(
 ) error {
 	switch componentInstance := instance.(type) {
 	case *Manifest:
-		reconciler.Log.Info(
+		reconciler.Log.V(1).Info(
 			"Applying manifest",
 			"namespace",
 			componentInstance.Content.GetNamespace(),

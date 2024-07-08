@@ -212,7 +212,7 @@ func (c *ChartReconciler) installOrUpgrade(
 
 	log := ctx.Value(logKey{}).(*logr.Logger)
 
-	log.Info("Loading chart")
+	log.V(1).Info("Loading chart")
 
 	helmConfig := ctx.Value(configKey{}).(*action.Configuration)
 	chrt, err := c.load(ctx, desiredRelease.Chart)
@@ -250,7 +250,7 @@ func (c *ChartReconciler) installOrUpgrade(
 	}
 
 	if drift.driftType == none {
-		log.Info("No changes")
+		log.V(1).Info("No changes")
 		latestInternalRelease := releases[len(releases)-1]
 		return &Release{
 			Name:      latestInternalRelease.Name,
@@ -553,7 +553,7 @@ func (c *ChartReconciler) install(
 	install.CreateNamespace = true
 	install.Namespace = desiredRelease.Namespace
 
-	log.Info("Installing chart")
+	log.V(1).Info("Installing chart")
 
 	release, err := install.Run(loadedChart, desiredRelease.Values)
 	if err != nil {
