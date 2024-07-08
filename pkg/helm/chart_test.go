@@ -713,7 +713,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					publicHelmEnvironment.ChartServer.URL(),
 					"1.0.0",
 					nil,
-					false,
+					true,
 					Values{},
 				)
 

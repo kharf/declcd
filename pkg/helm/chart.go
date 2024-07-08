@@ -419,6 +419,7 @@ func (c *ChartReconciler) diff(
 		Name:      storedRelease.Name,
 		Namespace: storedRelease.Namespace,
 		Chart:     storedRelease.Chart,
+		CRDs:      storedRelease.CRDs,
 		Values:    storedRelease.Values,
 	}); isEqual {
 		return &drift{
