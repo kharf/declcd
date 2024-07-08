@@ -30,7 +30,10 @@ func (hr *ReleaseComponent) GetDependencies() []string {
 	return hr.Dependencies
 }
 
+type Release = ReleaseDeclaration
+
 // ReleaseDeclaration is a Declaration of the desired state (Release) in a Git repository.
+// A Helm Release is a running instance of a Chart and the current state in a Kubernetes Cluster.
 type ReleaseDeclaration struct {
 	// Name influences the name of the installed objects of a Helm Chart.
 	// When set, the installed objects are suffixed with the chart name.
@@ -41,19 +44,21 @@ type ReleaseDeclaration struct {
 	Namespace string `json:"namespace"`
 	Chart     Chart  `json:"chart"`
 	Values    Values `json:"values"`
+
+	// Helm CRD handling configuration.
+	CRDs CRDs `json:"crds"`
+
+	// Version is an int which represents the revision of the release.
+	// Not declared by users.
+	Version int `json:"-"`
+}
+
+// Helm CRD handling configuration.
+type CRDs struct {
+	// Helm only supports installation by default.
+	// This option extends Helm to allow Declcd to upgrade CRDs packaged with a Chart.
+	AllowUpgrade bool `json:"allowUpgrade"`
 }
 
 // Values provide a way to override Helm Chart template defaults with custom information.
 type Values map[string]interface{}
-
-// Release is a running instance of a Chart and the current state in a Kubernetes Cluster.
-type Release struct {
-	// Name of the installed objects of a Helm Chart.
-	Name string `json:"name"`
-	// Namespaces specifies the Kubernetes namespace where the Helm Chart is installed to.
-	Namespace string `json:"namespace"`
-	Chart     Chart  `json:"chart"`
-	Values    Values `json:"values"`
-	// Version is an int which represents the revision of the release.
-	Version int `json:"-"`
-}

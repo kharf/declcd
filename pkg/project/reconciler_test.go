@@ -16,6 +16,7 @@ package project_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ import (
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
@@ -153,6 +155,31 @@ func TestReconciler_Reconcile(t *testing.T) {
 				}
 				assert.Assert(t, inventoryStorage.HasItem(testHR))
 
+				contentReader, err := tcContext.inventoryInstance.GetItem(testHR)
+				defer contentReader.Close()
+
+				storedRelease := helm.Release{}
+				err = json.NewDecoder(contentReader).Decode(&storedRelease)
+				assert.NilError(t, err)
+				assert.DeepEqual(t, storedRelease, helm.Release{
+					Name:      testHR.Name,
+					Namespace: testHR.Namespace,
+					CRDs: helm.CRDs{
+						AllowUpgrade: true,
+					},
+					Chart: helm.Chart{
+						Name:    "test",
+						RepoURL: publicHelmEnvironment.ChartServer.URL(),
+						Version: "1.0.0",
+						Auth:    nil,
+					},
+					Values: helm.Values{
+						"autoscaling": map[string]interface{}{
+							"enabled": true,
+						},
+					},
+				})
+
 				invNs := &inventory.ManifestItem{
 					TypeMeta: v1.TypeMeta{
 						Kind:       "Namespace",
@@ -234,10 +261,12 @@ func TestReconciler_Reconcile(t *testing.T) {
 				gProject.Spec.ServiceAccountName = "mysa"
 
 				result, err := reconciler.Reconcile(env.Ctx, gProject)
-				assert.Error(
+				assert.Assert(
 					t,
-					err,
-					`namespaces "monitoring" is forbidden: User "system:serviceaccount:tenant:mysa" cannot patch resource "namespaces" in API group "" in the namespace "monitoring"`,
+					strings.Contains(
+						err.Error(),
+						`is forbidden: User "system:serviceaccount:tenant:mysa" cannot patch resource`,
+					),
 				)
 
 				namespace := corev1.Namespace{
@@ -280,14 +309,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 				err = env.TestKubeClient.Create(env.Ctx, &serviceAccount)
 				assert.NilError(t, err)
 
-				role := rbacv1.Role{
+				role := rbacv1.ClusterRole{
 					TypeMeta: v1.TypeMeta{
 						APIVersion: "rbac.authorization.k8s.io/v1",
-						Kind:       "Role",
+						Kind:       "ClusterRole",
 					},
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "imp",
-						Namespace: "monitoring",
+						Name: "imp",
 					},
 					Rules: []rbacv1.PolicyRule{
 						{
@@ -301,14 +329,13 @@ func TestReconciler_Reconcile(t *testing.T) {
 				err = env.TestKubeClient.Create(env.Ctx, &role)
 				assert.NilError(t, err)
 
-				roleBinding := rbacv1.RoleBinding{
+				roleBinding := rbacv1.ClusterRoleBinding{
 					TypeMeta: v1.TypeMeta{
 						APIVersion: "rbac.authorization.k8s.io/v1",
-						Kind:       "RoleBinding",
+						Kind:       "ClusterRoleBinding",
 					},
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "imp",
-						Namespace: "monitoring",
+						Name: "imp",
 					},
 					Subjects: []rbacv1.Subject{
 						{
@@ -319,7 +346,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 					},
 					RoleRef: rbacv1.RoleRef{
 						APIGroup: "rbac.authorization.k8s.io",
-						Kind:     "Role",
+						Kind:     "ClusterRole",
 						Name:     "imp",
 					},
 				}
@@ -445,6 +472,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 			env := tc.prepare()
 			if env == nil {
 				defaultEnv := projecttest.StartProjectEnv(t,
+					projecttest.WithProjectSource("simple"),
 					projecttest.WithKubernetes(
 						kubetest.WithVCSAuthSecretFor(strings.ToLower(tc.name)),
 					),

@@ -109,6 +109,7 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 				Content: helm.ReleaseDeclaration{
 					Name:      instance.Name,
 					Namespace: instance.Namespace,
+					CRDs:      instance.CRDs,
 					Chart:     instance.Chart,
 					Values:    instance.Values,
 				},

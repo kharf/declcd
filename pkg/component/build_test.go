@@ -98,7 +98,7 @@ func TestBuilder_Build(t *testing.T) {
 				&helm.ReleaseComponent{
 					ID: "test_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
-						Name:      "{{.Name}}",
+						Name:      "test",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
 							Name:    "test",
@@ -110,13 +110,16 @@ func TestBuilder_Build(t *testing.T) {
 								"enabled": true,
 							},
 						},
+						CRDs: helm.CRDs{
+							AllowUpgrade: false,
+						},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
 				&helm.ReleaseComponent{
 					ID: "test-secret-ref_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
-						Name:      "{{.Name}}",
+						Name:      "test-secret-ref",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
 							Name:    "test",
@@ -124,7 +127,7 @@ func TestBuilder_Build(t *testing.T) {
 							Version: "test",
 							Auth: &helm.Auth{
 								SecretRef: &helm.SecretRef{
-									Name:      "test-secret-ref",
+									Name:      "secret",
 									Namespace: "namespace",
 								},
 							},
@@ -140,7 +143,7 @@ func TestBuilder_Build(t *testing.T) {
 				&helm.ReleaseComponent{
 					ID: "test-workload-identity_prometheus_HelmRelease",
 					Content: helm.ReleaseDeclaration{
-						Name:      "{{.Name}}",
+						Name:      "test-workload-identity",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
 							Name:    "test",
@@ -233,6 +236,35 @@ func TestBuilder_Build(t *testing.T) {
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.auth: 2 errors in empty disjunction: (and 2 more errors)",
 		},
+		{
+			name:        "AllowCRDsUpgrade",
+			projectRoot: path.Join(cwd, "test", "testdata", "build"),
+			packagePath: "./infra/allowcrdsupgrade",
+			expectedInstances: []Instance{
+				&helm.ReleaseComponent{
+					ID: "test_test_HelmRelease",
+					Content: helm.ReleaseDeclaration{
+						Name:      "test",
+						Namespace: "test",
+						Chart: helm.Chart{
+							Name:    "test",
+							RepoURL: "http://test",
+							Version: "test",
+						},
+						Values: helm.Values{
+							"autoscaling": map[string]interface{}{
+								"enabled": true,
+							},
+						},
+						CRDs: helm.CRDs{
+							AllowUpgrade: true,
+						},
+					},
+					Dependencies: []string{},
+				},
+			},
+			expectedErr: "",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -258,10 +290,8 @@ func TestBuilder_Build(t *testing.T) {
 						current, ok := current.(*helm.ReleaseComponent)
 						assert.Assert(t, ok)
 						assert.Equal(t, current.ID, expected.ID)
-						assert.DeepEqual(t, current.Content.Values, expected.Content.Values)
-						assert.DeepEqual(t, current.Dependencies, expected.Dependencies)
+						assert.DeepEqual(t, current, expected)
 					}
-
 				}
 			}
 		})
