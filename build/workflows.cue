@@ -169,8 +169,7 @@ workflows: [
 						name: "Update Pipeline"
 						run:  "go run cmd/update/main.go"
 						env: {
-							RENOVATE_TOKEN:           "${{ secrets.PAT }}"
-							RENOVATE_GIT_PRIVATE_KEY: "${{ secrets.RENOVATE_PGP }}"
+							RENOVATE_TOKEN: "${{ secrets.PAT }}"
 						}
 					},
 				]
