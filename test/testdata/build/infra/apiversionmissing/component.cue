@@ -2,6 +2,7 @@ package apiversionmissing
 
 secret: {
 	type: "Manifest"
+	id:   "unimportant"
 	content: {
 		kind: "Secret"
 		metadata: {

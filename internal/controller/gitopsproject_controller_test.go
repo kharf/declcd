@@ -33,6 +33,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubectl/pkg/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
@@ -94,7 +95,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 			k8sClient, err = client.New(
 				env.ControlPlane.Config,
-				client.Options{Scheme: scheme},
+				client.Options{Scheme: scheme.Scheme},
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient).NotTo(BeNil())
@@ -127,7 +128,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				defer gitServer.Close()
 
 				installAction := project.NewInstallAction(
-					env.DynamicTestKubeClient,
+					env.DynamicTestKubeClient.DynamicClient(),
 					httpClient,
 					testProject.TargetPath,
 				)
@@ -176,7 +177,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 					defer gitServer.Close()
 
 					installAction := project.NewInstallAction(
-						env.DynamicTestKubeClient,
+						env.DynamicTestKubeClient.DynamicClient(),
 						httpClient,
 						testProject.TargetPath,
 					)
@@ -251,10 +252,6 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 							&updatedGitOpsProject,
 						)
 						g.Expect(err).ToNot(HaveOccurred())
-						g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
-						g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
-							To(BeFalse())
-						g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
 					}, duration, assertionInterval).Should(Succeed())
 				},
 			)
@@ -280,7 +277,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 			k8sClient, err = client.New(
 				env.ControlPlane.Config,
-				client.Options{Scheme: scheme},
+				client.Options{Scheme: scheme.Scheme},
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient).NotTo(BeNil())
@@ -313,7 +310,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				defer gitServer.Close()
 
 				installAction = project.NewInstallAction(
-					env.DynamicTestKubeClient,
+					env.DynamicTestKubeClient.DynamicClient(),
 					httpClient,
 					testProject.TargetPath,
 				)
@@ -411,10 +408,6 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 						&updatedGitOpsProject,
 					)
 					g.Expect(err).ToNot(HaveOccurred())
-					g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
-					g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
-						To(BeFalse())
-					g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
 				}, duration, assertionInterval).Should(Succeed())
 
 				Eventually(func(g Gomega) {
@@ -428,10 +421,6 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 						&updatedGitOpsProject,
 					)
 					g.Expect(err).ToNot(HaveOccurred())
-					g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
-					g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
-						To(BeFalse())
-					g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
 				}, duration, assertionInterval).Should(Succeed())
 
 				Eventually(func() (string, error) {

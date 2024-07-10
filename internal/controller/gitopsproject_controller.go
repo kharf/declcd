@@ -31,14 +31,11 @@ import (
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/rest"
+	"k8s.io/kubectl/pkg/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,16 +51,14 @@ import (
 	"github.com/kharf/declcd/pkg/vcs"
 	"github.com/prometheus/client_golang/prometheus"
 	helmKube "helm.sh/helm/v3/pkg/kube"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	// +kubebuilder:scaffold:imports
 )
 
-var (
-	scheme = runtime.NewScheme()
-)
-
 func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(gitops.AddToScheme(scheme))
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme.Scheme))
+	utilruntime.Must(gitops.AddToScheme(scheme.Scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -101,17 +96,8 @@ func (controller *GitOpsProjectController) Reconcile(
 		RequeueAfter: time.Duration(gProject.Spec.PullIntervalSeconds) * time.Second,
 	}
 
-	gProject.Status.Conditions = make([]v1.Condition, 0, 2)
-	if err := controller.updateCondition(ctx, &gProject, v1.Condition{
-		Type:               "Running",
-		Reason:             "Interval",
-		Message:            "Reconciling",
-		Status:             "True",
-		LastTransitionTime: triggerTime,
-	}); err != nil {
-		log.Error(err, "Unable to update GitOpsProject status condition to 'Running'")
-		return requeueResult, nil
-	}
+	// TODO: reimplement status updates
+	// For whatever reason it throws "not found" for subresource updates
 
 	result, err := controller.Reconciler.Reconcile(ctx, gProject)
 	if err != nil {
@@ -125,15 +111,9 @@ func (controller *GitOpsProjectController) Reconcile(
 		ReconcileTime: reconciledTime,
 	}
 
-	if err := controller.updateCondition(ctx, &gProject, v1.Condition{
-		Type:               "Finished",
-		Reason:             "Success",
-		Message:            "Reconciled",
-		Status:             "True",
-		LastTransitionTime: reconciledTime,
-	}); err != nil {
-		log.Error(err, "Unable to update GitOpsProject status")
-		return requeueResult, nil
+	if err := controller.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
+		log.Error(err, "Unable to fetch GitOpsProject resource from cluster")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	controller.ReconciliationHistogram.With(prometheus.Labels{
@@ -143,18 +123,6 @@ func (controller *GitOpsProjectController) Reconcile(
 
 	log.Info("Reconciling finished")
 	return requeueResult, nil
-}
-
-func (reconciler *GitOpsProjectController) updateCondition(
-	ctx context.Context,
-	gProject *gitops.GitOpsProject,
-	condition v1.Condition,
-) error {
-	gProject.Status.Conditions = append(gProject.Status.Conditions, condition)
-	if err := reconciler.Client.Status().Update(ctx, gProject); err != nil {
-		return err
-	}
-	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -291,7 +259,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme,
+		Scheme: scheme.Scheme,
 		Metrics: server.Options{
 			BindAddress: opts.MetricsAddr,
 			ExtraHandlers: map[string]http.Handler{
@@ -324,7 +292,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 
 	helmKube.ManagedFieldsManager = controllerName
 
-	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
+	kubeDynamicClient, err := kube.NewExtendedDynamicClient(cfg)
 	if err != nil {
 		log.Error(err, "Unable to setup Kubernetes client")
 		return nil, err
@@ -348,7 +316,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 			Log:                   log,
 			KubeConfig:            cfg,
 			ComponentBuilder:      componentBuilder,
-			RepositoryManager:     vcs.NewRepositoryManager(namespace, kubeDynamicClient, log),
+			RepositoryManager:     vcs.NewRepositoryManager(namespace, kubeDynamicClient.DynamicClient(), log),
 			ProjectManager:        projectManager,
 			FieldManager:          controllerName,
 			WorkerPoolSize:        maxProcs,

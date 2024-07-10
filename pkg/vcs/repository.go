@@ -60,13 +60,13 @@ func (repository *Repository) Pull() (string, error) {
 // RepositoryManager clones a remote vcs repository to a local path.
 type RepositoryManager struct {
 	controllerNamespace string
-	kubeClient          kube.Client[unstructured.Unstructured]
+	kubeClient          kube.Client[unstructured.Unstructured, unstructured.Unstructured]
 	log                 logr.Logger
 }
 
 func NewRepositoryManager(
 	controllerNamespace string,
-	kubeClient kube.Client[unstructured.Unstructured],
+	kubeClient kube.Client[unstructured.Unstructured, unstructured.Unstructured],
 	log logr.Logger,
 ) RepositoryManager {
 	return RepositoryManager{
@@ -169,7 +169,7 @@ func (manager RepositoryManager) Load(
 
 func getAuthSecret(
 	ctx context.Context,
-	kubeClient kube.Client[unstructured.Unstructured],
+	kubeClient kube.Client[unstructured.Unstructured, unstructured.Unstructured],
 	controllerNamespace string,
 	projectName string,
 ) (*v1.Secret, error) {
@@ -195,7 +195,7 @@ func getAuthSecret(
 // RepositoryConfigurator is capable of setting up Declcd with a Git provider.
 type RepositoryConfigurator struct {
 	controllerNamespace string
-	kubeClient          kube.Client[unstructured.Unstructured]
+	kubeClient          kube.Client[unstructured.Unstructured, unstructured.Unstructured]
 	provider            providerClient
 	repoID              string
 	token               string
@@ -207,7 +207,7 @@ var (
 
 func NewRepositoryConfigurator(
 	controllerNamespace string,
-	kubeClient kube.Client[unstructured.Unstructured],
+	kubeClient kube.Client[unstructured.Unstructured, unstructured.Unstructured],
 	httpClient *http.Client,
 	url string,
 	token string,

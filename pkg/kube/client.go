@@ -18,11 +18,11 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
-	helmKube "helm.sh/helm/v3/pkg/kube"
-	"k8s.io/cli-runtime/pkg/resource"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -89,14 +89,14 @@ func (f Force) Apply(opts *applyOptions) {
 
 // Client connects to a Kubernetes cluster
 // to create, read, update and delete manifests/objects.
-type Client[T any] interface {
+type Client[T any, R any] interface {
 	// Apply applies changes to an object through a Server-Side Apply
 	// and takes the ownership of this object.
 	// The object is created when it does not exist.
 	// It errors on conflicts if force is set to false.
 	Apply(ctx context.Context, obj *T, fieldManager string, opts ...ApplyOption) error
 	// Get retrieves the unstructured object from a Kubernetes cluster.
-	Get(ctx context.Context, obj *T) (*T, error)
+	Get(ctx context.Context, obj *T) (*R, error)
 	// Delete removes the object from the Kubernetes cluster.
 	Delete(ctx context.Context, obj *T) error
 	// Returns the [meta.RESTMapper] associated with this client.
@@ -111,7 +111,7 @@ type DynamicClient struct {
 	invalidate    func()
 }
 
-var _ Client[unstructured.Unstructured] = (*DynamicClient)(nil)
+var _ Client[unstructured.Unstructured, unstructured.Unstructured] = (*DynamicClient)(nil)
 
 // NewDynamicClient constructs a new DynamicClient,
 // which connects to a Kubernetes cluster to create, read, update and delete unstructured manifests/objects.
@@ -158,6 +158,20 @@ func (client *DynamicClient) Apply(
 		opt.Apply(applyOptions)
 	}
 
+	return client.apply(
+		ctx,
+		obj,
+		fieldManager,
+		applyOptions,
+	)
+}
+
+func (client *DynamicClient) apply(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	fieldManager string,
+	options *applyOptions,
+) error {
 	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
 	if err != nil {
 		return err
@@ -165,10 +179,10 @@ func (client *DynamicClient) Apply(
 
 	createOptions := v1.ApplyOptions{
 		FieldManager: fieldManager,
-		Force:        applyOptions.force,
+		Force:        options.force,
 	}
 
-	if applyOptions.dryRun {
+	if options.dryRun {
 		createOptions.DryRun = []string{"All"}
 	}
 
@@ -177,7 +191,7 @@ func (client *DynamicClient) Apply(
 		return err
 	}
 
-	if !applyOptions.dryRun {
+	if !options.dryRun {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
@@ -367,94 +381,126 @@ func (client *DynamicClient) resourceInterface(
 	return dynamicClient.Resource(mapping.Resource), nil
 }
 
-// HelmClient is a dedicated Kubernetes client for Helm with Server-Side Apply.
-// TODO: remove when Helm supports SSA.
-type HelmClient struct {
-	*helmKube.Client
-	DynamicClient Client[unstructured.Unstructured]
-	FieldManager  string
+// DynamicClient connects to a Kubernetes cluster
+// to create, read, update and delete extended unstructured manifests/objects.
+type ExtendedDynamicClient struct {
+	dynamicClient *DynamicClient
 }
 
-var _ helmKube.Interface = (*HelmClient)(nil)
+var _ Client[ExtendedUnstructured, unstructured.Unstructured] = (*ExtendedDynamicClient)(nil)
 
-var ErrObjectNotUnstructured = errors.New("Helm object is not of type unstructured.Unstructured")
-
-// taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
-func (c *HelmClient) Create(resources helmKube.ResourceList) (*helmKube.Result, error) {
-	ctx := context.Background()
-	for _, info := range resources {
-		if _, ok := info.Object.(*unstructured.Unstructured); !ok {
-			return nil, ErrObjectNotUnstructured
-		}
-		if err := c.DynamicClient.Apply(ctx, info.Object.(*unstructured.Unstructured), c.FieldManager); err != nil {
-			return nil, err
-		}
+// NewExtendedDynamicClient constructs a new DynamicClient,
+// which connects to a Kubernetes cluster to create, read, update and delete unstructured manifests/objects.
+func NewExtendedDynamicClient(config *rest.Config) (*ExtendedDynamicClient, error) {
+	dynClient, err := NewDynamicClient(config)
+	if err != nil {
+		return nil, err
 	}
-	return &helmKube.Result{Created: resources}, nil
+
+	return &ExtendedDynamicClient{
+		dynamicClient: dynClient,
+	}, nil
 }
 
-var metadataAccessor = meta.NewAccessor()
+func (e *ExtendedDynamicClient) DynamicClient() *DynamicClient {
+	return e.dynamicClient
+}
 
-// taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
-func (c *HelmClient) Update(
-	original helmKube.ResourceList,
-	target helmKube.ResourceList,
-	force bool,
-) (*helmKube.Result, error) {
-	ctx := context.Background()
-	res := &helmKube.Result{}
-	err := target.Visit(func(info *resource.Info, err error) error {
-		if _, ok := info.Object.(*unstructured.Unstructured); !ok {
-			return ErrObjectNotUnstructured
-		}
-		// Append the created resource to the results, even if something fails
-		res.Created = append(res.Created, info)
-		if err := c.DynamicClient.Apply(ctx, info.Object.(*unstructured.Unstructured), c.FieldManager, Force(true)); err != nil {
+func (e *ExtendedDynamicClient) Apply(
+	ctx context.Context,
+	obj *ExtendedUnstructured,
+	fieldManager string,
+	opts ...ApplyOption,
+) error {
+	applyOptions := new(applyOptions)
+	for _, opt := range opts {
+		opt.Apply(applyOptions)
+	}
+
+	originalForce := applyOptions.force
+
+	// First try always applies and errors on conflict.
+	// That is done to avoid ownership push around because there might be other managers specifically managing fields of manifests.
+	// For example, HPAs managing replicas fields.
+	applyOptions.force = false
+
+	if err := e.dynamicClient.apply(ctx, obj.Unstructured, fieldManager, applyOptions); err != nil {
+		statusErr, ok := err.(*k8sErrors.StatusError)
+		if ok && statusErr.Status().Reason == v1.StatusReasonConflict &&
+			obj.AttributeInfo.HasIgnoreConflictAttributes {
+
+			causes := statusErr.Status().Details.Causes
+
+			unstr := obj.DeepCopy()
+
+			for _, cause := range causes {
+				if err := deleteIgnoredFields(cause.Field, unstr.Object, obj.Metadata); err != nil {
+					return err
+				}
+			}
+
+			// Retry without ignored fields and force apply.
+			applyOptions.force = originalForce
+			if err := e.dynamicClient.apply(ctx, unstr, fieldManager, applyOptions); err != nil {
+				return err
+			}
+		} else {
 			return err
 		}
-		return nil
-	})
-	if err != nil {
-		return res, err
 	}
-	for _, info := range original.Difference(target) {
-		c.Log(
-			"Deleting %s %q in namespace %s...",
-			info.Mapping.GroupVersionKind.Kind,
-			info.Name,
-			info.Namespace,
-		)
 
-		if err := info.Get(); err != nil {
-			c.Log("Unable to get obj %q, err: %s", info.Name, err)
-			continue
-		}
-		annotations, err := metadataAccessor.Annotations(info.Object)
-		if err != nil {
-			c.Log("Unable to get annotations on %q, err: %s", info.Name, err)
-		}
-		if annotations != nil && annotations[helmKube.ResourcePolicyAnno] == helmKube.KeepPolicy {
-			c.Log(
-				"Skipping delete of %q due to annotation [%s=%s]",
-				info.Name,
-				helmKube.ResourcePolicyAnno,
-				helmKube.KeepPolicy,
-			)
-			continue
-		}
-		if err := c.deleteResource(info, v1.DeletePropagationBackground); err != nil {
-			c.Log("Failed to delete %q, err: %s", info.ObjectName(), err)
-			continue
-		}
-		res.Deleted = append(res.Deleted, info)
-	}
-	return res, nil
+	return nil
 }
 
-func (c *HelmClient) deleteResource(info *resource.Info, policy v1.DeletionPropagation) error {
-	opts := &v1.DeleteOptions{PropagationPolicy: &policy}
-	_, err := resource.NewHelper(info.Client, info.Mapping).
-		WithFieldManager(c.FieldManager).
-		DeleteWithOptions(info.Namespace, info.Name, opts)
-	return err
+func deleteIgnoredFields(
+	jsonPath string,
+	unstrMap map[string]any,
+	metadata ManifestMetadata,
+) error {
+	mtn, ok := metadata.(*ManifestMetadataNode)
+	if !ok {
+		return nil
+	}
+	metadataNode := *mtn
+
+	keys := strings.Split(jsonPath, ".")
+
+	for i, key := range keys {
+		if i == 0 {
+			continue
+		}
+
+		if i == len(keys)-1 {
+			fieldMetadata, ok := metadataNode[key].(*ManifestFieldMetadata)
+			if ok && fieldMetadata.IgnoreAttr == OnConflict {
+				delete(unstrMap, key)
+			}
+
+			return nil
+		}
+
+		metadata, found := metadataNode[key]
+		if !found {
+			break
+		}
+		unstrMap = unstrMap[key].(map[string]any)
+		metadataNode = *(metadata.(*ManifestMetadataNode))
+	}
+
+	return nil
+}
+
+func (e *ExtendedDynamicClient) Delete(ctx context.Context, obj *ExtendedUnstructured) error {
+	return e.dynamicClient.Delete(ctx, obj.Unstructured)
+}
+
+func (e *ExtendedDynamicClient) Get(
+	ctx context.Context,
+	obj *ExtendedUnstructured,
+) (*unstructured.Unstructured, error) {
+	return e.dynamicClient.Get(ctx, obj.Unstructured)
+}
+
+func (e *ExtendedDynamicClient) RESTMapper() meta.RESTMapper {
+	return e.dynamicClient.RESTMapper()
 }

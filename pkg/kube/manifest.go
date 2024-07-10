@@ -14,32 +14,89 @@
 
 package kube
 
-import v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+)
 
-type ManifestMetadata struct {
-	v1.TypeMeta
-	componentID string
-	name        string
-	namespace   string
+// ManifestIgnoreAttribute is a CUE build attribute a user can define on a field or declaration
+// to tell Declcd to ignore fields or structs when applying Kubernetes Manifests.
+type ManifestIgnoreAttribute int
+
+const (
+	// Default. Declcd will enforce the field/struct.
+	None ManifestIgnoreAttribute = iota
+
+	// This tells Declcd to omit the field/struct 'tagged' with this value on a retry ssa patch request.
+	OnConflict
+)
+
+// ManifestMetadata extends unstructured fields with additional information.
+type ManifestMetadata interface {
+	Metadata() *ManifestFieldMetadata
 }
 
-func NewManifestMetadata(typeMeta v1.TypeMeta, componentID string, name string, namespace string) ManifestMetadata {
-	return ManifestMetadata{
-		TypeMeta:    typeMeta,
-		componentID: componentID,
-		name:        name,
-		namespace:   namespace,
-	}
+type ManifestMetadataNode map[string]ManifestMetadata
+
+var _ ManifestMetadata = (*ManifestMetadataNode)(nil)
+
+func (s *ManifestMetadataNode) Metadata() *ManifestFieldMetadata {
+	return nil
 }
 
-func (manifest ManifestMetadata) Name() string {
-	return manifest.name
+type ManifestFieldMetadata struct {
+	IgnoreAttr ManifestIgnoreAttribute
 }
 
-func (manifest ManifestMetadata) Namespace() string {
-	return manifest.namespace
+var _ ManifestMetadata = (*ManifestFieldMetadata)(nil)
+
+func (v *ManifestFieldMetadata) Metadata() *ManifestFieldMetadata {
+	return v
 }
 
-func (manifest ManifestMetadata) ComponentID() string {
-	return manifest.componentID
+type ManifestAttributeInfo struct {
+	HasIgnoreConflictAttributes bool
+}
+
+// ExtendedUnstructured enhances Kubernetes Unstructured struct with additional Metadata, like IgnoreAttributes.
+type ExtendedUnstructured struct {
+	*unstructured.Unstructured
+	Metadata      ManifestMetadata      `json:"-"`
+	AttributeInfo ManifestAttributeInfo `json:"-"`
+}
+
+// Manifest represents a Declcd component with its id, dependencies and content.
+// It is the Go equivalent of the CUE definition the user interacts with.
+// See [unstructured.Unstructured] for more.
+type Manifest struct {
+	ID           string
+	Dependencies []string
+	Content      ExtendedUnstructured
+}
+
+func (m *Manifest) GetID() string {
+	return m.ID
+}
+
+func (m *Manifest) GetDependencies() []string {
+	return m.Dependencies
+}
+
+func (m *Manifest) GetKind() string {
+	return m.Content.GetKind()
+}
+
+func (m *Manifest) GetAPIVersion() string {
+	return m.Content.GetAPIVersion()
+}
+
+func (m *Manifest) GetLabels() map[string]string {
+	return m.Content.GetLabels()
+}
+
+func (m *Manifest) GetName() string {
+	return m.Content.GetName()
+}
+
+func (m *Manifest) GetNamespace() string {
+	return m.Content.GetNamespace()
 }

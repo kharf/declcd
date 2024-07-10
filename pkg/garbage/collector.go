@@ -23,9 +23,7 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"golang.org/x/sync/errgroup"
-	"helm.sh/helm/v3/pkg/action"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/rest"
 )
 
 // Collector inspects the inventory for dangling manifests or helm releases,
@@ -34,8 +32,8 @@ import (
 type Collector struct {
 	Log logr.Logger
 
-	Client     *kube.DynamicClient
-	KubeConfig *rest.Config
+	Client          *kube.DynamicClient
+	ChartReconciler helm.ChartReconciler
 
 	// Instance is a representation of an inventory.
 	// It can store, delete and read items.
@@ -103,15 +101,7 @@ func (c *Collector) collectHelmRelease(
 		"name",
 		invHr.GetName(),
 	)
-	// fieldManager is irrelevant for deleting.
-	helmCfg, err := helm.Init(invHr.GetNamespace(), c.KubeConfig, c.Client, "")
-	if err != nil {
-		return err
-	}
-	client := action.NewUninstall(helmCfg)
-	client.Wait = false
-	_, err = client.Run(invHr.GetName())
-	if err != nil {
+	if err := c.ChartReconciler.Delete(invHr.Name, invHr.Namespace); err != nil {
 		return err
 	}
 	if err := c.InventoryInstance.DeleteItem(invHr); err != nil {
