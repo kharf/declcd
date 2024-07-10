@@ -37,10 +37,12 @@ func run() error {
 	}
 	defer client.Close()
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
+	pgp := client.SetSecret("pgp", os.Getenv("RENOVATE_GIT_PRIVATE_KEY"))
 	_, err = client.Container().
 		From("node:20.15.0-alpine").
-		WithEnvVariable("LOG_LEVEL", "INFO").
+		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithSecretVariable("RENOVATE_TOKEN", pat).
+		WithSecretVariable("RENOVATE_GIT_PRIVATE_KEY", pgp).
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
 		WithExec([]string{"apk", "add", "--no-cache", "git", "go"}).
 		WithExec([]string{"sh", "-c", "npm install -g renovate"}).
