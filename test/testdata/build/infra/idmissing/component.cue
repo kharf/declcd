@@ -1,4 +1,4 @@
-package metadatamissing
+package idmissing
 
 import (
 	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
@@ -6,7 +6,6 @@ import (
 
 secret: {
 	type: "Manifest"
-	id:   "unimportant"
 	dependencies: []
 	content: corev1.#Secret & {
 		apiVersion: "v1"

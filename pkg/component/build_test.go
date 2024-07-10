@@ -24,12 +24,18 @@ import (
 	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/helm"
+	"github.com/kharf/declcd/pkg/kube"
 	_ "github.com/kharf/declcd/test/workingdir"
+	"go.uber.org/goleak"
 	"gotest.tools/v3/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestBuilder_Build(t *testing.T) {
+	defer goleak.VerifyNone(
+		t,
+	)
+
 	testRoot, err := os.MkdirTemp("", "")
 	assert.NilError(t, err)
 	defer os.RemoveAll(testRoot)
@@ -66,30 +72,158 @@ func TestBuilder_Build(t *testing.T) {
 			expectedInstances: []Instance{
 				&Manifest{
 					ID: "prometheus___Namespace",
-					Content: unstructured.Unstructured{
-						Object: map[string]interface{}{
-							"apiVersion": "v1",
-							"kind":       "Namespace",
-							"metadata": map[string]interface{}{
-								"name":      "prometheus",
-								"namespace": "",
+					Content: ExtendedUnstructured{
+						Unstructured: &unstructured.Unstructured{
+							Object: map[string]any{
+								"apiVersion": "v1",
+								"kind":       "Namespace",
+								"metadata": map[string]any{
+									"name": "prometheus",
+								},
 							},
+						},
+						Metadata: &FieldMetadata{
+							IgnoreAttr: kube.OnConflict,
+						},
+						AttributeInfo: AttributeInfo{
+							HasIgnoreConflictAttributes: true,
 						},
 					},
 					Dependencies: []string{},
 				},
 				&Manifest{
 					ID: "secret_prometheus__Secret",
-					Content: unstructured.Unstructured{
-						Object: map[string]interface{}{
-							"apiVersion": "v1",
-							"kind":       "Secret",
-							"metadata": map[string]interface{}{
-								"name":      "secret",
-								"namespace": "prometheus",
+					Content: ExtendedUnstructured{
+						Unstructured: &unstructured.Unstructured{
+							Object: map[string]any{
+								"apiVersion": "v1",
+								"kind":       "Secret",
+								"metadata": map[string]any{
+									"name":      "secret",
+									"namespace": "prometheus",
+								},
+								"data": map[string]any{
+									"foo": []byte("bar"),
+								},
 							},
-							"data": map[string]interface{}{
-								"foo": []byte("bar"),
+						},
+						Metadata: &MetadataNode{
+							"data": &MetadataNode{
+								"foo": &FieldMetadata{
+									IgnoreAttr: kube.OnConflict,
+								},
+							},
+						},
+						AttributeInfo: AttributeInfo{
+							HasIgnoreConflictAttributes: true,
+						},
+					},
+					Dependencies: []string{"prometheus___Namespace"},
+				},
+				&Manifest{
+					ID: "prometheus_prometheus_apps_Deployment",
+					Content: ExtendedUnstructured{
+						Unstructured: &unstructured.Unstructured{
+							Object: map[string]any{
+								"apiVersion": "apps/v1",
+								"kind":       "Deployment",
+								"metadata": map[string]any{
+									"name":      "prometheus",
+									"namespace": "prometheus",
+								},
+								"spec": map[string]any{
+									"replicas": int64(1),
+									"selector": map[string]any{
+										"matchLabels": map[string]any{
+											"app": "prometheus",
+										},
+									},
+									"template": map[string]any{
+										"metadata": map[string]any{
+											"labels": map[string]any{
+												"app": "prometheus",
+											},
+										},
+										"spec": map[string]any{
+											"containers": []any{
+												map[string]any{
+													"name":  "prometheus",
+													"image": "prometheus:1.14.2",
+													"ports": []any{
+														map[string]any{
+															"containerPort": int64(
+																80,
+															),
+														},
+													},
+												},
+												map[string]any{
+													"name":  "sidecar",
+													"image": "sidecar:1.14.2",
+													"ports": []any{
+														map[string]any{
+															"containerPort": int64(
+																80,
+															),
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						Metadata: &MetadataNode{
+							"spec": &MetadataNode{
+								"replicas": &FieldMetadata{
+									IgnoreAttr: kube.OnConflict,
+								},
+								"template": &MetadataNode{
+									"spec": &MetadataNode{
+										"containers": &FieldMetadata{
+											IgnoreAttr: kube.OnConflict,
+										},
+									},
+								},
+							},
+						},
+						AttributeInfo: AttributeInfo{
+							HasIgnoreConflictAttributes: true,
+						},
+					},
+					Dependencies: []string{"prometheus___Namespace"},
+				},
+				&Manifest{
+					ID: "prometheus_prometheus_rbac.authorization.k8s.io_Role",
+					Content: ExtendedUnstructured{
+						Unstructured: &unstructured.Unstructured{
+							Object: map[string]any{
+								"apiVersion": "rbac.authorization.k8s.io/v1",
+								"kind":       "Role",
+								"metadata": map[string]any{
+									"name":      "prometheus",
+									"namespace": "prometheus",
+								},
+								"rules": []any{
+									map[string]any{
+										"apiGroups": []any{"coordination.k8s.io"},
+										"resources": []any{"leases"},
+										"verbs": []any{
+											"get",
+											"create",
+											"update",
+										},
+									},
+									map[string]any{
+										"apiGroups": []any{""},
+										"resources": []any{"events"},
+										"verbs": []any{
+											"create",
+											"patch",
+										},
+									},
+								},
 							},
 						},
 					},
@@ -113,6 +247,95 @@ func TestBuilder_Build(t *testing.T) {
 						CRDs: helm.CRDs{
 							AllowUpgrade: false,
 						},
+						Patches: &helm.Patches{
+							Unstructureds: map[string]kube.ExtendedUnstructured{
+								"apps/v1-Deployment-prometheus-test": {
+									Unstructured: &unstructured.Unstructured{
+										Object: map[string]interface{}{
+											"apiVersion": "apps/v1",
+											"kind":       "Deployment",
+											"metadata": map[string]any{
+												"name":      "test",
+												"namespace": "prometheus",
+											},
+											"spec": map[string]any{
+												"replicas": int64(1),
+											},
+										},
+									},
+									Metadata: &MetadataNode{
+										"spec": &MetadataNode{
+											"replicas": &FieldMetadata{
+												IgnoreAttr: kube.OnConflict,
+											},
+										},
+									},
+									AttributeInfo: AttributeInfo{
+										HasIgnoreConflictAttributes: true,
+									},
+								},
+								"apps/v1-Deployment-prometheus-hello": {
+									Unstructured: &unstructured.Unstructured{
+										Object: map[string]interface{}{
+											"apiVersion": "apps/v1",
+											"kind":       "Deployment",
+											"metadata": map[string]any{
+												"name":      "hello",
+												"namespace": "prometheus",
+											},
+											"spec": map[string]any{
+												"replicas": int64(2),
+												"template": map[string]any{
+													"spec": map[string]any{
+														"containers": []any{
+															map[string]any{
+																"name":  "prometheus",
+																"image": "prometheus:1.14.2",
+																"ports": []any{
+																	map[string]any{
+																		"containerPort": int64(
+																			80,
+																		),
+																	},
+																},
+															},
+															map[string]any{
+																"name":  "sidecar",
+																"image": "sidecar:1.14.2",
+																"ports": []any{
+																	map[string]any{
+																		"containerPort": int64(
+																			80,
+																		),
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+									Metadata: &MetadataNode{
+										"spec": &MetadataNode{
+											"replicas": &FieldMetadata{
+												IgnoreAttr: kube.OnConflict,
+											},
+											"template": &MetadataNode{
+												"spec": &MetadataNode{
+													"containers": &FieldMetadata{
+														IgnoreAttr: kube.OnConflict,
+													},
+												},
+											},
+										},
+									},
+									AttributeInfo: AttributeInfo{
+										HasIgnoreConflictAttributes: true,
+									},
+								},
+							},
+						},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
@@ -132,11 +355,7 @@ func TestBuilder_Build(t *testing.T) {
 								},
 							},
 						},
-						Values: helm.Values{
-							"autoscaling": map[string]interface{}{
-								"enabled": true,
-							},
-						},
+						Values: helm.Values{},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
@@ -167,6 +386,13 @@ func TestBuilder_Build(t *testing.T) {
 			expectedErr: "",
 		},
 		{
+			name:              "MissingID",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			packagePath:       "./infra/idmissing",
+			expectedInstances: []Instance{},
+			expectedErr:       "secret: field not found: id",
+		},
+		{
 			name:              "MissingMetadata",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/metadatamissing",
@@ -178,7 +404,7 @@ func TestBuilder_Build(t *testing.T) {
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/metadatanameschemamissing",
 			expectedInstances: []Instance{},
-			expectedErr:       "secret.id: invalid interpolation: cannot reference optional field: name (and 1 more errors)",
+			expectedErr:       "secret.id: invalid interpolation: cannot reference optional field: name",
 		},
 		{
 			name:              "MissingMetadataName",

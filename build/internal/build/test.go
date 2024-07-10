@@ -58,7 +58,16 @@ func (t Test) run(ctx context.Context, request stepRequest) (*stepResult, error)
 	var test *dagger.Container
 	if t.ID == TestAllArg {
 		test = prepareTest.
-			WithExec([]string{"go", "test", "-v", TestAllArg, "-coverprofile", "cover.out"})
+			WithExec(
+				[]string{
+					"go",
+					"test",
+					"-v",
+					TestAllArg,
+					"-coverprofile",
+					"cover.out",
+				},
+			)
 	} else {
 		if t.Package == "" {
 			test = prepareTest.

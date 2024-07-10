@@ -2,6 +2,16 @@ package component
 
 import "strings"
 
+_manifestMetadata: {
+	apiVersion!: string & strings.MinRunes(1)
+	kind!:       string & strings.MinRunes(1)
+	metadata: {
+		namespace: string | *""
+		name!:     string & strings.MinRunes(1)
+		...
+	}
+}
+
 // Manifest represents a Kubernetes Object.
 #Manifest: {
 	type:          "Manifest"
@@ -13,13 +23,7 @@ import "strings"
 	id: "\(content.metadata.name)_\(content.metadata.namespace)_\(_group)_\(content.kind)"
 	dependencies: [...string]
 	content: {
-		apiVersion!: string & strings.MinRunes(1)
-		kind!:       string & strings.MinRunes(1)
-		metadata: {
-			namespace: string | *""
-			name!:     string & strings.MinRunes(1)
-			...
-		}
+		_manifestMetadata
 		...
 	}
 }
@@ -40,8 +44,16 @@ import "strings"
 	namespace!: string
 
 	chart!: #HelmChart
+
 	// Values provide a way to override Helm Chart template defaults with custom information.
 	values: {...}
+
+	// Patches allow to overwrite rendered manifests before installing/upgrading.
+	// Additionally they can be used to attach build attributes to fields.
+	patches: [...{
+		_manifestMetadata
+		...
+	}]
 
 	crds: #CRDs
 }
