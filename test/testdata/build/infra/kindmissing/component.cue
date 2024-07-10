@@ -2,6 +2,7 @@ package kindmissing
 
 secret: {
 	type: "Manifest"
+	id:   "unimportant"
 	content: {
 		apiVersion: "v1"
 		metadata: {

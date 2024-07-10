@@ -1,3 +1,17 @@
+// Copyright 2024 kharf
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package component
 
 import (
@@ -10,7 +24,6 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // Reconciler reads Components with their desired state
@@ -21,7 +34,7 @@ type Reconciler struct {
 
 	// DynamicClient connects to a Kubernetes cluster
 	// to create, read, update and delete manifests/objects.
-	DynamicClient kube.Client[unstructured.Unstructured]
+	DynamicClient *kube.ExtendedDynamicClient
 
 	// ChartReconciler reads Helm Packages with their desired state
 	// and applies them on a Kubernetes cluster.
@@ -46,29 +59,30 @@ func (reconciler *Reconciler) Reconcile(
 		reconciler.Log.V(1).Info(
 			"Applying manifest",
 			"namespace",
-			componentInstance.Content.GetNamespace(),
+			componentInstance.GetNamespace(),
 			"name",
-			componentInstance.Content.GetName(),
+			componentInstance.GetName(),
 			"kind",
-			componentInstance.Content.GetKind(),
+			componentInstance.GetKind(),
 		)
 
-		if err := reconciler.DynamicClient.Apply(ctx, &componentInstance.Content, reconciler.FieldManager, kube.Force(true)); err != nil {
+		unstr := componentInstance.Content
+		if err := reconciler.DynamicClient.Apply(ctx, &unstr, reconciler.FieldManager, kube.Force(false)); err != nil {
 			return err
 		}
 
 		invManifest := &inventory.ManifestItem{
 			ID: componentInstance.ID,
 			TypeMeta: v1.TypeMeta{
-				Kind:       componentInstance.Content.GetKind(),
-				APIVersion: componentInstance.Content.GetAPIVersion(),
+				Kind:       componentInstance.GetKind(),
+				APIVersion: componentInstance.GetAPIVersion(),
 			},
-			Name:      componentInstance.Content.GetName(),
-			Namespace: componentInstance.Content.GetNamespace(),
+			Name:      componentInstance.GetName(),
+			Namespace: componentInstance.GetNamespace(),
 		}
 
 		buf := &bytes.Buffer{}
-		if err := json.NewEncoder(buf).Encode(componentInstance.Content.Object); err != nil {
+		if err := json.NewEncoder(buf).Encode(unstr.Object); err != nil {
 			return err
 		}
 

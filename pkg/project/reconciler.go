@@ -104,7 +104,7 @@ func (reconciler *Reconciler) Reconcile(
 		gProject.Spec.ServiceAccountName,
 	)
 
-	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
+	kubeDynamicClient, err := kube.NewExtendedDynamicClient(cfg)
 	if err != nil {
 		log.Error(
 			err,
@@ -133,8 +133,8 @@ func (reconciler *Reconciler) Reconcile(
 
 	garbageCollector := garbage.Collector{
 		Log:               log,
-		Client:            kubeDynamicClient,
-		KubeConfig:        cfg,
+		Client:            kubeDynamicClient.DynamicClient(),
+		ChartReconciler:   chartReconciler,
 		InventoryInstance: inventoryInstance,
 		WorkerPoolSize:    reconciler.WorkerPoolSize,
 	}

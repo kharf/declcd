@@ -324,7 +324,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 
 	helmKube.ManagedFieldsManager = controllerName
 
-	kubeDynamicClient, err := kube.NewDynamicClient(cfg)
+	kubeDynamicClient, err := kube.NewExtendedDynamicClient(cfg)
 	if err != nil {
 		log.Error(err, "Unable to setup Kubernetes client")
 		return nil, err
@@ -348,7 +348,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 			Log:                   log,
 			KubeConfig:            cfg,
 			ComponentBuilder:      componentBuilder,
-			RepositoryManager:     vcs.NewRepositoryManager(namespace, kubeDynamicClient, log),
+			RepositoryManager:     vcs.NewRepositoryManager(namespace, kubeDynamicClient.DynamicClient(), log),
 			ProjectManager:        projectManager,
 			FieldManager:          controllerName,
 			WorkerPoolSize:        maxProcs,
