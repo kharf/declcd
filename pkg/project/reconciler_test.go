@@ -15,9 +15,11 @@
 package project_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,6 +37,7 @@ import (
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
 	"gotest.tools/v3/assert"
@@ -42,6 +45,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -147,7 +151,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				assert.NilError(t, err)
 
 				invComponents := inventoryStorage.Items()
-				assert.Assert(t, len(invComponents) == 5)
+				assert.Assert(t, len(invComponents) == 6)
 				testHR := &inventory.HelmReleaseItem{
 					Name:      dep.Name,
 					Namespace: dep.Namespace,
@@ -158,10 +162,10 @@ func TestReconciler_Reconcile(t *testing.T) {
 				contentReader, err := tcContext.inventoryInstance.GetItem(testHR)
 				defer contentReader.Close()
 
-				storedRelease := helm.Release{}
-				err = json.NewDecoder(contentReader).Decode(&storedRelease)
+				storedBytes, err := io.ReadAll(contentReader)
 				assert.NilError(t, err)
-				assert.DeepEqual(t, storedRelease, helm.Release{
+
+				desiredRelease := helm.Release{
 					Name:      testHR.Name,
 					Namespace: testHR.Namespace,
 					CRDs: helm.CRDs{
@@ -178,7 +182,77 @@ func TestReconciler_Reconcile(t *testing.T) {
 							"enabled": true,
 						},
 					},
-				})
+					Patches: &helm.Patches{
+						Unstructureds: map[string]kube.ExtendedUnstructured{
+							"apps/v1-Deployment-prometheus-test": {
+								Unstructured: &unstructured.Unstructured{
+									Object: map[string]interface{}{
+										"apiVersion": "apps/v1",
+										"kind":       "Deployment",
+										"metadata": map[string]any{
+											"name":      testHR.Name,
+											"namespace": testHR.Namespace,
+										},
+										"spec": map[string]any{
+											"replicas": int64(5),
+											"template": map[string]any{
+												"spec": map[string]any{
+													"containers": []any{
+														map[string]any{
+															"name":  "prometheus",
+															"image": "prometheus:1.14.2",
+															"ports": []any{
+																map[string]any{
+																	"containerPort": int64(
+																		80,
+																	),
+																},
+															},
+														},
+														map[string]any{
+															"name":  "sidecar",
+															"image": "sidecar:1.14.2",
+															"ports": []any{
+																map[string]any{
+																	"containerPort": int64(
+																		80,
+																	),
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+								Metadata: &kube.ManifestMetadataNode{
+									"spec": &kube.ManifestMetadataNode{
+										"replicas": &kube.ManifestFieldMetadata{
+											IgnoreAttr: kube.OnConflict,
+										},
+										"template": &kube.ManifestMetadataNode{
+											"spec": &kube.ManifestMetadataNode{
+												"containers": &kube.ManifestFieldMetadata{
+													IgnoreAttr: kube.OnConflict,
+												},
+											},
+										},
+									},
+								},
+								AttributeInfo: kube.ManifestAttributeInfo{
+									HasIgnoreConflictAttributes: true,
+								},
+							},
+						},
+					},
+				}
+
+				desiredBuf := &bytes.Buffer{}
+				err = json.NewEncoder(desiredBuf).Encode(desiredRelease)
+				assert.NilError(t, err)
+
+				assert.Equal(t, string(storedBytes), desiredBuf.String())
 
 				invNs := &inventory.ManifestItem{
 					TypeMeta: v1.TypeMeta{
@@ -463,6 +537,128 @@ func TestReconciler_Reconcile(t *testing.T) {
 					&deployment,
 				)
 				assert.Error(t, err, "deployments.apps \"mysubcomponent\" not found")
+			},
+		},
+		{
+			name: "Conflicts",
+			prepare: func() *projecttest.Environment {
+				return nil
+			},
+			run: func(t *testing.T, tcContext testCaseContext) {
+				reconciler := tcContext.reconciler
+				env := tcContext.environment
+				gProject := tcContext.gitopsProject
+
+				_, err = reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
+
+				var deployment appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"},
+					&deployment,
+				)
+				assert.NilError(t, err)
+
+				unstr := unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "mysubcomponent",
+							"namespace": "prometheus",
+						},
+						"spec": map[string]interface{}{
+							"replicas": 2,
+							"template": map[string]interface{}{
+								"spec": map[string]interface{}{
+									"securityContext": map[string]interface{}{
+										"runAsNonRoot": false,
+										"fsGroup":      0,
+									},
+								},
+							},
+						},
+					},
+				}
+
+				err := env.DynamicTestKubeClient.DynamicClient().Apply(
+					env.Ctx,
+					&unstr,
+					"imposter",
+					kube.Force(true),
+				)
+				assert.NilError(t, err)
+
+				_, err = reconciler.Reconcile(env.Ctx, gProject)
+				assert.Error(
+					t,
+					err,
+					"Apply failed with 3 conflicts: conflicts with \"imposter\":\n- .spec.replicas\n- .spec.template.spec.securityContext.fsGroup\n- .spec.template.spec.securityContext.runAsNonRoot",
+				)
+			},
+		},
+		{
+			name: "Ignore-Conflicts",
+			prepare: func() *projecttest.Environment {
+				return nil
+			},
+			run: func(t *testing.T, tcContext testCaseContext) {
+				reconciler := tcContext.reconciler
+				env := tcContext.environment
+				gProject := tcContext.gitopsProject
+
+				_, err = reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
+
+				var deployment appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"},
+					&deployment,
+				)
+				assert.NilError(t, err)
+
+				var anotherDeployment appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Name: "anothersubcomponent", Namespace: "prometheus"},
+					&anotherDeployment,
+				)
+				assert.NilError(t, err)
+
+				anotherUnstr := unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "anothersubcomponent",
+							"namespace": "prometheus",
+						},
+						"spec": map[string]interface{}{
+							"replicas": 2,
+							"template": map[string]interface{}{
+								"spec": map[string]interface{}{
+									"securityContext": map[string]interface{}{
+										"runAsNonRoot": false,
+										"fsGroup":      0,
+									},
+								},
+							},
+						},
+					},
+				}
+
+				err = env.DynamicTestKubeClient.DynamicClient().Apply(
+					env.Ctx,
+					&anotherUnstr,
+					"imposter",
+					kube.Force(true),
+				)
+				assert.NilError(t, err)
+
+				_, err = reconciler.Reconcile(env.Ctx, gProject)
+				assert.NilError(t, err)
 			},
 		},
 	}

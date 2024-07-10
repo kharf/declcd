@@ -32,6 +32,7 @@ import (
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/pkg/cloud"
+	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/kube"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -46,7 +47,7 @@ func ConfigureHelm(cfg *rest.Config) (*action.Configuration, error) {
 	helmCfg := action.Configuration{}
 	helmKube.ManagedFieldsManager = "controller"
 
-	k8sClient, err := kube.NewDynamicClient(cfg)
+	k8sClient, err := kube.NewExtendedDynamicClient(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +62,7 @@ func ConfigureHelm(cfg *rest.Config) (*action.Configuration, error) {
 		return nil, err
 	}
 
-	helmCfg.KubeClient = &kube.HelmClient{
+	helmCfg.KubeClient = &helm.Client{
 		Client:        helmCfg.KubeClient.(*helmKube.Client),
 		DynamicClient: k8sClient,
 		FieldManager:  "controller",

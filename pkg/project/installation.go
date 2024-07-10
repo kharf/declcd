@@ -122,13 +122,13 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 			return ErrHelmInstallationUnsupported
 		}
 
-		if opts.Shard == manifest.Content.GetLabels()["declcd/shard"] {
+		if opts.Shard == manifest.GetLabels()["declcd/shard"] {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel()
 
 			if err := act.installObject(
 				timeoutCtx,
-				&manifest.Content,
+				manifest.Content.Unstructured,
 				controllerName,
 			); err != nil {
 				return err

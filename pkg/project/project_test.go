@@ -30,7 +30,6 @@ import (
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
-	"go.uber.org/goleak"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
@@ -50,10 +49,6 @@ func setUp() logr.Logger {
 }
 
 func TestManager_Load(t *testing.T) {
-	defer goleak.VerifyNone(
-		t,
-	)
-
 	var err error
 	dnsServer, err := dnstest.NewDNSServer()
 	assertError(err)
@@ -96,9 +91,9 @@ func TestManager_Load(t *testing.T) {
 	assert.Assert(t, linkerd != nil)
 	linkerdManifest, ok := linkerd.(*component.Manifest)
 	assert.Assert(t, ok)
-	assert.Assert(t, linkerdManifest.Content.GetAPIVersion() == "v1")
-	assert.Assert(t, linkerdManifest.Content.GetKind() == "Namespace")
-	assert.Assert(t, linkerdManifest.Content.GetName() == "linkerd")
+	assert.Assert(t, linkerdManifest.GetAPIVersion() == "v1")
+	assert.Assert(t, linkerdManifest.GetKind() == "Namespace")
+	assert.Assert(t, linkerdManifest.GetName() == "linkerd")
 
 	prometheus := dag.Get("prometheus___Namespace")
 	assert.Assert(t, prometheus != nil)

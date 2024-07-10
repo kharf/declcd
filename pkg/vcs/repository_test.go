@@ -235,7 +235,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			post: func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
-					env.DynamicTestKubeClient,
+					env.DynamicTestKubeClient.DynamicClient(),
 					client,
 					"git@github.com:kharf/declcd.git",
 					"abcd",
@@ -277,7 +277,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
-					env.DynamicTestKubeClient,
+					env.DynamicTestKubeClient.DynamicClient(),
 					client,
 					"git@github.com:kharf/declcd.git",
 					"abcd",

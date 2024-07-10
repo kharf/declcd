@@ -30,7 +30,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-cmp/cmp"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
@@ -40,12 +39,15 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	helmKube "helm.sh/helm/v3/pkg/kube"
+	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/rest"
 )
 
@@ -91,7 +93,7 @@ type ChartReconciler struct {
 	Log logr.Logger
 
 	KubeConfig   *rest.Config
-	Client       kube.Client[unstructured.Unstructured]
+	Client       *kube.ExtendedDynamicClient
 	FieldManager string
 
 	// Instance is a representation of an inventory.
@@ -144,7 +146,7 @@ func (c *ChartReconciler) Reconcile(
 
 	// Need to init on every reconcile in order to override the fallback namespace, which is taken from the kube config
 	// when templates have no metadata.namespace defined.
-	helmCfg, err := Init(component.Content.Namespace, c.KubeConfig, c.Client, c.FieldManager)
+	helmCfg, err := Init(component.Content, c.KubeConfig, c.Client, c.FieldManager)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +166,7 @@ func (c *ChartReconciler) Reconcile(
 		Namespace: installedRelease.Namespace,
 		ID:        component.ID,
 	}
+
 	buf := &bytes.Buffer{}
 	if err := json.NewEncoder(buf).Encode(installedRelease); err != nil {
 		return nil, err
@@ -174,19 +177,31 @@ func (c *ChartReconciler) Reconcile(
 	return installedRelease, nil
 }
 
-// Init setups a Helm config with a Kubernetes client capable of doing SSA
-// and overrides any default namespace with given namespace.
-func Init(
+func (c *ChartReconciler) Delete(name string, namespace string) error {
+	helmCfg, err := initDeleteConfig(namespace, c.KubeConfig, c.Client.RESTMapper())
+	if err != nil {
+		return err
+	}
+	client := action.NewUninstall(helmCfg)
+	client.Wait = false
+	_, err = client.Run(name)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func initDeleteConfig(
 	namespace string,
 	kubeConfig *rest.Config,
-	client kube.Client[unstructured.Unstructured],
-	fieldManager string,
+	restMapper meta.RESTMapper,
 ) (*action.Configuration, error) {
 	helmCfg := &action.Configuration{}
 	voidLog := func(string, ...interface{}) {}
 	getter := &kube.InMemoryRESTClientGetter{
 		Cfg:        kubeConfig,
-		RestMapper: client.RESTMapper(),
+		RestMapper: restMapper,
 	}
 	err := helmCfg.Init(getter, namespace, "secret", voidLog)
 	if err != nil {
@@ -195,10 +210,39 @@ func Init(
 	helmKubeClient := helmCfg.KubeClient.(*helmKube.Client)
 	// Set namespace to the release namespace in order to avoid taking the namespace from the kube config.
 	helmKubeClient.Namespace = namespace
-	helmCfg.KubeClient = &kube.HelmClient{
+	// fieldManager is irrelevant for deleting.
+	helmCfg.KubeClient = &Client{
+		Client: helmKubeClient,
+	}
+	return helmCfg, nil
+}
+
+// Init setups a Helm config with a Kubernetes client capable of doing SSA
+// and overrides any default namespace with given namespace.
+func Init(
+	release ReleaseDeclaration,
+	kubeConfig *rest.Config,
+	client kube.Client[kube.ExtendedUnstructured, unstructured.Unstructured],
+	fieldManager string,
+) (*action.Configuration, error) {
+	helmCfg := &action.Configuration{}
+	voidLog := func(string, ...interface{}) {}
+	getter := &kube.InMemoryRESTClientGetter{
+		Cfg:        kubeConfig,
+		RestMapper: client.RESTMapper(),
+	}
+	err := helmCfg.Init(getter, release.Namespace, "secret", voidLog)
+	if err != nil {
+		return nil, err
+	}
+	helmKubeClient := helmCfg.KubeClient.(*helmKube.Client)
+	// Set namespace to the release namespace in order to avoid taking the namespace from the kube config.
+	helmKubeClient.Namespace = release.Namespace
+	helmCfg.KubeClient = &Client{
 		Client:        helmKubeClient,
 		DynamicClient: client,
 		FieldManager:  fieldManager,
+		Patches:       release.Patches,
 	}
 	return helmCfg, nil
 }
@@ -257,6 +301,7 @@ func (c *ChartReconciler) installOrUpgrade(
 			Namespace: latestInternalRelease.Namespace,
 			Chart:     desiredRelease.Chart,
 			Values:    desiredRelease.Values,
+			Patches:   desiredRelease.Patches,
 			CRDs:      desiredRelease.CRDs,
 			Version:   latestInternalRelease.Version,
 		}, nil
@@ -269,6 +314,11 @@ func (c *ChartReconciler) installOrUpgrade(
 	upgrade.Wait = false
 	upgrade.Namespace = desiredRelease.Namespace
 	upgrade.MaxHistory = 5
+	if desiredRelease.Patches != nil {
+		upgrade.PostRenderer = &PostRenderer{
+			Patches: desiredRelease.Patches,
+		}
+	}
 	if drift.driftType == conflict {
 		upgrade.Force = true
 	}
@@ -284,7 +334,7 @@ func (c *ChartReconciler) installOrUpgrade(
 				return nil, err
 			}
 
-			if err := c.Client.Apply(ctx, manifest, c.FieldManager, kube.Force(true)); err != nil {
+			if err := c.Client.DynamicClient().Apply(ctx, manifest, c.FieldManager, kube.Force(true)); err != nil {
 				return nil, err
 			}
 		}
@@ -300,6 +350,7 @@ func (c *ChartReconciler) installOrUpgrade(
 		Namespace: release.Namespace,
 		Chart:     desiredRelease.Chart,
 		Values:    desiredRelease.Values,
+		Patches:   desiredRelease.Patches,
 		CRDs:      desiredRelease.CRDs,
 		Version:   release.Version,
 	}, nil
@@ -335,6 +386,11 @@ func (c *ChartReconciler) diff(
 	upgrade.Wait = false
 	upgrade.Namespace = releaseDeclaration.Namespace
 	upgrade.DryRun = true
+	if releaseDeclaration.Patches != nil {
+		upgrade.PostRenderer = &PostRenderer{
+			Patches: releaseDeclaration.Patches,
+		}
+	}
 
 	release, err := upgrade.Run(releaseDeclaration.Name, loadedChart, releaseDeclaration.Values)
 	if err != nil {
@@ -410,18 +466,17 @@ func (c *ChartReconciler) diff(
 	}
 	defer contentReader.Close()
 
-	storedRelease := Release{}
-	if err := json.NewDecoder(contentReader).Decode(&storedRelease); err != nil {
+	contentBytes, err := io.ReadAll(contentReader)
+	if err != nil {
 		return nil, err
 	}
 
-	if isEqual := cmp.Equal(releaseDeclaration, ReleaseDeclaration{
-		Name:      storedRelease.Name,
-		Namespace: storedRelease.Namespace,
-		Chart:     storedRelease.Chart,
-		CRDs:      storedRelease.CRDs,
-		Values:    storedRelease.Values,
-	}); isEqual {
+	releaseBuf := &bytes.Buffer{}
+	if err := json.NewEncoder(releaseBuf).Encode(releaseDeclaration); err != nil {
+		return nil, err
+	}
+
+	if bytes.Equal(releaseBuf.Bytes(), contentBytes) {
 		return &drift{
 			driftType: none,
 		}, nil
@@ -454,7 +509,8 @@ func (c *ChartReconciler) diffManifest(
 		newManifest.SetNamespace(namespace)
 	}
 
-	obj, err := c.Client.Get(ctx, newManifest)
+	dynClient := c.Client.DynamicClient()
+	obj, err := dynClient.Get(ctx, newManifest)
 	if err != nil {
 		switch k8sErrors.ReasonForError(err) {
 		case v1.StatusReasonNotFound:
@@ -473,7 +529,7 @@ func (c *ChartReconciler) diffManifest(
 		}, nil
 	}
 
-	if err := c.Client.Apply(ctx, newManifest, c.FieldManager, kube.DryRun(true)); err != nil {
+	if err := dynClient.Apply(ctx, newManifest, c.FieldManager, kube.DryRun(true)); err != nil {
 		switch k8sErrors.ReasonForError(err) {
 		case v1.StatusReasonUnknown:
 			return nil, err
@@ -546,12 +602,18 @@ func (c *ChartReconciler) install(
 	log := ctx.Value(logKey{}).(*logr.Logger)
 
 	helmConfig := ctx.Value(configKey{}).(*action.Configuration)
+
 	install := action.NewInstall(helmConfig)
 	install.PlainHTTP = c.PlainHTTP
 	install.Wait = false
 	install.ReleaseName = desiredRelease.Name
 	install.CreateNamespace = true
 	install.Namespace = desiredRelease.Namespace
+	if desiredRelease.Patches != nil {
+		install.PostRenderer = &PostRenderer{
+			Patches: desiredRelease.Patches,
+		}
+	}
 
 	log.V(1).Info("Installing chart")
 
@@ -566,6 +628,7 @@ func (c *ChartReconciler) install(
 		Namespace: release.Namespace,
 		Chart:     desiredRelease.Chart,
 		Values:    desiredRelease.Values,
+		Patches:   desiredRelease.Patches,
 		CRDs:      desiredRelease.CRDs,
 		Version:   release.Version,
 	}, nil
@@ -722,7 +785,7 @@ func (c *ChartReconciler) readCredentialsFromSecret(
 	secretReq.SetAPIVersion("v1")
 	secretReq.SetName(chartRequest.Auth.SecretRef.Name)
 	secretReq.SetNamespace(chartRequest.Auth.SecretRef.Namespace)
-	secret, err := c.Client.Get(ctx, secretReq)
+	secret, err := c.Client.DynamicClient().Get(ctx, secretReq)
 	if err != nil {
 		return nil, err
 	}
@@ -820,4 +883,187 @@ func (hr ReleaseMetadata) Namespace() string {
 // ComponentID is a link to the component this release belongs to.
 func (hr ReleaseMetadata) ComponentID() string {
 	return hr.componentID
+}
+
+type PostRenderer struct {
+	Patches *Patches
+}
+
+func (pr *PostRenderer) Run(
+	renderedManifests *bytes.Buffer,
+) (modifiedManifests *bytes.Buffer, err error) {
+	dec := yaml.NewDecoder(renderedManifests)
+	modifiedManifests = &bytes.Buffer{}
+	enc := yaml.NewEncoder(modifiedManifests)
+
+	for {
+		var renderedUnstrObj map[string]any
+		if err := dec.Decode(&renderedUnstrObj); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		renderedunstr := unstructured.Unstructured{
+			Object: renderedUnstrObj,
+		}
+
+		patchedExtendedUnstr := pr.Patches.Get(
+			renderedunstr.GetName(),
+			renderedunstr.GetNamespace(),
+			v1.TypeMeta{
+				APIVersion: renderedunstr.GetAPIVersion(),
+				Kind:       renderedunstr.GetKind(),
+			},
+		)
+
+		if patchedExtendedUnstr != nil {
+			mergeMaps(renderedUnstrObj, patchedExtendedUnstr.Object)
+		}
+
+		if err := enc.Encode(renderedUnstrObj); err != nil {
+			return nil, err
+		}
+	}
+
+	return
+}
+
+var _ postrender.PostRenderer = (*PostRenderer)(nil)
+
+func mergeMaps(dst map[string]any, src map[string]any) {
+	for srcKey, srcValue := range src {
+		dstValue, dstKeyFound := dst[srcKey]
+		if srcValueMap, ok := srcValue.(map[string]any); ok && dstKeyFound {
+			if dstValueMap, ok := dstValue.(map[string]any); ok {
+				mergeMaps(dstValueMap, srcValueMap)
+			} else {
+				dst[srcKey] = srcValue
+			}
+		} else {
+			dst[srcKey] = srcValue
+		}
+	}
+}
+
+// Client is a dedicated Kubernetes client for Helm with Server-Side Apply.
+// TODO: remove when Helm supports SSA.
+type Client struct {
+	*helmKube.Client
+	DynamicClient kube.Client[kube.ExtendedUnstructured, unstructured.Unstructured]
+	FieldManager  string
+	Patches       *Patches
+}
+
+var _ helmKube.Interface = (*Client)(nil)
+
+var ErrObjectNotUnstructured = errors.New("Helm object is not of type unstructured.Unstructured")
+
+// taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
+func (c *Client) Create(resources helmKube.ResourceList) (*helmKube.Result, error) {
+	ctx := context.Background()
+	for _, info := range resources {
+		unstr, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return nil, ErrObjectNotUnstructured
+		}
+
+		if err := c.apply(ctx, unstr); err != nil {
+			return nil, err
+		}
+	}
+	return &helmKube.Result{Created: resources}, nil
+}
+
+func (c *Client) apply(ctx context.Context, unstr *unstructured.Unstructured) error {
+	var patch *kube.ExtendedUnstructured
+	if c.Patches != nil {
+		patch = c.Patches.Get(unstr.GetName(), unstr.GetNamespace(), v1.TypeMeta{
+			APIVersion: unstr.GetAPIVersion(),
+			Kind:       unstr.GetKind(),
+		})
+	}
+
+	extendedUnstr := &kube.ExtendedUnstructured{}
+	if patch != nil {
+		extendedUnstr.Metadata = patch.Metadata
+		extendedUnstr.AttributeInfo = patch.AttributeInfo
+	}
+	extendedUnstr.Unstructured = unstr
+
+	if err := c.DynamicClient.Apply(ctx, extendedUnstr, c.FieldManager); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var metadataAccessor = meta.NewAccessor()
+
+// taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
+func (c *Client) Update(
+	original helmKube.ResourceList,
+	target helmKube.ResourceList,
+	force bool,
+) (*helmKube.Result, error) {
+	ctx := context.Background()
+	res := &helmKube.Result{}
+	err := target.Visit(func(info *resource.Info, err error) error {
+		unstr, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return ErrObjectNotUnstructured
+		}
+
+		// Append the created resource to the results, even if something fails
+		res.Created = append(res.Created, info)
+		if err := c.apply(ctx, unstr); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return res, err
+	}
+	for _, info := range original.Difference(target) {
+		c.Log(
+			"Deleting %s %q in namespace %s...",
+			info.Mapping.GroupVersionKind.Kind,
+			info.Name,
+			info.Namespace,
+		)
+
+		if err := info.Get(); err != nil {
+			c.Log("Unable to get obj %q, err: %s", info.Name, err)
+			continue
+		}
+		annotations, err := metadataAccessor.Annotations(info.Object)
+		if err != nil {
+			c.Log("Unable to get annotations on %q, err: %s", info.Name, err)
+		}
+		if annotations != nil && annotations[helmKube.ResourcePolicyAnno] == helmKube.KeepPolicy {
+			c.Log(
+				"Skipping delete of %q due to annotation [%s=%s]",
+				info.Name,
+				helmKube.ResourcePolicyAnno,
+				helmKube.KeepPolicy,
+			)
+			continue
+		}
+		if err := c.deleteResource(info, v1.DeletePropagationBackground); err != nil {
+			c.Log("Failed to delete %q, err: %s", info.ObjectName(), err)
+			continue
+		}
+		res.Deleted = append(res.Deleted, info)
+	}
+	return res, nil
+}
+
+func (c *Client) deleteResource(info *resource.Info, policy v1.DeletionPropagation) error {
+	opts := &v1.DeleteOptions{PropagationPolicy: &policy}
+	_, err := resource.NewHelper(info.Client, info.Mapping).
+		WithFieldManager(c.FieldManager).
+		DeleteWithOptions(info.Namespace, info.Name, opts)
+	return err
 }

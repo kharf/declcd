@@ -39,7 +39,7 @@ import (
 type Environment struct {
 	ControlPlane          *envtest.Environment
 	TestKubeClient        client.Client
-	DynamicTestKubeClient *kube.DynamicClient
+	DynamicTestKubeClient *kube.ExtendedDynamicClient
 	RepositoryManager     vcs.RepositoryManager
 	Ctx                   context.Context
 	clean                 func()
@@ -119,7 +119,7 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 		t.Fatal(err)
 	}
 
-	client, err := kube.NewDynamicClient(testEnv.Config)
+	client, err := kube.NewExtendedDynamicClient(testEnv.Config)
 	assert.NilError(t, err)
 
 	nsStr := "test"
@@ -161,7 +161,7 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		assert.NilError(t, err)
 	}
 
-	repositoryManger := vcs.NewRepositoryManager("test", client, log)
+	repositoryManger := vcs.NewRepositoryManager("test", client.DynamicClient(), log)
 
 	return &Environment{
 		ControlPlane:          testEnv,
@@ -182,7 +182,7 @@ type FakeDynamicClient struct {
 	Err error
 }
 
-var _ kube.Client[unstructured.Unstructured] = (*FakeDynamicClient)(nil)
+var _ kube.Client[unstructured.Unstructured, unstructured.Unstructured] = (*FakeDynamicClient)(nil)
 
 func (client *FakeDynamicClient) Apply(
 	ctx context.Context,
