@@ -32,6 +32,7 @@ import (
 	"github.com/otiai10/copy"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
+	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
@@ -100,6 +101,7 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 		Level:       zapcore.Level(-1),
 	}
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	ctrl.SetLogger(log)
 
 	testRoot, err := os.MkdirTemp("", "declcd-*")
 	assert.NilError(t, err)

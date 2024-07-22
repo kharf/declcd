@@ -11,3 +11,10 @@ deployment: component.#Manifest & {
 	]
 	content: _deployment
 }
+
+anotherDeployment: component.#Manifest & {
+	dependencies: [
+		prometheus.ns.id,
+	]
+	content: _anotherDeployment
+}

@@ -56,11 +56,9 @@ func RunWith(steps ...step) error {
 	defer client.Close()
 	goCache := client.CacheVolume("go")
 	base := client.Container().
-		From("golang:1.22.5-alpine").
-		WithExec([]string{"apk", "add", "--no-cache", "git"}).
-		WithExec([]string{"apk", "add", "--no-cache", "openssh-client"}).
-		WithExec([]string{"apk", "add", "--no-cache", "curl"}).
-		WithExec([]string{"apk", "add", "--no-cache", "docker"}).
+		From("golang:1.22.5").
+		WithExec([]string{"apt-get", "update"}).
+		WithExec([]string{"apt-get", "install", "-y", "docker.io"}).
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
 			Include: []string{
 				".git",

@@ -46,11 +46,6 @@ func NewManager(componentBuilder component.Builder, log logr.Logger, workerPoolS
 	}
 }
 
-type instanceResult struct {
-	instances []component.Instance
-	err       error
-}
-
 // Load uses a given path to a project and returns the components as a directed acyclic dependency graph.
 func (manager *Manager) Load(
 	projectPath string,
@@ -59,77 +54,100 @@ func (manager *Manager) Load(
 	if _, err := os.Stat(projectPath); errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-	resultChan := make(chan instanceResult)
-	go func() {
-		defer close(resultChan)
-		eg := errgroup.Group{}
-		eg.SetLimit(manager.workerPoolSize)
-		err := filepath.WalkDir(
-			projectPath,
-			func(path string, dirEntry fs.DirEntry, err error) error {
-				if err != nil {
-					return err
+
+	producerEg := &errgroup.Group{}
+	producerEg.SetLimit(manager.workerPoolSize)
+
+	resultChan := make(chan *component.DependencyGraph, 1)
+	packageChan := make(chan string, 250)
+
+	consumerEg := &errgroup.Group{}
+	consumerEg.Go(func() error {
+		dag := component.NewDependencyGraph()
+		for packagePath := range packageChan {
+			instances, err := manager.componentBuilder.Build(
+				component.WithProjectRoot(projectPath),
+				component.WithPackagePath(packagePath),
+			)
+			if err != nil {
+				return err
+			}
+
+			if err := dag.Insert(instances...); err != nil {
+				return fmt.Errorf("%w: %w", ErrLoadProject, err)
+			}
+		}
+
+		resultChan <- &dag
+		return nil
+	})
+
+	if err := walkDir(projectPath, producerEg, packageChan); err != nil {
+		return nil, err
+	}
+
+	if err := producerEg.Wait(); err != nil {
+		return nil, err
+	}
+	close(packageChan)
+
+	if err := consumerEg.Wait(); err != nil {
+		return nil, err
+	}
+
+	dag := <-resultChan
+
+	return dag, nil
+}
+
+func walkDir(projectPath string, packageGroup *errgroup.Group, packageChan chan<- string) error {
+	err := filepath.WalkDir(
+		projectPath,
+		func(path string, dirEntry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if dirEntry.IsDir() {
+				// TODO implement a dynamic way for ignoring directories
+				if path == filepath.Join(projectPath, "cue.mod") ||
+					path == filepath.Join(projectPath, ".git") {
+					return filepath.SkipDir
 				}
-				if dirEntry.IsDir() {
-					// TODO implement a dynamic way for ignoring directories
-					if path == filepath.Join(projectPath, "cue.mod") ||
-						path == filepath.Join(projectPath, ".git") {
-						return filepath.SkipDir
-					}
+
+				packageGroup.Go(func() error {
 					hasCUE := false
 					entries, err := os.ReadDir(path)
 					if err != nil {
 						return err
 					}
+
 					for _, entry := range entries {
 						if strings.HasSuffix(entry.Name(), ".cue") {
 							hasCUE = true
 							break
 						}
 					}
+
 					if !hasCUE {
 						return nil
 					}
+
 					relativePath, err := filepath.Rel(projectPath, path)
 					if err != nil {
 						return err
 					}
-					eg.Go(func() error {
-						instances, err := manager.componentBuilder.Build(
-							component.WithProjectRoot(projectPath),
-							component.WithPackagePath(relativePath),
-						)
-						if err != nil {
-							return err
-						}
-						resultChan <- instanceResult{
-							instances: instances,
-						}
-						return nil
-					})
-				}
+
+					packageChan <- relativePath
+					return nil
+				})
+
 				return nil
-			},
-		)
-		if err := eg.Wait(); err != nil {
-			resultChan <- instanceResult{
-				err: err,
 			}
-		}
-		if err != nil {
-			resultChan <- instanceResult{
-				err: err,
-			}
-		}
-	}()
-	dag := component.NewDependencyGraph()
-	for result := range resultChan {
-		if result.err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrLoadProject, result.err)
-		}
-		if err := dag.Insert(result.instances...); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrLoadProject, err)
-		}
-	}
-	return &dag, nil
+
+			return nil
+		},
+	)
+
+	return err
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
+	"go.uber.org/goleak"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -53,9 +54,14 @@ type testCaseContext struct {
 	env               projecttest.Environment
 	inventoryInstance *inventory.Instance
 	collector         garbage.Collector
+	chartReconciler   helm.ChartReconciler
 }
 
 func TestCollector_Collect(t *testing.T) {
+	defer goleak.VerifyNone(
+		t,
+	)
+
 	var err error
 	helmEnvironment, err := helmtest.NewHelmEnvironment(
 		helmtest.WithOCI(false),
@@ -134,21 +140,12 @@ func TestCollector_Collect(t *testing.T) {
 					dag,
 				)
 
-				chartReconciler := helm.ChartReconciler{
-					KubeConfig:            env.ControlPlane.Config,
-					Client:                env.DynamicTestKubeClient,
-					FieldManager:          "controller",
-					InsecureSkipTLSverify: true,
-					InventoryInstance:     inventoryInstance,
-					Log:                   env.Log,
-				}
-
 				prepareHelmReleases(
 					ctx,
 					t,
 					helmEnvironment,
 					invHelmReleases,
-					chartReconciler,
+					context.chartReconciler,
 					inventoryInstance,
 					dag,
 				)
@@ -156,9 +153,10 @@ func TestCollector_Collect(t *testing.T) {
 				storage, err := inventoryInstance.Load()
 				assert.NilError(t, err)
 
+				dynClient := env.DynamicTestKubeClient.DynamicClient()
 				assertItems(t, invManifests, invHelmReleases, storage)
 				assertRunningAll := func(t *testing.T) {
-					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					assertRunning(ctx, t, dynClient, &unstructured.Unstructured{
 						Object: map[string]interface{}{
 							"apiVersion": "apps/v1",
 							"kind":       "Deployment",
@@ -169,7 +167,7 @@ func TestCollector_Collect(t *testing.T) {
 						},
 					})
 
-					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					assertRunning(ctx, t, dynClient, &unstructured.Unstructured{
 						Object: map[string]interface{}{
 							"apiVersion": "apps/v1",
 							"kind":       "Deployment",
@@ -180,7 +178,7 @@ func TestCollector_Collect(t *testing.T) {
 						},
 					})
 
-					assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+					assertRunning(ctx, t, dynClient, &unstructured.Unstructured{
 						Object: map[string]interface{}{
 							"apiVersion": "apps/v1",
 							"kind":       "Deployment",
@@ -214,7 +212,7 @@ func TestCollector_Collect(t *testing.T) {
 				err = context.collector.Collect(ctx, &dag)
 				assert.NilError(t, err)
 
-				assertRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+				assertRunning(ctx, t, dynClient, &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
 						"kind":       "Deployment",
@@ -225,7 +223,7 @@ func TestCollector_Collect(t *testing.T) {
 					},
 				})
 
-				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+				assertNotRunning(ctx, t, dynClient, &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
 						"kind":       "Deployment",
@@ -236,7 +234,7 @@ func TestCollector_Collect(t *testing.T) {
 					},
 				})
 
-				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+				assertNotRunning(ctx, t, dynClient, &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
 						"kind":       "Deployment",
@@ -269,9 +267,11 @@ func TestCollector_Collect(t *testing.T) {
 				obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(depA))
 				assert.NilError(t, err)
 				unstr := &unstructured.Unstructured{Object: obj}
-				assertRunning(ctx, t, env.DynamicTestKubeClient, unstr)
 
-				err = env.DynamicTestKubeClient.Delete(ctx, unstr)
+				dynClient := env.DynamicTestKubeClient.DynamicClient()
+				assertRunning(ctx, t, dynClient, unstr)
+
+				err = dynClient.Delete(ctx, unstr)
 				assert.NilError(t, err)
 
 				storage, err = inventoryInstance.Load()
@@ -284,7 +284,7 @@ func TestCollector_Collect(t *testing.T) {
 				storage, err = inventoryInstance.Load()
 				assert.NilError(t, err)
 
-				assertNotRunning(ctx, t, env.DynamicTestKubeClient, &unstructured.Unstructured{
+				assertNotRunning(ctx, t, dynClient, &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
 						"kind":       "Deployment",
@@ -309,10 +309,19 @@ func TestCollector_Collect(t *testing.T) {
 				Path: filepath.Join(env.TestRoot, "inventory"),
 			}
 
+			chartReconciler := helm.ChartReconciler{
+				KubeConfig:            env.ControlPlane.Config,
+				Client:                env.DynamicTestKubeClient,
+				FieldManager:          "controller",
+				InsecureSkipTLSverify: true,
+				InventoryInstance:     inventoryInstance,
+				Log:                   env.Log,
+			}
+
 			collector := garbage.Collector{
 				Log:               env.Log,
-				Client:            env.DynamicTestKubeClient,
-				KubeConfig:        env.ControlPlane.Config,
+				Client:            env.DynamicTestKubeClient.DynamicClient(),
+				ChartReconciler:   chartReconciler,
 				InventoryInstance: inventoryInstance,
 				WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
 			}
@@ -323,6 +332,7 @@ func TestCollector_Collect(t *testing.T) {
 				env:               env,
 				inventoryInstance: inventoryInstance,
 				collector:         collector,
+				chartReconciler:   chartReconciler,
 			})
 		})
 	}
@@ -433,7 +443,7 @@ func prepareManifests(
 	for _, im := range invManifests {
 		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
-		err = env.DynamicTestKubeClient.Apply(ctx, &unstr, "test")
+		err = env.DynamicTestKubeClient.DynamicClient().Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
 		buf := &bytes.Buffer{}
 		json.NewEncoder(buf).Encode(unstr.Object)
@@ -443,7 +453,7 @@ func prepareManifests(
 			&component.Manifest{
 				ID:           im.ID,
 				Dependencies: []string{},
-				Content:      unstr,
+				Content:      component.ExtendedUnstructured{Unstructured: &unstr},
 			},
 		)
 	}

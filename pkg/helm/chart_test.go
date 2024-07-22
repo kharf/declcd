@@ -15,9 +15,11 @@
 package helm_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,6 +30,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -73,7 +76,7 @@ type assertFunc func(t *testing.T, env *kubetest.Environment, inventoryInstance 
 func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
 	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 		assert.NilError(t, reconcileErr)
-		assertChartv1(t, env, liveName, namespace)
+		assertChartv1(t, env, liveName, namespace, 1)
 		assert.Equal(t, actualRelease.Version, 1)
 		assert.Equal(t, actualRelease.Name, release.Name)
 		assert.Equal(t, actualRelease.Namespace, release.Namespace)
@@ -85,10 +88,40 @@ func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
 		})
 		defer contentReader.Close()
 
-		storedRelease := helm.Release{}
-		err = json.NewDecoder(contentReader).Decode(&storedRelease)
+		storedBytes, err := io.ReadAll(contentReader)
 		assert.NilError(t, err)
-		assert.DeepEqual(t, storedRelease, release)
+
+		desiredBuf := &bytes.Buffer{}
+		err = json.NewEncoder(desiredBuf).Encode(release)
+		assert.NilError(t, err)
+
+		assert.Equal(t, string(storedBytes), desiredBuf.String())
+	}
+}
+
+func defaultPatchesAssertionFunc(release ReleaseDeclaration) assertFunc {
+	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
+		assert.NilError(t, reconcileErr)
+		assertChartv1Patches(t, env, liveName, namespace)
+		assert.Equal(t, actualRelease.Version, 1)
+		assert.Equal(t, actualRelease.Name, release.Name)
+		assert.Equal(t, actualRelease.Namespace, release.Namespace)
+
+		contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+			Name:      release.Name,
+			Namespace: release.Namespace,
+			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+		})
+		defer contentReader.Close()
+
+		storedBytes, err := io.ReadAll(contentReader)
+		assert.NilError(t, err)
+
+		desiredBuf := &bytes.Buffer{}
+		err = json.NewEncoder(desiredBuf).Encode(release)
+		assert.NilError(t, err)
+
+		assert.Equal(t, string(storedBytes), desiredBuf.String())
 	}
 }
 
@@ -191,7 +224,9 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						"autoscaling": map[string]interface{}{
 							"enabled": true,
 						},
-					})
+					},
+					nil,
+				)
 
 				return testCaseContext{
 					releaseDeclaration: release,
@@ -229,6 +264,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -254,6 +290,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -282,6 +319,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -304,6 +342,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -330,6 +369,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -359,6 +399,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -383,6 +424,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -410,6 +452,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -435,6 +478,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -460,6 +504,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -481,6 +526,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -508,6 +554,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -554,8 +601,107 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					context.environment.Environment,
 					actualRelease.Name,
 					actualRelease.Namespace,
+					1,
 				)
 				assert.Equal(t, actualRelease.Version, 2)
+			},
+		},
+		{
+			name: "Install-Patches",
+			setup: func() testCaseContext {
+				release := createReleaseDeclaration(
+					"default",
+					publicHelmEnvironment.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					false,
+					Values{},
+					&helm.Patches{
+						Unstructureds: map[string]kube.ExtendedUnstructured{
+							"v1-Service-default-test": {
+								Unstructured: &unstructured.Unstructured{
+									Object: map[string]interface{}{
+										"apiVersion": "v1",
+										"kind":       "Service",
+										"metadata": map[string]any{
+											"name":      "test",
+											"namespace": "default",
+										},
+										"spec": map[string]any{
+											"type": "NodePort",
+										},
+									},
+								},
+							},
+							"apps/v1-Deployment-default-test": {
+								Unstructured: &unstructured.Unstructured{
+									Object: map[string]interface{}{
+										"apiVersion": "apps/v1",
+										"kind":       "Deployment",
+										"metadata": map[string]any{
+											"name": "test",
+										},
+										"spec": map[string]any{
+											"replicas": int64(2),
+											"template": map[string]any{
+												"spec": map[string]any{
+													"containers": []any{
+														map[string]any{
+															"name":  "prometheus",
+															"image": "prometheus:1.14.2",
+															"ports": []any{
+																map[string]any{
+																	"containerPort": int64(
+																		80,
+																	),
+																},
+															},
+														},
+														map[string]any{
+															"name":  "sidecar",
+															"image": "sidecar:1.14.2",
+															"ports": []any{
+																map[string]any{
+																	"containerPort": int64(
+																		80,
+																	),
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+								Metadata: &kube.ManifestMetadataNode{
+									"spec": &kube.ManifestMetadataNode{
+										"replicas": &kube.ManifestFieldMetadata{
+											IgnoreAttr: kube.OnConflict,
+										},
+										"template": &kube.ManifestMetadataNode{
+											"spec": &kube.ManifestMetadataNode{
+												"containers": &kube.ManifestFieldMetadata{
+													IgnoreAttr: kube.OnConflict,
+												},
+											},
+										},
+									},
+								},
+								AttributeInfo: kube.ManifestAttributeInfo{
+									HasIgnoreConflictAttributes: true,
+								},
+							},
+						},
+					})
+
+				return testCaseContext{
+					releaseDeclaration: release,
+					chartServer:        publicHelmEnvironment.ChartServer,
+					assertFunc:         defaultPatchesAssertionFunc(release),
+				}
+			},
+			postRun: func(context testCaseContext) {
 			},
 		},
 		{
@@ -568,6 +714,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -617,6 +764,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					true,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -666,6 +814,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -715,6 +864,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					true,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -743,12 +893,13 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					context.environment.Environment,
 					actualRelease.Name,
 					actualRelease.Namespace,
+					1,
 				)
 				assert.Equal(t, actualRelease.Version, 1)
 			},
 		},
 		{
-			name: "Conflict",
+			name: "Conflicts",
 			setup: func() testCaseContext {
 				release := createReleaseDeclaration(
 					"default",
@@ -757,6 +908,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -780,7 +932,96 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					},
 				}
 
-				err := context.environment.DynamicTestKubeClient.Apply(
+				err := context.environment.DynamicTestKubeClient.DynamicClient().Apply(
+					context.environment.Ctx,
+					&unstr,
+					"imposter",
+					kube.Force(true),
+				)
+				assert.NilError(t, err)
+
+				_, err = context.chartReconciler.Reconcile(
+					context.environment.Ctx,
+					&helm.ReleaseComponent{
+						ID: fmt.Sprintf(
+							"%s_%s_%s",
+							context.releaseDeclaration.Name,
+							context.releaseDeclaration.Namespace,
+							"HelmRelease",
+						),
+						Content: context.releaseDeclaration,
+					},
+				)
+				assert.Error(
+					t,
+					err,
+					"Apply failed with 1 conflict: conflict with \"imposter\": .spec.replicas",
+				)
+			},
+		},
+		{
+			name: "Ignore-Conflicts",
+			setup: func() testCaseContext {
+				release := createReleaseDeclaration(
+					"default",
+					publicHelmEnvironment.ChartServer.URL(),
+					"1.0.0",
+					nil,
+					false,
+					Values{},
+					&helm.Patches{
+						Unstructureds: map[string]kube.ExtendedUnstructured{
+							"apps/v1-Deployment-default-test": {
+								Unstructured: &unstructured.Unstructured{
+									Object: map[string]interface{}{
+										"apiVersion": "apps/v1",
+										"kind":       "Deployment",
+										"metadata": map[string]any{
+											"name":      "test",
+											"namespace": "default",
+										},
+										"spec": map[string]any{
+											"replicas": int64(1),
+										},
+									},
+								},
+								Metadata: &kube.ManifestMetadataNode{
+									"spec": &kube.ManifestMetadataNode{
+										"replicas": &kube.ManifestFieldMetadata{
+											IgnoreAttr: kube.OnConflict,
+										},
+									},
+								},
+								AttributeInfo: kube.ManifestAttributeInfo{
+									HasIgnoreConflictAttributes: true,
+								},
+							},
+						},
+					},
+				)
+
+				return testCaseContext{
+					releaseDeclaration: release,
+					chartServer:        publicHelmEnvironment.ChartServer,
+					assertFunc:         defaultAssertionFunc(release),
+				}
+			},
+			postRun: func(context testCaseContext) {
+				unstr := unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "apps/v1",
+						"kind":       "Deployment",
+						"metadata": map[string]interface{}{
+							"name":      "test",
+							"namespace": "default",
+						},
+						"spec": map[string]interface{}{
+							"replicas": 2,
+						},
+					},
+				}
+
+				err := context.environment.DynamicTestKubeClient.DynamicClient().Apply(
 					context.environment.Ctx,
 					&unstr,
 					"imposter",
@@ -807,6 +1048,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					context.environment.Environment,
 					actualRelease.Name,
 					actualRelease.Namespace,
+					2,
 				)
 				assert.Equal(t, actualRelease.Version, 2)
 			},
@@ -821,6 +1063,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -862,6 +1105,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					context.environment.Environment,
 					actualRelease.Name,
 					actualRelease.Namespace,
+					1,
 				)
 				assert.Equal(t, actualRelease.Version, 2)
 			},
@@ -876,6 +1120,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					nil,
 					false,
 					Values{},
+					nil,
 				)
 
 				return testCaseContext{
@@ -915,6 +1160,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 					context.environment.Environment,
 					actualRelease.Name,
 					actualRelease.Namespace,
+					1,
 				)
 				assert.Equal(t, actualRelease.Version, 1)
 			},
@@ -965,7 +1211,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 			ns.SetKind("Namespace")
 			ns.SetName(context.releaseDeclaration.Namespace)
 
-			err = context.environment.DynamicTestKubeClient.Apply(
+			err = context.environment.DynamicTestKubeClient.DynamicClient().Apply(
 				context.environment.Ctx,
 				ns,
 				"controller",
@@ -1020,7 +1266,7 @@ func applyRepoAuthSecret(
 			},
 		},
 	}
-	err := env.DynamicTestKubeClient.Apply(
+	err := env.DynamicTestKubeClient.DynamicClient().Apply(
 		env.Ctx,
 		&unstr,
 		"charttest",
@@ -1035,6 +1281,7 @@ func createReleaseDeclaration(
 	auth *Auth,
 	allowUpgrade bool,
 	values Values,
+	patches *Patches,
 ) ReleaseDeclaration {
 	release := helm.ReleaseDeclaration{
 		Name:      "test",
@@ -1048,12 +1295,19 @@ func createReleaseDeclaration(
 			Version: version,
 			Auth:    auth,
 		},
-		Values: values,
+		Values:  values,
+		Patches: patches,
 	}
 	return release
 }
 
-func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
+func assertChartv1(
+	t *testing.T,
+	env *kubetest.Environment,
+	liveName string,
+	namespace string,
+	replicas int32,
+) {
 	ctx := context.Background()
 	var deployment appsv1.Deployment
 	err := env.TestKubeClient.Get(
@@ -1062,8 +1316,117 @@ func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, nam
 		&deployment,
 	)
 	assert.NilError(t, err)
-	assert.Equal(t, deployment.Name, liveName)
-	assert.Equal(t, deployment.Namespace, namespace)
+
+	gracePeriodSeconds := int64(30)
+	historyLimit := int32(10)
+	progressDeadlineSeconds := int32(600)
+	expectedDeployment := appsv1.Deployment{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "test",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":   "test",
+				"app.kubernetes.io/managed-by": "Helm",
+				"app.kubernetes.io/name":       "test",
+				"app.kubernetes.io/version":    "1.16.0",
+				"helm.sh/chart":                "test-1.0.0",
+			},
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      "test",
+				"meta.helm.sh/release-namespace": namespace,
+			},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &v1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app.kubernetes.io/instance": "test",
+					"app.kubernetes.io/name":     "test",
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io/instance": "test",
+						"app.kubernetes.io/name":     "test",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "test",
+							Image: "nginx:1.16.0",
+							LivenessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/",
+										Port: intstr.IntOrString{
+											Type:   intstr.String,
+											StrVal: "http",
+										},
+										Scheme: corev1.URISchemeHTTP,
+									},
+								},
+								InitialDelaySeconds: 0,
+								TimeoutSeconds:      1,
+								PeriodSeconds:       10,
+								SuccessThreshold:    1,
+								FailureThreshold:    3,
+							},
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/",
+										Port: intstr.IntOrString{
+											Type:   intstr.String,
+											StrVal: "http",
+										},
+										Scheme: corev1.URISchemeHTTP,
+									},
+								},
+								InitialDelaySeconds: 0,
+								TimeoutSeconds:      1,
+								PeriodSeconds:       10,
+								SuccessThreshold:    1,
+								FailureThreshold:    3,
+							},
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "http",
+									ContainerPort: int32(80),
+									Protocol:      "TCP",
+								},
+							},
+							TerminationMessagePath:   "/dev/termination-log",
+							TerminationMessagePolicy: "File",
+							ImagePullPolicy:          "IfNotPresent",
+							SecurityContext:          &corev1.SecurityContext{},
+						},
+					},
+					SecurityContext:               &corev1.PodSecurityContext{},
+					RestartPolicy:                 corev1.RestartPolicyAlways,
+					TerminationGracePeriodSeconds: &gracePeriodSeconds,
+					DNSPolicy:                     "ClusterFirst",
+					ServiceAccountName:            "test",
+					DeprecatedServiceAccount:      "test",
+					SchedulerName:                 "default-scheduler",
+				},
+			},
+			Strategy: appsv1.DeploymentStrategy{
+				Type: "RollingUpdate",
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "25%"},
+					MaxSurge:       &intstr.IntOrString{Type: intstr.String, StrVal: "25%"},
+				},
+			},
+			MinReadySeconds:         0,
+			RevisionHistoryLimit:    &historyLimit,
+			Paused:                  false,
+			ProgressDeadlineSeconds: &progressDeadlineSeconds,
+		},
+	}
+
+	EqualDeployment(t, deployment, expectedDeployment)
 
 	var svc corev1.Service
 	err = env.TestKubeClient.Get(
@@ -1074,6 +1437,7 @@ func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, nam
 	assert.NilError(t, err)
 	assert.Equal(t, svc.Name, liveName)
 	assert.Equal(t, svc.Namespace, namespace)
+	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP)
 
 	var svcAcc corev1.ServiceAccount
 	err = env.TestKubeClient.Get(
@@ -1084,7 +1448,148 @@ func assertChartv1(t *testing.T, env *kubetest.Environment, liveName string, nam
 	assert.NilError(t, err)
 	assert.Equal(t, svcAcc.Name, liveName)
 	assert.Equal(t, svcAcc.Namespace, namespace)
-	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient)
+	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient.DynamicClient())
+}
+
+func assertChartv1Patches(
+	t *testing.T,
+	env *kubetest.Environment,
+	liveName string,
+	namespace string,
+) {
+	ctx := context.Background()
+	var deployment appsv1.Deployment
+	err := env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&deployment,
+	)
+	assert.NilError(t, err)
+
+	expectedReplicas := int32(2)
+	gracePeriodSeconds := int64(30)
+	historyLimit := int32(10)
+	progressDeadlineSeconds := int32(600)
+	expectedDeployment := appsv1.Deployment{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+			Labels: map[string]string{
+				"app.kubernetes.io/instance":   "test",
+				"app.kubernetes.io/managed-by": "Helm",
+				"app.kubernetes.io/name":       "test",
+				"app.kubernetes.io/version":    "1.16.0",
+				"helm.sh/chart":                "test-1.0.0",
+			},
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      "test",
+				"meta.helm.sh/release-namespace": "default",
+			},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &expectedReplicas,
+			Selector: &v1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app.kubernetes.io/instance": "test",
+					"app.kubernetes.io/name":     "test",
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						"app.kubernetes.io/instance": "test",
+						"app.kubernetes.io/name":     "test",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "prometheus",
+							Image: "prometheus:1.14.2",
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: int32(80),
+									Protocol:      "TCP",
+								},
+							},
+							TerminationMessagePath:   "/dev/termination-log",
+							TerminationMessagePolicy: "File",
+							ImagePullPolicy:          "IfNotPresent",
+						},
+						{
+							Name:  "sidecar",
+							Image: "sidecar:1.14.2",
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: int32(80),
+									Protocol:      "TCP",
+								},
+							},
+							TerminationMessagePath:   "/dev/termination-log",
+							TerminationMessagePolicy: "File",
+							ImagePullPolicy:          "IfNotPresent",
+						},
+					},
+					SecurityContext:               &corev1.PodSecurityContext{},
+					RestartPolicy:                 corev1.RestartPolicyAlways,
+					TerminationGracePeriodSeconds: &gracePeriodSeconds,
+					DNSPolicy:                     "ClusterFirst",
+					ServiceAccountName:            "test",
+					DeprecatedServiceAccount:      "test",
+					SchedulerName:                 "default-scheduler",
+				},
+			},
+			Strategy: appsv1.DeploymentStrategy{
+				Type: "RollingUpdate",
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "25%"},
+					MaxSurge:       &intstr.IntOrString{Type: intstr.String, StrVal: "25%"},
+				},
+			},
+			MinReadySeconds:         0,
+			RevisionHistoryLimit:    &historyLimit,
+			Paused:                  false,
+			ProgressDeadlineSeconds: &progressDeadlineSeconds,
+		},
+	}
+
+	EqualDeployment(t, deployment, expectedDeployment)
+
+	var svc corev1.Service
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svc,
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, svc.Name, liveName)
+	assert.Equal(t, svc.Namespace, namespace)
+	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeNodePort)
+
+	var svcAcc corev1.ServiceAccount
+	err = env.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: liveName, Namespace: namespace},
+		&svcAcc,
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, svcAcc.Name, liveName)
+	assert.Equal(t, svcAcc.Namespace, namespace)
+	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient.DynamicClient())
+}
+
+func EqualDeployment(
+	t *testing.T,
+	actual appsv1.Deployment,
+	expected appsv1.Deployment,
+) {
+	actual.UID = ""
+	actual.ResourceVersion = ""
+	actual.Generation = 0
+	actual.CreationTimestamp = v1.Time{}
+	actual.ManagedFields = nil
+
+	assert.DeepEqual(t, actual, expected)
 }
 
 func assertCRDNoChanges(t *testing.T, ctx context.Context, dynamicClient *kube.DynamicClient) {
@@ -1148,7 +1653,7 @@ func assertChartv2(t *testing.T, env *kubetest.Environment, liveName string, nam
 		&svcAcc,
 	)
 	assert.Error(t, err, "serviceaccounts \"test\" not found")
-	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient)
+	assertCRDNoChanges(t, ctx, env.DynamicTestKubeClient.DynamicClient())
 }
 
 func assertChartv3(t *testing.T, env *kubetest.Environment, liveName string, namespace string) {
@@ -1185,7 +1690,7 @@ func assertChartv3(t *testing.T, env *kubetest.Environment, liveName string, nam
 		&svcAcc,
 	)
 	assert.Error(t, err, "serviceaccounts \"test\" not found")
-	assertCRDChartv3(t, ctx, env.DynamicTestKubeClient)
+	assertCRDChartv3(t, ctx, env.DynamicTestKubeClient.DynamicClient())
 }
 
 func assertCRDChartv3(t *testing.T, ctx context.Context, dynamicClient *kube.DynamicClient) {
