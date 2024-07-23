@@ -940,7 +940,7 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 				)
 				assert.NilError(t, err)
 
-				_, err = context.chartReconciler.Reconcile(
+				actualRelease, err := context.chartReconciler.Reconcile(
 					context.environment.Ctx,
 					&helm.ReleaseComponent{
 						ID: fmt.Sprintf(
@@ -952,11 +952,16 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 						Content: context.releaseDeclaration,
 					},
 				)
-				assert.Error(
+				assert.NilError(t, err)
+
+				assertChartv1(
 					t,
-					err,
-					"Apply failed with 1 conflict: conflict with \"imposter\": .spec.replicas",
+					context.environment.Environment,
+					actualRelease.Name,
+					actualRelease.Namespace,
+					1,
 				)
+				assert.Equal(t, actualRelease.Version, 2)
 			},
 		},
 		{

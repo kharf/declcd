@@ -560,6 +560,14 @@ func TestReconciler_Reconcile(t *testing.T) {
 				)
 				assert.NilError(t, err)
 
+				var anotherDeployment appsv1.Deployment
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Name: "anothersubcomponent", Namespace: "prometheus"},
+					&anotherDeployment,
+				)
+				assert.NilError(t, err)
+
 				unstr := unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"apiVersion": "apps/v1",
@@ -573,8 +581,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 							"template": map[string]interface{}{
 								"spec": map[string]interface{}{
 									"securityContext": map[string]interface{}{
-										"runAsNonRoot": false,
-										"fsGroup":      0,
+										"runAsNonRoot":        false,
+										"fsGroup":             0,
+										"fsGroupChangePolicy": "Always",
 									},
 								},
 							},
@@ -591,10 +600,31 @@ func TestReconciler_Reconcile(t *testing.T) {
 				assert.NilError(t, err)
 
 				_, err = reconciler.Reconcile(env.Ctx, gProject)
-				assert.Error(
+				assert.NilError(t, err)
+
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Name: "mysubcomponent", Namespace: "prometheus"},
+					&deployment,
+				)
+				assert.NilError(t, err)
+				assert.Equal(t, deployment.Name, "mysubcomponent")
+				assert.Equal(t, deployment.Namespace, "prometheus")
+				assert.Equal(t, *deployment.Spec.Replicas, int32(1))
+				assert.Equal(
 					t,
-					err,
-					"Apply failed with 3 conflicts: conflicts with \"imposter\":\n- .spec.replicas\n- .spec.template.spec.securityContext.fsGroup\n- .spec.template.spec.securityContext.runAsNonRoot",
+					*deployment.Spec.Template.Spec.SecurityContext.RunAsNonRoot,
+					true,
+				)
+				assert.Equal(
+					t,
+					*deployment.Spec.Template.Spec.SecurityContext.FSGroup,
+					int64(65532),
+				)
+				assert.Equal(
+					t,
+					*deployment.Spec.Template.Spec.SecurityContext.FSGroupChangePolicy,
+					corev1.FSGroupChangeOnRootMismatch,
 				)
 			},
 		},
@@ -640,8 +670,9 @@ func TestReconciler_Reconcile(t *testing.T) {
 							"template": map[string]interface{}{
 								"spec": map[string]interface{}{
 									"securityContext": map[string]interface{}{
-										"runAsNonRoot": false,
-										"fsGroup":      0,
+										"runAsNonRoot":        false,
+										"fsGroup":             0,
+										"fsGroupChangePolicy": "Always",
 									},
 								},
 							},
@@ -659,6 +690,31 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 				_, err = reconciler.Reconcile(env.Ctx, gProject)
 				assert.NilError(t, err)
+
+				err = env.TestKubeClient.Get(
+					env.Ctx,
+					types.NamespacedName{Name: "anothersubcomponent", Namespace: "prometheus"},
+					&anotherDeployment,
+				)
+				assert.NilError(t, err)
+				assert.Equal(t, anotherDeployment.Name, "anothersubcomponent")
+				assert.Equal(t, anotherDeployment.Namespace, "prometheus")
+				assert.Equal(t, *anotherDeployment.Spec.Replicas, int32(2))
+				assert.Equal(
+					t,
+					*anotherDeployment.Spec.Template.Spec.SecurityContext.RunAsNonRoot,
+					false,
+				)
+				assert.Equal(
+					t,
+					*anotherDeployment.Spec.Template.Spec.SecurityContext.FSGroup,
+					int64(0),
+				)
+				assert.Equal(
+					t,
+					*anotherDeployment.Spec.Template.Spec.SecurityContext.FSGroupChangePolicy,
+					corev1.FSGroupChangeOnRootMismatch,
+				)
 			},
 		},
 	}

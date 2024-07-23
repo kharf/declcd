@@ -426,20 +426,25 @@ func (e *ExtendedDynamicClient) Apply(
 
 	if err := e.dynamicClient.apply(ctx, obj.Unstructured, fieldManager, applyOptions); err != nil {
 		statusErr, ok := err.(*k8sErrors.StatusError)
-		if ok && statusErr.Status().Reason == v1.StatusReasonConflict &&
-			obj.AttributeInfo.HasIgnoreConflictAttributes {
+		if ok && statusErr.Status().Reason == v1.StatusReasonConflict {
+			if !obj.AttributeInfo.HasIgnoreConflictAttributes && !originalForce {
+				return err
+			}
 
-			causes := statusErr.Status().Details.Causes
+			unstr := obj.Unstructured
+			if obj.AttributeInfo.HasIgnoreConflictAttributes {
+				causes := statusErr.Status().Details.Causes
 
-			unstr := obj.DeepCopy()
+				unstr = obj.DeepCopy()
 
-			for _, cause := range causes {
-				if err := deleteIgnoredFields(cause.Field, unstr.Object, obj.Metadata); err != nil {
-					return err
+				for _, cause := range causes {
+					if err := deleteIgnoredFields(cause.Field, unstr.Object, obj.Metadata); err != nil {
+						return err
+					}
 				}
 			}
 
-			// Retry without ignored fields and force apply.
+			// Retry with original force option.
 			applyOptions.force = originalForce
 			if err := e.dynamicClient.apply(ctx, unstr, fieldManager, applyOptions); err != nil {
 				return err
