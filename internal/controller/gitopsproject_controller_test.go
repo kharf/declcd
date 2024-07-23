@@ -252,6 +252,10 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 							&updatedGitOpsProject,
 						)
 						g.Expect(err).ToNot(HaveOccurred())
+						g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
+						g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
+							To(BeFalse())
+						g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
 					}, duration, assertionInterval).Should(Succeed())
 				},
 			)
@@ -421,6 +425,10 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 						&updatedGitOpsProject,
 					)
 					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(updatedGitOpsProject.Status.Revision.CommitHash).ToNot(BeEmpty())
+					g.Expect(updatedGitOpsProject.Status.Revision.ReconcileTime.IsZero()).
+						To(BeFalse())
+					g.Expect(len(updatedGitOpsProject.Status.Conditions)).To(Equal(2))
 				}, duration, assertionInterval).Should(Succeed())
 
 				Eventually(func() (string, error) {

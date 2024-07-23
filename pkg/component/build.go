@@ -533,9 +533,7 @@ func decodeStruct(
 	}
 
 	if name != "" {
-		if len(childContent) != 0 {
-			content[name] = childContent
-		}
+		content[name] = childContent
 
 		if attrInfo.HasIgnoreConflictAttributes && evaluateMetadata {
 			metadata[name] = &childMetadataNode

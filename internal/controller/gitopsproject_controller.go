@@ -96,8 +96,17 @@ func (controller *GitOpsProjectController) Reconcile(
 		RequeueAfter: time.Duration(gProject.Spec.PullIntervalSeconds) * time.Second,
 	}
 
-	// TODO: reimplement status updates
-	// For whatever reason it throws "not found" for subresource updates
+	gProject.Status.Conditions = make([]v1.Condition, 0, 2)
+	if err := controller.updateCondition(ctx, &gProject, v1.Condition{
+		Type:               "Running",
+		Reason:             "Interval",
+		Message:            "Reconciling",
+		Status:             "True",
+		LastTransitionTime: triggerTime,
+	}); err != nil {
+		log.Error(err, "Unable to update GitOpsProject status condition to 'Running'")
+		return requeueResult, nil
+	}
 
 	result, err := controller.Reconciler.Reconcile(ctx, gProject)
 	if err != nil {
@@ -111,9 +120,15 @@ func (controller *GitOpsProjectController) Reconcile(
 		ReconcileTime: reconciledTime,
 	}
 
-	if err := controller.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
-		log.Error(err, "Unable to fetch GitOpsProject resource from cluster")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if err := controller.updateCondition(ctx, &gProject, v1.Condition{
+		Type:               "Finished",
+		Reason:             "Success",
+		Message:            "Reconciled",
+		Status:             "True",
+		LastTransitionTime: reconciledTime,
+	}); err != nil {
+		log.Error(err, "Unable to update GitOpsProject status")
+		return requeueResult, nil
 	}
 
 	controller.ReconciliationHistogram.With(prometheus.Labels{
@@ -123,6 +138,18 @@ func (controller *GitOpsProjectController) Reconcile(
 
 	log.Info("Reconciling finished")
 	return requeueResult, nil
+}
+
+func (reconciler *GitOpsProjectController) updateCondition(
+	ctx context.Context,
+	gProject *gitops.GitOpsProject,
+	condition v1.Condition,
+) error {
+	gProject.Status.Conditions = append(gProject.Status.Conditions, condition)
+	if err := reconciler.Client.Status().Update(ctx, gProject); err != nil {
+		return err
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
