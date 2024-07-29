@@ -14,7 +14,7 @@ require (
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/google/go-github/v63 v63.0.0
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.7
-	github.com/onsi/ginkgo/v2 v2.19.0
+	github.com/onsi/ginkgo/v2 v2.19.1
 	github.com/onsi/gomega v1.34.0
 	github.com/otiai10/copy v1.14.0
 	github.com/xanzy/go-gitlab v0.107.0
