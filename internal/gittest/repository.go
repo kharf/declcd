@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/kharf/declcd/pkg/vcs"
 	"gotest.tools/v3/assert"
@@ -65,13 +66,18 @@ func (r *LocalGitRepository) CommitNewFile(file string, message string) (string,
 	return r.CommitFile(file, message)
 }
 
-func SetupGitRepository() (*LocalGitRepository, error) {
+func SetupGitRepository(branch string) (*LocalGitRepository, error) {
 	dir, err := os.MkdirTemp("", "")
 	if err != nil {
 		return nil, err
 	}
 	fileName := "test1"
-	r, err := git.PlainInit(dir, false)
+	r, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+		Bare: false,
+		InitOptions: git.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName(branch),
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +95,13 @@ func SetupGitRepository() (*LocalGitRepository, error) {
 	return localRepository, nil
 }
 
-func InitGitRepository(dir string) (*LocalGitRepository, error) {
-	r, err := git.PlainInit(dir, false)
+func InitGitRepository(dir string, branch string) (*LocalGitRepository, error) {
+	r, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+		Bare: false,
+		InitOptions: git.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName(branch),
+		},
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,7 @@
 package vcs_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -34,88 +35,79 @@ import (
 
 func TestRepositoryManager_Load(t *testing.T) {
 	testCases := []struct {
-		name   string
-		pre    func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository)
-		assert bool
+		name         string
+		branch       string
+		remoteBranch string
+		withSecret   bool
+		expectedErr  string
+		post         func(env projecttest.Environment, localRepository string, remoteRepository string)
 	}{
 		{
-			name: "Clone",
-			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
-				env := projecttest.StartProjectEnv(t,
-					projecttest.WithProjectSource("simple"),
-					projecttest.WithKubernetes(
-						kubetest.WithVCSAuthSecretFor("clone"),
-					),
-				)
-				defer env.Stop()
-
-				repository, err := env.RepositoryManager.Load(
-					env.Ctx,
-					remoteRepository.Directory,
-					localRepository,
-					"clone",
-				)
-				assert.NilError(t, err)
-
-				return env, repository
-			},
-			assert: true,
+			name:       "Clone",
+			branch:     "main",
+			withSecret: true,
 		},
 		{
-			name: "Open",
-			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
-				env := projecttest.StartProjectEnv(t,
-					projecttest.WithProjectSource("simple"),
-					projecttest.WithKubernetes(
-						kubetest.WithVCSAuthSecretFor("open"),
-					),
-				)
-				defer env.Stop()
-				repository, err := env.RepositoryManager.Load(
-					env.Ctx,
-					remoteRepository.Directory,
+			name:       "Open",
+			branch:     "main",
+			withSecret: true,
+			post: func(env projecttest.Environment, localRepository string, remoteRepository string) {
+				_, err := env.RepositoryManager.Load(
+					context.Background(),
+					remoteRepository,
+					"main",
 					localRepository,
 					"open",
 				)
 				assert.NilError(t, err)
-				repository, err = env.RepositoryManager.Load(
-					env.Ctx,
-					remoteRepository.Directory,
-					localRepository,
-					"open",
-				)
-				assert.NilError(t, err)
-				return env, repository
 			},
-			assert: true,
 		},
 		{
-			name: "SecretMissing",
-			pre: func(localRepository string, remoteRepository *gittest.LocalGitRepository) (projecttest.Environment, *vcs.Repository) {
-				env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("simple"))
-				defer env.Stop()
-				repository, err := env.RepositoryManager.Load(
-					env.Ctx,
-					remoteRepository.Directory,
-					localRepository,
-					"secret-missing",
-				)
-				assert.NilError(t, err)
-				return env, repository
-			},
-			assert: true,
+			name:         "Branch-Not-Found",
+			branch:       "feature",
+			remoteBranch: "main",
+			withSecret:   true,
+			expectedErr:  "reference not found",
+		},
+		{
+			name:       "No-Secret",
+			branch:     "main",
+			withSecret: false,
 		},
 	}
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			localRepository, err := os.MkdirTemp("", "")
 			assert.NilError(t, err)
 			defer os.RemoveAll(localRepository)
-			remoteRepository, err := gittest.SetupGitRepository()
+			if tc.remoteBranch == "" {
+				tc.remoteBranch = tc.branch
+			}
+			remoteRepository, err := gittest.SetupGitRepository(tc.remoteBranch)
 			assert.NilError(t, err)
 			defer remoteRepository.Clean()
-			_, repository := tc.pre(localRepository, remoteRepository)
-			if tc.assert {
+
+			kubernetesOpts := projecttest.WithKubernetes()
+			if tc.withSecret {
+				kubernetesOpts = append(kubernetesOpts, kubetest.WithVCSAuthSecretFor("test"))
+			}
+			env := projecttest.StartProjectEnv(t,
+				projecttest.WithProjectSource("simple"),
+				kubernetesOpts,
+			)
+			defer env.Stop()
+
+			repository, err := env.RepositoryManager.Load(
+				env.Ctx,
+				remoteRepository.Directory,
+				tc.branch,
+				localRepository,
+				tc.name,
+			)
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
 				dirInfo, err := os.Stat(repository.Path)
 				assert.NilError(t, err)
 				assert.Assert(t, dirInfo.IsDir())
@@ -130,6 +122,12 @@ func TestRepositoryManager_Load(t *testing.T) {
 				assert.NilError(t, err)
 				assert.Assert(t, !fileInfo.IsDir())
 				assert.Assert(t, fileInfo.Name() == newFile)
+			} else {
+				assert.Error(t, err, tc.expectedErr)
+			}
+
+			if tc.post != nil {
+				tc.post(env, localRepository, remoteRepository.Directory)
 			}
 		})
 	}

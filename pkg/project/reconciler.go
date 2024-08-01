@@ -142,6 +142,7 @@ func (reconciler *Reconciler) Reconcile(
 	repository, err := reconciler.RepositoryManager.Load(
 		ctx,
 		gProject.Spec.URL,
+		gProject.Spec.Branch,
 		repositoryDir,
 		gProject.Name,
 	)
