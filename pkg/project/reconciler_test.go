@@ -768,6 +768,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				},
 				Spec: gitops.GitOpsProjectSpec{
 					URL:                 testProject.TargetPath,
+					Branch:              "main",
 					PullIntervalSeconds: 5,
 					Suspend:             &suspend,
 				},

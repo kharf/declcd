@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -96,11 +97,13 @@ func (manager RepositoryManager) getAuthMethodFromSecret(
 func (manager RepositoryManager) Load(
 	ctx context.Context,
 	remoteURL string,
+	branch string,
 	targetPath string,
 	projectName string,
 ) (*Repository, error) {
 	log := manager.log.WithValues(
 		"remote url", remoteURL,
+		"branch", branch,
 		"target path", targetPath,
 	)
 
@@ -127,6 +130,7 @@ func (manager RepositoryManager) Load(
 		return nil, err
 	}
 
+	refName := plumbing.NewBranchReferenceName(branch)
 	if err == git.ErrRepositoryNotExists {
 		log.V(1).Info("Repository not cloned yet")
 		log.V(1).Info("Cloning repository")
@@ -134,9 +138,10 @@ func (manager RepositoryManager) Load(
 		gitRepository, err = git.PlainClone(
 			targetPath, false,
 			&git.CloneOptions{
-				URL:      remoteURL,
-				Progress: os.Stdout,
-				Auth:     authMethod,
+				URL:           remoteURL,
+				Progress:      os.Stdout,
+				Auth:          authMethod,
+				ReferenceName: refName,
 			},
 		)
 		if err != nil {
@@ -151,7 +156,8 @@ func (manager RepositoryManager) Load(
 
 	pullFunc := func() (string, error) {
 		err := worktree.Pull(&git.PullOptions{
-			Auth: authMethod,
+			Auth:          authMethod,
+			ReferenceName: refName,
 		})
 		if err != nil && err != git.NoErrAlreadyUpToDate {
 			return "", err

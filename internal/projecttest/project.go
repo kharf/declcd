@@ -114,7 +114,7 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 		err = copy.Copy(filepath.Join("test/testdata", source), testProject)
 		assert.NilError(t, err)
 
-		repo, err := gittest.InitGitRepository(testProject)
+		repo, err := gittest.InitGitRepository(testProject, "main")
 		assert.NilError(t, err)
 		projects = append(projects, Project{
 			Name:          source,
