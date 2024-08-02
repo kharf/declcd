@@ -73,7 +73,7 @@ func assertError(err error) {
 
 type assertFunc func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName string, namespace string)
 
-func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
+func defaultAssertionFunc(release *ReleaseDeclaration) assertFunc {
 	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 		assert.NilError(t, reconcileErr)
 		assertChartv1(t, env, liveName, namespace, 1)
@@ -99,7 +99,7 @@ func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
 	}
 }
 
-func defaultPatchesAssertionFunc(release ReleaseDeclaration) assertFunc {
+func defaultPatchesAssertionFunc(release *ReleaseDeclaration) assertFunc {
 	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 		assert.NilError(t, reconcileErr)
 		assertChartv1Patches(t, env, liveName, namespace)
@@ -125,7 +125,7 @@ func defaultPatchesAssertionFunc(release ReleaseDeclaration) assertFunc {
 	}
 }
 
-func defaultV2AssertionFunc(release ReleaseDeclaration) assertFunc {
+func defaultV2AssertionFunc(release *ReleaseDeclaration) assertFunc {
 	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
 		assert.NilError(t, reconcileErr)
 		assertChartv2(t, env, liveName, namespace)
@@ -150,7 +150,7 @@ func defaultV2AssertionFunc(release ReleaseDeclaration) assertFunc {
 type testCaseContext struct {
 	environment        *projecttest.Environment
 	chartServer        helmtest.Server
-	releaseDeclaration helm.ReleaseDeclaration
+	releaseDeclaration *helm.ReleaseDeclaration
 	createAuthSecret   bool
 	assertFunc         assertFunc
 	chartReconciler    helm.ChartReconciler
@@ -688,9 +688,6 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 										},
 									},
 								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
-								},
 							},
 						},
 					})
@@ -997,9 +994,6 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 										},
 									},
 								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
-								},
 							},
 						},
 					},
@@ -1287,7 +1281,7 @@ func createReleaseDeclaration(
 	allowUpgrade bool,
 	values Values,
 	patches *Patches,
-) ReleaseDeclaration {
+) *ReleaseDeclaration {
 	release := helm.ReleaseDeclaration{
 		Name:      "test",
 		Namespace: namespace,
@@ -1303,7 +1297,7 @@ func createReleaseDeclaration(
 		Values:  values,
 		Patches: patches,
 	}
-	return release
+	return &release
 }
 
 func assertChartv1(

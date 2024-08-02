@@ -72,7 +72,7 @@ func TestBuilder_Build(t *testing.T) {
 			expectedInstances: []Instance{
 				&Manifest{
 					ID: "prometheus___Namespace",
-					Content: ExtendedUnstructured{
+					Content: &ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]any{
 								"apiVersion": "v1",
@@ -86,15 +86,12 @@ func TestBuilder_Build(t *testing.T) {
 						Metadata: &FieldMetadata{
 							IgnoreAttr: kube.OnConflict,
 						},
-						AttributeInfo: AttributeInfo{
-							HasIgnoreConflictAttributes: true,
-						},
 					},
 					Dependencies: []string{},
 				},
 				&Manifest{
 					ID: "secret_prometheus__Secret",
-					Content: ExtendedUnstructured{
+					Content: &ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]any{
 								"apiVersion": "v1",
@@ -115,15 +112,12 @@ func TestBuilder_Build(t *testing.T) {
 								},
 							},
 						},
-						AttributeInfo: AttributeInfo{
-							HasIgnoreConflictAttributes: true,
-						},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
 				&Manifest{
 					ID: "prometheus_prometheus_apps_Deployment",
-					Content: ExtendedUnstructured{
+					Content: &ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]any{
 								"apiVersion": "apps/v1",
@@ -189,15 +183,12 @@ func TestBuilder_Build(t *testing.T) {
 								},
 							},
 						},
-						AttributeInfo: AttributeInfo{
-							HasIgnoreConflictAttributes: true,
-						},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
 				},
 				&Manifest{
 					ID: "prometheus_prometheus_rbac.authorization.k8s.io_Role",
-					Content: ExtendedUnstructured{
+					Content: &ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]any{
 								"apiVersion": "rbac.authorization.k8s.io/v1",
@@ -232,7 +223,7 @@ func TestBuilder_Build(t *testing.T) {
 				},
 				&helm.ReleaseComponent{
 					ID: "test_prometheus_HelmRelease",
-					Content: helm.ReleaseDeclaration{
+					Content: &helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
@@ -271,9 +262,6 @@ func TestBuilder_Build(t *testing.T) {
 												IgnoreAttr: kube.OnConflict,
 											},
 										},
-									},
-									AttributeInfo: AttributeInfo{
-										HasIgnoreConflictAttributes: true,
 									},
 								},
 								"apps/v1-Deployment-prometheus-hello": {
@@ -332,9 +320,6 @@ func TestBuilder_Build(t *testing.T) {
 											},
 										},
 									},
-									AttributeInfo: AttributeInfo{
-										HasIgnoreConflictAttributes: true,
-									},
 								},
 							},
 						},
@@ -343,7 +328,7 @@ func TestBuilder_Build(t *testing.T) {
 				},
 				&helm.ReleaseComponent{
 					ID: "test-secret-ref_prometheus_HelmRelease",
-					Content: helm.ReleaseDeclaration{
+					Content: &helm.ReleaseDeclaration{
 						Name:      "test-secret-ref",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
@@ -363,7 +348,7 @@ func TestBuilder_Build(t *testing.T) {
 				},
 				&helm.ReleaseComponent{
 					ID: "test-workload-identity_prometheus_HelmRelease",
-					Content: helm.ReleaseDeclaration{
+					Content: &helm.ReleaseDeclaration{
 						Name:      "test-workload-identity",
 						Namespace: "prometheus",
 						Chart: helm.Chart{
@@ -386,7 +371,7 @@ func TestBuilder_Build(t *testing.T) {
 				},
 				&Manifest{
 					ID: "gitopsprojects.gitops.declcd.io__apiextensions.k8s.io_CustomResourceDefinition",
-					Content: ExtendedUnstructured{
+					Content: &ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]any{
 								"apiVersion": "apiextensions.k8s.io/v1",
@@ -659,7 +644,7 @@ This field may not be empty.`,
 			expectedInstances: []Instance{
 				&helm.ReleaseComponent{
 					ID: "test_test_HelmRelease",
-					Content: helm.ReleaseDeclaration{
+					Content: &helm.ReleaseDeclaration{
 						Name:      "test",
 						Namespace: "test",
 						Chart: helm.Chart{

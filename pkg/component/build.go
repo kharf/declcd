@@ -30,7 +30,6 @@ import (
 type MetadataNode = kube.ManifestMetadataNode
 type Manifest = kube.Manifest
 type ExtendedUnstructured = kube.ExtendedUnstructured
-type AttributeInfo = kube.ManifestAttributeInfo
 type FieldMetadata = kube.ManifestFieldMetadata
 
 var (
@@ -128,7 +127,7 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 
 			metadata := MetadataNode{}
 			content := make(map[string]any, 1)
-			attrInfo, err := decodeValue(*contentValue, content, metadata, true)
+			hasAttributes, err := decodeValue(*contentValue, content, metadata, true)
 			if err != nil {
 				return nil, err
 			}
@@ -137,15 +136,14 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 			manifest := Manifest{
 				ID:           id,
 				Dependencies: dependencies,
-				Content: ExtendedUnstructured{
+				Content: &ExtendedUnstructured{
 					Unstructured: &unstructured.Unstructured{
 						Object: contentField.(map[string]any),
 					},
-					AttributeInfo: *attrInfo,
 				},
 			}
 
-			if attrInfo.HasIgnoreConflictAttributes {
+			if hasAttributes {
 				manifest.Content.Metadata = metadata["content"]
 			}
 
@@ -190,7 +188,7 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 				metadata := MetadataNode{}
 				content := make(map[string]any)
 				value := patchesValueIter.Value()
-				attrInfo, err := decodeValue(value, content, metadata, true)
+				hasAttributes, err := decodeValue(value, content, metadata, true)
 				if err != nil {
 					return nil, err
 				}
@@ -199,9 +197,8 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 					Unstructured: &unstructured.Unstructured{
 						Object: content,
 					},
-					AttributeInfo: *attrInfo,
 				}
-				if attrInfo.HasIgnoreConflictAttributes {
+				if hasAttributes {
 					unstr.Metadata = &metadata
 				}
 
@@ -221,7 +218,7 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 			hr := &helm.ReleaseComponent{
 				ID:           id,
 				Dependencies: dependencies,
-				Content: helm.ReleaseDeclaration{
+				Content: &helm.ReleaseDeclaration{
 					Name:      name,
 					Namespace: namespace,
 					Chart:     *chart,
@@ -306,9 +303,9 @@ func decodeValue(
 	content map[string]any,
 	metadata MetadataNode,
 	evaluateMetadata bool,
-) (*AttributeInfo, error) {
+) (bool, error) {
 	if value.Err() != nil {
-		return nil, value.Err()
+		return false, value.Err()
 	}
 
 	switch value.Kind() {
@@ -322,7 +319,7 @@ func decodeValue(
 		if defaultValue, exists := value.Default(); exists {
 			return decodeValue(defaultValue, content, metadata, evaluateMetadata)
 		}
-		return nil, nil
+		return false, nil
 
 	default:
 		return decodePrimitives(value, content, metadata, evaluateMetadata)
@@ -335,19 +332,16 @@ func decodeList(
 	content map[string]any,
 	metadata MetadataNode,
 	evaluateMetadata bool,
-) (*AttributeInfo, error) {
+) (bool, error) {
 	if value.Kind() != cue.ListKind {
-		return nil, nil
+		return false, nil
 	}
 
 	name := getLabel(value)
 
-	attrInfo := &AttributeInfo{
-		HasIgnoreConflictAttributes: false,
-	}
-
 	ignoreAttr := getIgnoreAttribute(value)
 
+	hasAttributes := false
 	if name != "" && evaluateMetadata {
 		switch ignoreAttr {
 
@@ -356,19 +350,19 @@ func decodeList(
 				IgnoreAttr: kube.OnConflict,
 			}
 
-			attrInfo.HasIgnoreConflictAttributes = true
+			hasAttributes = true
 
 		}
 	}
 
 	list, err := handleList(value)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	content[name] = list
 
-	return attrInfo, nil
+	return hasAttributes, nil
 }
 
 func decodePrimitives(
@@ -376,15 +370,12 @@ func decodePrimitives(
 	content map[string]any,
 	metadata MetadataNode,
 	evaluateMetadata bool,
-) (*AttributeInfo, error) {
+) (bool, error) {
 	name := getLabel(value)
-
-	attrInfo := &AttributeInfo{
-		HasIgnoreConflictAttributes: false,
-	}
 
 	ignoreAttr := getIgnoreAttribute(value)
 
+	hasAttributes := false
 	if name != "" && evaluateMetadata {
 		switch ignoreAttr {
 
@@ -393,21 +384,21 @@ func decodePrimitives(
 				IgnoreAttr: kube.OnConflict,
 			}
 
-			attrInfo.HasIgnoreConflictAttributes = true
+			hasAttributes = true
 
 		}
 	}
 
 	concreteValue, err := getConcreteValue(value)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	if concreteValue != nil {
 		content[name] = concreteValue
 	}
 
-	return attrInfo, nil
+	return hasAttributes, nil
 }
 
 func getConcreteValue(value cue.Value) (any, error) {
@@ -467,22 +458,19 @@ func decodeStruct(
 	content map[string]any,
 	metadata MetadataNode,
 	evaluateMetadata bool,
-) (*AttributeInfo, error) {
+) (bool, error) {
 	if value.Kind() != cue.StructKind {
-		return nil, nil
+		return false, nil
 	}
 
 	name := getLabel(value)
-
-	attrInfo := &AttributeInfo{
-		HasIgnoreConflictAttributes: false,
-	}
 
 	ignoreAttr := getIgnoreAttribute(value)
 
 	var childContent map[string]any
 	var childMetadataNode MetadataNode
 
+	hasAttributes := false
 	if name != "" {
 
 		if evaluateMetadata {
@@ -495,7 +483,7 @@ func decodeStruct(
 
 				evaluateMetadata = false
 
-				attrInfo.HasIgnoreConflictAttributes = true
+				hasAttributes = true
 
 			default:
 				childMetadataNode = MetadataNode{}
@@ -512,35 +500,35 @@ func decodeStruct(
 
 	iter, err := value.Fields()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	for iter.Next() {
 		childValue := iter.Value()
-		childAttrInfo, err := decodeValue(
+		childHasAttributes, err := decodeValue(
 			childValue,
 			childContent,
 			childMetadataNode,
 			evaluateMetadata,
 		)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 
-		if !attrInfo.HasIgnoreConflictAttributes && childAttrInfo.HasIgnoreConflictAttributes {
-			attrInfo.HasIgnoreConflictAttributes = true
+		if !hasAttributes && childHasAttributes {
+			hasAttributes = true
 		}
 	}
 
 	if name != "" {
 		content[name] = childContent
 
-		if attrInfo.HasIgnoreConflictAttributes && evaluateMetadata {
+		if hasAttributes && evaluateMetadata {
 			metadata[name] = &childMetadataNode
 		}
 	}
 
-	return attrInfo, nil
+	return hasAttributes, nil
 }
 
 func handleList(value cue.Value) ([]any, error) {

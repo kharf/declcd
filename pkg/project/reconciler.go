@@ -46,9 +46,6 @@ type Reconciler struct {
 	// RepositoryManager clones a remote vcs repository to a local path.
 	RepositoryManager vcs.RepositoryManager
 
-	// ComponentBuilder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
-	ComponentBuilder component.Builder
-
 	// Managers identify distinct workflows that are modifying the object (especially useful on conflicts!),
 	FieldManager string
 
@@ -163,7 +160,7 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	dependencyGraph, err := reconciler.ProjectManager.Load(repositoryDir)
+	instances, err := reconciler.ProjectManager.Load(repositoryDir)
 	if err != nil {
 		log.Error(
 			err,
@@ -172,7 +169,16 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	componentInstances, err := dependencyGraph.TopologicalSort()
+	dag := component.NewDependencyGraph()
+	if err := dag.Insert(instances.Components...); err != nil {
+		log.Error(
+			err,
+			"Unable to set up dependency graph",
+		)
+		return nil, err
+	}
+
+	components, err := dag.TopologicalSort()
 	if err != nil {
 		log.Error(
 			err,
@@ -181,7 +187,9 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	if err := garbageCollector.Collect(ctx, dependencyGraph); err != nil {
+	instances.Components = components
+
+	if err := garbageCollector.Collect(ctx, &dag); err != nil {
 		return nil, err
 	}
 
@@ -193,7 +201,7 @@ func (reconciler *Reconciler) Reconcile(
 		FieldManager:      reconciler.FieldManager,
 	}
 
-	if err := reconciler.reconcileComponents(ctx, componentReconciler, componentInstances); err != nil {
+	if err := reconciler.reconcileComponents(ctx, componentReconciler, instances); err != nil {
 		log.Error(
 			err,
 			"Unable to reconcile components",
@@ -210,17 +218,17 @@ func (reconciler *Reconciler) Reconcile(
 func (reconciler *Reconciler) reconcileComponents(
 	ctx context.Context,
 	componentReconciler component.Reconciler,
-	componentInstances []component.Instance,
+	componentInstances *component.Instances,
 ) error {
 	eg := errgroup.Group{}
 	eg.SetLimit(reconciler.WorkerPoolSize)
-	for _, instance := range componentInstances {
+	for _, instance := range componentInstances.Components {
 		// TODO: implement SCC decomposition for better concurrency/parallelism
-		if len(instance.GetDependencies()) == 0 {
+		if len(instance.Dependencies) == 0 {
 			eg.Go(func() error {
 				return componentReconciler.Reconcile(
 					ctx,
-					instance,
+					componentInstances.All[instance.Content],
 				)
 			})
 		} else {
@@ -229,7 +237,7 @@ func (reconciler *Reconciler) reconcileComponents(
 			}
 			if err := componentReconciler.Reconcile(
 				ctx,
-				instance,
+				componentInstances.All[instance.Content],
 			); err != nil {
 				return err
 			}

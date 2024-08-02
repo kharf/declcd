@@ -342,7 +342,6 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 		Reconciler: project.Reconciler{
 			Log:                   log,
 			KubeConfig:            cfg,
-			ComponentBuilder:      componentBuilder,
 			RepositoryManager:     vcs.NewRepositoryManager(namespace, kubeDynamicClient.DynamicClient(), log),
 			ProjectManager:        projectManager,
 			FieldManager:          controllerName,

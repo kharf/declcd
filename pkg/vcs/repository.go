@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -139,7 +138,7 @@ func (manager RepositoryManager) Load(
 			targetPath, false,
 			&git.CloneOptions{
 				URL:           remoteURL,
-				Progress:      os.Stdout,
+				Progress:      nil,
 				Auth:          authMethod,
 				ReferenceName: refName,
 			},

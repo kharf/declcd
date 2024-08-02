@@ -28,11 +28,15 @@ func main() {
 		benchToRun = args[0]
 	}
 	var pkgs string
-	if len(args) > 1 {
+	if len(args) >= 1 {
 		pkgs = args[1]
 	}
+	var count string
+	if len(args) >= 2 {
+		count = args[2]
+	}
 	if err := build.RunWith(
-		build.Bench{ID: benchToRun, Package: pkgs},
+		build.Bench{ID: benchToRun, Package: pkgs, Count: count},
 	); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

@@ -397,7 +397,7 @@ func prepareHelmReleases(
 	dag component.DependencyGraph,
 ) {
 	releases := make([]helm.ReleaseDeclaration, 0, len(invHelmReleases))
-	for _, hrMetadata := range invHelmReleases {
+	for i, hrMetadata := range invHelmReleases {
 		release := helm.ReleaseDeclaration{
 			Name:      hrMetadata.GetName(),
 			Namespace: hrMetadata.GetNamespace(),
@@ -413,7 +413,7 @@ func prepareHelmReleases(
 			ctx,
 			&helm.ReleaseComponent{
 				ID:      id,
-				Content: release,
+				Content: &release,
 			},
 		)
 		assert.NilError(t, err)
@@ -424,10 +424,10 @@ func prepareHelmReleases(
 			ID:        id,
 		}, nil)
 		assert.NilError(t, err)
-		dag.Insert(&helm.ReleaseComponent{
+		dag.Insert(component.Component{
 			ID:           hrMetadata.ID,
 			Dependencies: []string{},
-			Content:      release,
+			Content:      int32(i),
 		})
 	}
 }
@@ -440,7 +440,7 @@ func prepareManifests(
 	inventoryInstance *inventory.Instance,
 	dag component.DependencyGraph,
 ) {
-	for _, im := range invManifests {
+	for i, im := range invManifests {
 		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
 		err = env.DynamicTestKubeClient.DynamicClient().Apply(ctx, &unstr, "test")
@@ -450,10 +450,10 @@ func prepareManifests(
 		err = inventoryInstance.StoreItem(im, buf)
 		assert.NilError(t, err)
 		dag.Insert(
-			&component.Manifest{
+			component.Component{
 				ID:           im.ID,
 				Dependencies: []string{},
-				Content:      component.ExtendedUnstructured{Unstructured: &unstr},
+				Content:      int32(i),
 			},
 		)
 	}

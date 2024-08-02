@@ -29,3 +29,15 @@ type Instance interface {
 
 var _ Instance = (*kube.Manifest)(nil)
 var _ Instance = (*helm.ReleaseComponent)(nil)
+
+type Component struct {
+	ID           string
+	Dependencies []string
+	Content      int32
+}
+
+type Instances struct {
+	All []Instance
+
+	Components []Component
+}

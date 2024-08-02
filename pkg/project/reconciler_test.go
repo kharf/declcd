@@ -17,18 +17,24 @@ package project_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"text/template"
+	"unsafe"
 
+	"cuelang.org/go/mod/modfile"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/cloudtest"
 	"github.com/kharf/declcd/internal/dnstest"
+	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/ocitest"
@@ -40,13 +46,16 @@ import (
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	_ "github.com/kharf/declcd/test/workingdir"
+	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
+	"helm.sh/helm/v3/pkg/time"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 func assertError(err error) {
@@ -239,9 +248,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 											},
 										},
 									},
-								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
 								},
 							},
 						},
@@ -744,7 +750,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 			reconciler := project.Reconciler{
 				KubeConfig:            env.ControlPlane.Config,
-				ComponentBuilder:      component.NewBuilder(),
 				RepositoryManager:     env.RepositoryManager,
 				ProjectManager:        env.ProjectManager,
 				Log:                   env.Log,
@@ -787,4 +792,219 @@ func TestReconciler_Reconcile(t *testing.T) {
 			})
 		})
 	}
+}
+
+var benchResult *project.ReconcileResult
+
+func BenchmarkReconcile(b *testing.B) {
+	fmt.Println("sizeof(kube.Manifest{}=)", unsafe.Sizeof(kube.Manifest{}))
+	fmt.Println("sizeof(helm.Release{}=)", unsafe.Sizeof(helm.ReleaseComponent{}))
+
+	var err error
+	dnsServer, err := dnstest.NewDNSServer()
+	assertError(err)
+	defer dnsServer.Close()
+
+	registryPath, err := os.MkdirTemp("", "declcd-cue-registry*")
+	assertError(err)
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(registryPath)
+	assertError(err)
+	defer cueModuleRegistry.Close()
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	// set to to true globally as CUE for example uses the DefaultTransport
+	http.DefaultTransport = transport
+
+	publicHelmEnvironment, err := helmtest.NewHelmEnvironment(
+		helmtest.WithOCI(false),
+		helmtest.WithPrivate(false),
+	)
+	assertError(err)
+	defer publicHelmEnvironment.Close()
+
+	appTemplate := `
+package {{ .Package }}
+
+import (
+	"github.com/kharf/declcd/schema/component"
+	corev1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/core/v1"
+	appsv1 "github.com/kharf/cuepkgs/modules/k8s/k8s.io/api/apps/v1"
+)
+
+{{ .App }}Ns: component.#Manifest & {
+	content: corev1.#Namespace & {
+		apiVersion: string | *"v1"
+		kind:       "Namespace"
+		metadata: name: "{{ .App }}"
+	}
+}
+
+{{ .App }}Deployment: component.#Manifest & {
+	#Name:      "{{ .App }}"
+	#Namespace: "{{ .App }}"
+	dependencies: [
+		{{ .App }}Ns.id
+	]
+	content: appsv1.#Deployment & {
+		apiVersion: "apps/v1"
+		kind:       "Deployment"
+		metadata: {
+			name:      #Name
+			namespace: #Namespace
+			labels: app: #Name
+		}
+		spec: {
+			replicas: 0
+			selector: matchLabels: app: #Name
+			template: {
+				metadata: labels: app: #Name
+				spec: containers: [{
+					image: "test"
+					name:  #Name
+					ports: [{
+						containerPort: 8080
+					}]
+				}]
+			}
+		}
+	}
+}	
+
+{{ .App }}Release: component.#HelmRelease & {
+	#Name:      "{{ .App }}"
+	#Namespace: "{{ .App }}"
+	dependencies: [
+		{{ .App }}Ns.id
+	]
+	name: #Name
+	namespace: #Namespace
+	chart: {
+		name: "test"
+		repoURL: "{{ .RepoURL }}"
+		version: "1.0.0"
+	}
+	values: {
+		replicaCount: 0
+		service: enabled: false
+	}
+}
+`
+
+	testProjectPath, err := os.MkdirTemp("", "")
+	assert.NilError(b, err)
+	defer os.RemoveAll(testProjectPath)
+
+	appsDir := filepath.Join(testProjectPath, "apps")
+	err = os.MkdirAll(appsDir, 0777)
+	assert.NilError(b, err)
+
+	cueModPath := filepath.Join(testProjectPath, "cue.mod")
+	err = os.MkdirAll(cueModPath, 0777)
+	assert.NilError(b, err)
+
+	moduleFile := modfile.File{
+		Module: "github.com/kharf/declcd/benchmark",
+		Language: &modfile.Language{
+			Version: "v0.9.2",
+		},
+		Deps: map[string]*modfile.Dep{
+			"github.com/kharf/cuepkgs/modules/k8s@v0": {
+				Version: "v0.0.5",
+			},
+			"github.com/kharf/declcd/schema@v0": {
+				Version: "v0.9.1",
+			},
+		},
+	}
+
+	content, err := moduleFile.Format()
+	assert.NilError(b, err)
+
+	_, err = modfile.Parse(content, "module.cue")
+	err = os.WriteFile(filepath.Join(cueModPath, "module.cue"), content, 0666)
+	assert.NilError(b, err)
+
+	for i := 0; i < 250; i++ {
+		appName := fmt.Sprintf("app%v", i)
+		file, err := os.Create(filepath.Join(appsDir, fmt.Sprintf("%s.cue", appName)))
+		assert.NilError(b, err)
+		tmpl, err := template.New("benchmark").Parse(appTemplate)
+		assert.NilError(b, err)
+		err = tmpl.Execute(file, map[string]any{
+			"Package": "apps",
+			"App":     appName,
+			"RepoURL": publicHelmEnvironment.ChartServer.URL(),
+		})
+		assert.NilError(b, err)
+	}
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(0),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	repo, err := gittest.InitGitRepository(testProjectPath, "main")
+	assert.NilError(b, err)
+	defer repo.Clean()
+
+	b.Run("Reconcile", func(b *testing.B) {
+		maxProcs := runtime.GOMAXPROCS(0)
+		b.ReportAllocs()
+		b.ResetTimer()
+		var result *project.ReconcileResult
+		for n := 0; n < b.N; n++ {
+			b.StopTimer()
+			env := kubetest.StartKubetestEnv(b, log)
+
+			projectManager := project.NewManager(component.NewBuilder(), log, maxProcs)
+			reconciler := project.Reconciler{
+				KubeConfig:            env.ControlPlane.Config,
+				RepositoryManager:     env.RepositoryManager,
+				ProjectManager:        projectManager,
+				Log:                   log,
+				FieldManager:          "controller",
+				WorkerPoolSize:        maxProcs,
+				InsecureSkipTLSverify: true,
+			}
+
+			suspend := false
+			gProject := gitops.GitOpsProject{
+				TypeMeta: v1.TypeMeta{
+					APIVersion: "gitops.declcd.io/v1",
+					Kind:       "GitOpsProject",
+				},
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "benchmark",
+					Namespace: "default",
+					UID: types.UID(
+						fmt.Sprintf(
+							"%v%v%v%v",
+							testProjectPath,
+							maxProcs,
+							n,
+							time.Now().Nanosecond(),
+						),
+					),
+				},
+				Spec: gitops.GitOpsProjectSpec{
+					URL:                 testProjectPath,
+					PullIntervalSeconds: 5,
+					Suspend:             &suspend,
+					Branch:              "main",
+				},
+			}
+
+			b.StartTimer()
+			result, _ = reconciler.Reconcile(env.Ctx, gProject)
+			b.StopTimer()
+
+			env.Stop()
+		}
+
+		benchResult = result
+	})
 }

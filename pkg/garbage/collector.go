@@ -74,7 +74,7 @@ func (c *Collector) collect(
 	collect := true
 	instance := dag.Get(inventoryItem.GetID())
 	if instance != nil {
-		collect = inventoryItem.GetID() != instance.GetID()
+		collect = inventoryItem.GetID() != instance.ID
 	}
 	if collect {
 		switch item := inventoryItem.(type) {

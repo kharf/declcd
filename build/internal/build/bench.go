@@ -25,6 +25,7 @@ import (
 type Bench struct {
 	ID      string
 	Package string
+	Count   string
 }
 
 const BenchAllArg = "./..."
@@ -45,7 +46,7 @@ func (t Bench) run(ctx context.Context, request stepRequest) (*stepResult, error
 		WithExec(
 			[]string{"go", "install", "sigs.k8s.io/controller-runtime/tools/setup-envtest@latest"},
 		).
-		WithExec([]string{envTest, "use", "1.26.1", "--bin-dir", localBin, "-p", "path"})
+		WithExec([]string{envTest, "use", "1.27", "--bin-dir", localBin, "-p", "path"})
 	apiServerPath, err := benchBase.Stdout(ctx)
 	if err != nil {
 		return nil, err
@@ -59,7 +60,7 @@ func (t Bench) run(ctx context.Context, request stepRequest) (*stepResult, error
 			WithExec([]string{"go", "test", "-run=^$", "-bench=.", TestAllArg})
 	} else {
 		test = prepareBench.
-			WithExec([]string{"go", "test", "-run=^$", "-count=5", "-cpu=1,2,4,8,16", "-bench=" + t.ID, "./" + t.Package})
+			WithExec([]string{"go", "test", "-run=^$", "-count=" + t.Count, "-cpu=2,4,8,16", "-bench=" + t.ID, "./" + t.Package})
 	}
 	return &stepResult{
 		container: test.WithWorkdir(workDir),

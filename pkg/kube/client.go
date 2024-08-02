@@ -427,12 +427,12 @@ func (e *ExtendedDynamicClient) Apply(
 	if err := e.dynamicClient.apply(ctx, obj.Unstructured, fieldManager, applyOptions); err != nil {
 		statusErr, ok := err.(*k8sErrors.StatusError)
 		if ok && statusErr.Status().Reason == v1.StatusReasonConflict {
-			if !obj.AttributeInfo.HasIgnoreConflictAttributes && !originalForce {
+			if obj.Metadata == nil && !originalForce {
 				return err
 			}
 
 			unstr := obj.Unstructured
-			if obj.AttributeInfo.HasIgnoreConflictAttributes {
+			if obj.Metadata != nil {
 				causes := statusErr.Status().Details.Causes
 
 				unstr = obj.DeepCopy()

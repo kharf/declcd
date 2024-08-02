@@ -20,98 +20,47 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/kharf/declcd/pkg/component"
 	"gotest.tools/v3/assert"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestDependencyGraph_Insert(t *testing.T) {
 	testCases := []struct {
 		name        string
-		nodes       []component.Instance
+		nodes       []component.Component
 		expectedErr error
 	}{
 		{
 			name: "NoConflict",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "prometheus",
-								},
-							},
-						},
-					},
+			nodes: []component.Component{
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content:      int32(0),
 				},
-				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager"},
+					Content:      int32(1),
 				},
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "Conflict",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "prometheus",
-								},
-							},
-						},
-					},
+			nodes: []component.Component{
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content:      int32(0),
 				},
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{"certmanager"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "prometheus",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{"certmanager"},
+					Content:      int32(1),
 				},
-				&component.Manifest{
-					"shouldntmatter___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "prometheus",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "shouldntmatter___Namespace",
+					Dependencies: []string{},
+					Content:      int32(2),
 				},
 			},
 			expectedErr: component.ErrDuplicateComponentID,
@@ -134,24 +83,14 @@ func TestDependencyGraph_Get(t *testing.T) {
 	testCases := []struct {
 		name               string
 		componentIDRequest string
-		node               component.Instance
+		node               *component.Component
 	}{
 		{
 			name:               "Found",
 			componentIDRequest: "prometheus___Namespace",
-			node: &component.Manifest{
-				ID: "prometheus___Namespace",
-				Content: component.ExtendedUnstructured{
-					Unstructured: &unstructured.Unstructured{
-						Object: map[string]interface{}{
-							"kind":       "Namespace",
-							"apiVersion": "v1",
-							"metadata": map[string]interface{}{
-								"name": "prometheus",
-							},
-						},
-					},
-				},
+			node: &component.Component{
+				ID:      "prometheus___Namespace",
+				Content: int32(0),
 			},
 		},
 		{
@@ -164,7 +103,7 @@ func TestDependencyGraph_Get(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			graph := component.NewDependencyGraph()
 			if tc.node != nil {
-				err := graph.Insert(tc.node)
+				err := graph.Insert(*tc.node)
 				assert.NilError(t, err)
 			}
 			node := graph.Get(tc.componentIDRequest)
@@ -176,35 +115,15 @@ func TestDependencyGraph_Get(t *testing.T) {
 func TestDependencyGraph_Delete(t *testing.T) {
 	graph := component.NewDependencyGraph()
 	err := graph.Insert(
-		&component.Manifest{
-			"prometheus___Namespace",
-			[]string{},
-			component.ExtendedUnstructured{
-				Unstructured: &unstructured.Unstructured{
-					Object: map[string]interface{}{
-						"kind":       "Namespace",
-						"apiVersion": "v1",
-						"metadata": map[string]interface{}{
-							"name": "prometheus",
-						},
-					},
-				},
-			},
+		component.Component{
+			ID:           "prometheus___Namespace",
+			Dependencies: []string{},
+			Content:      int32(0),
 		},
-		&component.Manifest{
-			"linkerd___Namespace",
-			[]string{"certmanager"},
-			component.ExtendedUnstructured{
-				Unstructured: &unstructured.Unstructured{
-					Object: map[string]interface{}{
-						"kind":       "Namespace",
-						"apiVersion": "v1",
-						"metadata": map[string]interface{}{
-							"name": "linkerd",
-						},
-					},
-				},
-			},
+		component.Component{
+			ID:           "linkerd___Namespace",
+			Dependencies: []string{"certmanager"},
+			Content:      int32(1),
 		},
 	)
 	assert.NilError(t, err)
@@ -218,298 +137,118 @@ func TestDependencyGraph_Delete(t *testing.T) {
 func TestDependencyGraph_TopologicalSort(t *testing.T) {
 	testCases := []struct {
 		name  string
-		nodes []component.Instance
+		nodes []component.Component
 		err   error
 	}{
 		{
 			name: "Positive",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+			nodes: []component.Component{
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content:      int32(0),
 				},
-				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content:      int32(1),
 				},
-				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "certmanager",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{},
+					Content:      int32(2),
 				},
-				&component.Manifest{
-					"emissaryingress___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "emissaryingress",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "emissaryingress___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content:      int32(3),
 				},
-				&component.Manifest{
-					"keda___Namespace",
-					[]string{"prometheus___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "keda",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "keda___Namespace",
+					Dependencies: []string{"prometheus___Namespace"},
+					Content:      int32(4),
 				},
 			},
 			err: nil,
 		}, {
 			name: "UnknownDependencyID",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+			nodes: []component.Component{
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content:      int32(0),
 				},
-				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager"},
+					Content:      int32(1),
 				},
-				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "certmanager",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{},
+					Content:      int32(2),
 				},
 			},
 			err: component.ErrUnknownComponentID,
 		},
 		{
 			name: "Cycle",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+			nodes: []component.Component{
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content:      int32(0),
 				},
-				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content:      int32(1),
 				},
-				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{"linkerd___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "certmanager",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{"linkerd___Namespace"},
+					Content:      int32(2),
 				},
-				&component.Manifest{
-					"emissaryingress___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "emissaryingress",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "emissaryingress___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content:      int32(3),
 				},
-				&component.Manifest{
-					"keda___Namespace",
-					[]string{"prometheus___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "keda",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "keda___Namespace",
+					Dependencies: []string{"prometheus___Namespace"},
+					Content:      int32(4),
 				},
 			},
 			err: component.ErrCyclicDependency,
 		},
 		{
 			name: "DistantCycle",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{"keda___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+			nodes: []component.Component{
+				component.Component{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{"keda___Namespace"},
+					Content:      int32(0),
 				},
-				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content:      int32(1),
 				},
-				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "certmanager",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{},
+					Content:      int32(2),
 				},
-				&component.Manifest{
-					"emissaryingress___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "emissaryingress",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "emissaryingress___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content:      int32(3),
 				},
-				&component.Manifest{
-					"keda___Namespace",
-					[]string{"prometheus___Namespace"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "keda",
-								},
-							},
-						},
-					},
+				component.Component{
+					ID:           "keda___Namespace",
+					Dependencies: []string{"prometheus___Namespace"},
+					Content:      int32(4),
 				},
 			},
 			err: component.ErrCyclicDependency,
@@ -529,11 +268,11 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 				assert.Assert(t, len(result) == len(tc.nodes))
 				visited := make(map[string]struct{})
 				for _, n := range result {
-					for _, dep := range n.GetDependencies() {
+					for _, dep := range n.Dependencies {
 						_, found := visited[dep]
 						assert.Assert(t, found)
 					}
-					visited[n.GetID()] = struct{}{}
+					visited[n.ID] = struct{}{}
 				}
 			}
 		})

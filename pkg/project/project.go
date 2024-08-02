@@ -16,7 +16,6 @@ package project
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -49,7 +48,7 @@ func NewManager(componentBuilder component.Builder, log logr.Logger, workerPoolS
 // Load uses a given path to a project and returns the components as a directed acyclic dependency graph.
 func (manager *Manager) Load(
 	projectPath string,
-) (*component.DependencyGraph, error) {
+) (*component.Instances, error) {
 	projectPath = strings.TrimSuffix(projectPath, "/")
 	if _, err := os.Stat(projectPath); errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -58,12 +57,15 @@ func (manager *Manager) Load(
 	producerEg := &errgroup.Group{}
 	producerEg.SetLimit(manager.workerPoolSize)
 
-	resultChan := make(chan *component.DependencyGraph, 1)
+	resultChan := make(chan *component.Instances, 1)
 	packageChan := make(chan string, 250)
 
 	consumerEg := &errgroup.Group{}
 	consumerEg.Go(func() error {
-		dag := component.NewDependencyGraph()
+		allInstances := make([]component.Instance, 0)
+		allComponents := make([]component.Component, 0)
+
+		idx := int32(0)
 		for packagePath := range packageChan {
 			instances, err := manager.componentBuilder.Build(
 				component.WithProjectRoot(projectPath),
@@ -73,12 +75,21 @@ func (manager *Manager) Load(
 				return err
 			}
 
-			if err := dag.Insert(instances...); err != nil {
-				return fmt.Errorf("%w: %w", ErrLoadProject, err)
+			for _, instance := range instances {
+				allInstances = append(allInstances, instance)
+				allComponents = append(allComponents, component.Component{
+					ID:           instance.GetID(),
+					Dependencies: instance.GetDependencies(),
+					Content:      idx,
+				})
+				idx++
 			}
 		}
 
-		resultChan <- &dag
+		resultChan <- &component.Instances{
+			All:        allInstances,
+			Components: allComponents,
+		}
 		return nil
 	})
 

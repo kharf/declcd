@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/kube"
@@ -101,6 +102,8 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	testEnv := &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
 	}
+
+	ctrl.SetLogger(log)
 
 	var err error
 	cfg, err := testEnv.Start()

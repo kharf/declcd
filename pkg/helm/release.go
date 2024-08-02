@@ -27,7 +27,7 @@ import (
 type ReleaseComponent struct {
 	ID           string
 	Dependencies []string
-	Content      ReleaseDeclaration
+	Content      *ReleaseDeclaration
 }
 
 func (hr *ReleaseComponent) GetID() string {

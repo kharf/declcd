@@ -28,27 +28,27 @@ var (
 // DependencyGraph is an adjacency list which represents the directed acyclic graph of component dependencies.
 // The Dependencies field in the Node struct holds a list of other component ids to which the current component has edges.
 type DependencyGraph struct {
-	set map[string]Instance
+	set map[string]Component
 }
 
 func NewDependencyGraph() DependencyGraph {
 	return DependencyGraph{
-		set: make(map[string]Instance),
+		set: make(map[string]Component),
 	}
 }
 
 // Insert places given Nodes into the DependencyGraph.
 // It returns an error if a given Node id / component id already exists in the graph.
-func (graph *DependencyGraph) Insert(nodes ...Instance) error {
+func (graph *DependencyGraph) Insert(nodes ...Component) error {
 	for _, node := range nodes {
-		if _, found := graph.set[node.GetID()]; found {
+		if _, found := graph.set[node.ID]; found {
 			return fmt.Errorf(
 				"%w: id %s already exists in graph",
 				ErrDuplicateComponentID,
-				node.GetID(),
+				node.ID,
 			)
 		}
-		graph.set[node.GetID()] = node
+		graph.set[node.ID] = node
 	}
 	return nil
 }
@@ -59,20 +59,20 @@ func (graph *DependencyGraph) Delete(componentID string) {
 
 // Get returns the Component if it has been identified by its id.
 // It returns nil if no Node has been found.
-func (graph *DependencyGraph) Get(componentID string) Instance {
+func (graph *DependencyGraph) Get(componentID string) *Component {
 	node, found := graph.set[componentID]
 	if !found {
 		return nil
 	}
-	return node
+	return &node
 }
 
 // TopologicalSort performs a topological sort on the component dependency graph and returns the sorted order.
 // It returns an error if a cycle is detected.
-func (dag *DependencyGraph) TopologicalSort() ([]Instance, error) {
+func (dag *DependencyGraph) TopologicalSort() ([]Component, error) {
 	inProcessing := make(map[string]struct{})
 	visited := make(map[string]struct{}, len(dag.set))
-	result := make([]Instance, 0, len(dag.set))
+	result := make([]Component, 0, len(dag.set))
 	var walk func(nodeID string) error
 	walk = func(nodeID string) error {
 		if _, found := inProcessing[nodeID]; found {
@@ -82,11 +82,11 @@ func (dag *DependencyGraph) TopologicalSort() ([]Instance, error) {
 			return nil
 		}
 		inProcessing[nodeID] = struct{}{}
-		node := dag.set[nodeID]
-		if node == nil {
+		node, found := dag.set[nodeID]
+		if !found {
 			return fmt.Errorf("%w: %s not found in dependency graph", ErrUnknownComponentID, nodeID)
 		}
-		for _, depNode := range node.GetDependencies() {
+		for _, depNode := range node.Dependencies {
 			if err := walk(depNode); err != nil {
 				return err
 			}

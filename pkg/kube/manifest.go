@@ -53,15 +53,10 @@ func (v *ManifestFieldMetadata) Metadata() *ManifestFieldMetadata {
 	return v
 }
 
-type ManifestAttributeInfo struct {
-	HasIgnoreConflictAttributes bool
-}
-
 // ExtendedUnstructured enhances Kubernetes Unstructured struct with additional Metadata, like IgnoreAttributes.
 type ExtendedUnstructured struct {
 	*unstructured.Unstructured
-	Metadata      ManifestMetadata      `json:"-"`
-	AttributeInfo ManifestAttributeInfo `json:"-"`
+	Metadata ManifestMetadata `json:"-"`
 }
 
 // Manifest represents a Declcd component with its id, dependencies and content.
@@ -70,7 +65,7 @@ type ExtendedUnstructured struct {
 type Manifest struct {
 	ID           string
 	Dependencies []string
-	Content      ExtendedUnstructured
+	Content      *ExtendedUnstructured
 }
 
 func (m *Manifest) GetID() string {

@@ -220,7 +220,7 @@ func initDeleteConfig(
 // Init setups a Helm config with a Kubernetes client capable of doing SSA
 // and overrides any default namespace with given namespace.
 func Init(
-	release ReleaseDeclaration,
+	release *ReleaseDeclaration,
 	kubeConfig *rest.Config,
 	client kube.Client[kube.ExtendedUnstructured, unstructured.Unstructured],
 	fieldManager string,
@@ -596,7 +596,7 @@ func logDrift(
 
 func (c *ChartReconciler) install(
 	ctx context.Context,
-	desiredRelease ReleaseDeclaration,
+	desiredRelease *ReleaseDeclaration,
 	loadedChart *chart.Chart,
 ) (*Release, error) {
 	log := ctx.Value(logKey{}).(*logr.Logger)
@@ -988,7 +988,6 @@ func (c *Client) apply(ctx context.Context, unstr *unstructured.Unstructured) er
 	extendedUnstr := &kube.ExtendedUnstructured{}
 	if patch != nil {
 		extendedUnstr.Metadata = patch.Metadata
-		extendedUnstr.AttributeInfo = patch.AttributeInfo
 	}
 	extendedUnstr.Unstructured = unstr
 

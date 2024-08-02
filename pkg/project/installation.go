@@ -106,18 +106,25 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 	}
 
 	dag := component.NewDependencyGraph()
-	if err := dag.Insert(instances...); err != nil {
-		return err
+	for i, instance := range instances {
+		if err := dag.Insert(component.Component{
+			ID:           instance.GetID(),
+			Dependencies: instance.GetDependencies(),
+			Content:      int32(i),
+		}); err != nil {
+			return err
+		}
 	}
 
-	instances, err = dag.TopologicalSort()
+	components, err := dag.TopologicalSort()
 	if err != nil {
 		return err
 	}
 
 	controllerName := getControllerName(opts.Shard)
-	for _, instance := range instances {
-		manifest, ok := instance.(*component.Manifest)
+	for _, component := range components {
+		instance := instances[component.Content]
+		manifest, ok := instance.(*kube.Manifest)
 		if !ok {
 			return ErrHelmInstallationUnsupported
 		}
