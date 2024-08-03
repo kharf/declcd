@@ -988,7 +988,6 @@ func (c *Client) apply(ctx context.Context, unstr *unstructured.Unstructured) er
 	extendedUnstr := &kube.ExtendedUnstructured{}
 	if patch != nil {
 		extendedUnstr.Metadata = patch.Metadata
-		extendedUnstr.AttributeInfo = patch.AttributeInfo
 	}
 	extendedUnstr.Unstructured = unstr
 

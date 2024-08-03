@@ -63,14 +63,21 @@ _deployment: v1.#Deployment & {
 				containers: [
 					{
 						name:  "prometheus"
-						image: "prometheus:1.14.2"
+						image: "prometheus:1.14.2" @update(strategy=semver)
 						ports: [{
 							containerPort: 80
 						}]
 					},
 					{
 						name:  "sidecar"
-						image: "sidecar:1.14.2" @ignore(conflict) // attributes in lists are not supported
+						image: "sidecar:1.14.2" @ignore(conflict) // ignore attribute in lists is not supported
+						ports: [{
+							containerPort: 80
+						}]
+					},
+					{
+						name:  "sidecar2"
+						image: "sidecar2:1.14.2" @ignore(conflict) @update()
 						ports: [{
 							containerPort: 80
 						}]
@@ -165,7 +172,7 @@ release: component.#HelmRelease & {
 							},
 							{
 								name:  "sidecar"
-								image: "sidecar:1.14.2" @ignore(conflict) // attributes in lists are not supported
+								image: "sidecar:1.14.2" @update(strategy=semver) @ignore(conflict) // attributes in lists are not supported
 								ports: [{
 									containerPort: 80
 								}]

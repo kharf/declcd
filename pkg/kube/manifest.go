@@ -30,38 +30,33 @@ const (
 	OnConflict
 )
 
-// ManifestMetadata extends unstructured fields with additional information.
-type ManifestMetadata interface {
-	Metadata() *ManifestFieldMetadata
+type ManifestUpdateStrategy int
+
+const (
+	Semver ManifestUpdateStrategy = iota
+)
+
+type ManifestUpdateAttribute struct {
+	Strategy ManifestUpdateStrategy
 }
 
-type ManifestMetadataNode map[string]ManifestMetadata
-
-var _ ManifestMetadata = (*ManifestMetadataNode)(nil)
-
-func (s *ManifestMetadataNode) Metadata() *ManifestFieldMetadata {
-	return nil
+// ManifestMetadata extends unstructured fields, structs or lists with additional information.
+type ManifestMetadata struct {
+	Field *ManifestFieldMetadata
+	Node  map[string]ManifestMetadata
+	List  []ManifestMetadata
 }
 
+// ManifestFieldMetadata extends unstructured fields with additional information.
 type ManifestFieldMetadata struct {
 	IgnoreAttr ManifestIgnoreAttribute
-}
-
-var _ ManifestMetadata = (*ManifestFieldMetadata)(nil)
-
-func (v *ManifestFieldMetadata) Metadata() *ManifestFieldMetadata {
-	return v
-}
-
-type ManifestAttributeInfo struct {
-	HasIgnoreConflictAttributes bool
+	UpdateAttr *ManifestUpdateAttribute
 }
 
 // ExtendedUnstructured enhances Kubernetes Unstructured struct with additional Metadata, like IgnoreAttributes.
 type ExtendedUnstructured struct {
 	*unstructured.Unstructured
-	Metadata      ManifestMetadata      `json:"-"`
-	AttributeInfo ManifestAttributeInfo `json:"-"`
+	Metadata *ManifestMetadata `json:"-"`
 }
 
 // Manifest represents a Declcd component with its id, dependencies and content.

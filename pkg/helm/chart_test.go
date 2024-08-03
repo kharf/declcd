@@ -674,22 +674,31 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 										},
 									},
 								},
-								Metadata: &kube.ManifestMetadataNode{
-									"spec": &kube.ManifestMetadataNode{
-										"replicas": &kube.ManifestFieldMetadata{
-											IgnoreAttr: kube.OnConflict,
-										},
-										"template": &kube.ManifestMetadataNode{
-											"spec": &kube.ManifestMetadataNode{
-												"containers": &kube.ManifestFieldMetadata{
-													IgnoreAttr: kube.OnConflict,
+								Metadata: &kube.ManifestMetadata{
+									Node: map[string]kube.ManifestMetadata{
+										"spec": kube.ManifestMetadata{
+											Node: map[string]kube.ManifestMetadata{
+												"replicas": kube.ManifestMetadata{
+													Field: &kube.ManifestFieldMetadata{
+														IgnoreAttr: kube.OnConflict,
+													},
+												},
+												"template": kube.ManifestMetadata{
+													Node: map[string]kube.ManifestMetadata{
+														"spec": kube.ManifestMetadata{
+															Node: map[string]kube.ManifestMetadata{
+																"containers": kube.ManifestMetadata{
+																	Field: &kube.ManifestFieldMetadata{
+																		IgnoreAttr: kube.OnConflict,
+																	},
+																},
+															},
+														},
+													},
 												},
 											},
 										},
 									},
-								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
 								},
 							},
 						},
@@ -990,15 +999,18 @@ func TestChartReconciler_Reconcile(t *testing.T) {
 										},
 									},
 								},
-								Metadata: &kube.ManifestMetadataNode{
-									"spec": &kube.ManifestMetadataNode{
-										"replicas": &kube.ManifestFieldMetadata{
-											IgnoreAttr: kube.OnConflict,
+								Metadata: &kube.ManifestMetadata{
+									Node: map[string]kube.ManifestMetadata{
+										"spec": kube.ManifestMetadata{
+											Node: map[string]kube.ManifestMetadata{
+												"replicas": kube.ManifestMetadata{
+													Field: &kube.ManifestFieldMetadata{
+														IgnoreAttr: kube.OnConflict,
+													},
+												},
+											},
 										},
 									},
-								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
 								},
 							},
 						},

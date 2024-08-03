@@ -83,11 +83,26 @@ func TestBuilder_Build(t *testing.T) {
 								},
 							},
 						},
-						Metadata: &FieldMetadata{
-							IgnoreAttr: kube.OnConflict,
-						},
-						AttributeInfo: AttributeInfo{
-							HasIgnoreConflictAttributes: true,
+						Metadata: &kube.ManifestMetadata{
+							Field: &kube.ManifestFieldMetadata{
+								IgnoreAttr: kube.OnConflict,
+							},
+							Node: map[string]kube.ManifestMetadata{
+								"apiVersion": {
+									Field: &kube.ManifestFieldMetadata{
+										IgnoreAttr: kube.OnConflict,
+									},
+								},
+								"metadata": {
+									Node: map[string]kube.ManifestMetadata{
+										"name": {
+											Field: &kube.ManifestFieldMetadata{
+												IgnoreAttr: kube.OnConflict,
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 					Dependencies: []string{},
@@ -108,15 +123,18 @@ func TestBuilder_Build(t *testing.T) {
 								},
 							},
 						},
-						Metadata: &MetadataNode{
-							"data": &MetadataNode{
-								"foo": &FieldMetadata{
-									IgnoreAttr: kube.OnConflict,
+						Metadata: &kube.ManifestMetadata{
+							Node: map[string]kube.ManifestMetadata{
+								"data": {
+									Node: map[string]kube.ManifestMetadata{
+										"foo": {
+											Field: &kube.ManifestFieldMetadata{
+												IgnoreAttr: kube.OnConflict,
+											},
+										},
+									},
 								},
 							},
-						},
-						AttributeInfo: AttributeInfo{
-							HasIgnoreConflictAttributes: true,
 						},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
@@ -169,28 +187,82 @@ func TestBuilder_Build(t *testing.T) {
 														},
 													},
 												},
+												map[string]any{
+													"name":  "sidecar2",
+													"image": "sidecar2:1.14.2",
+													"ports": []any{
+														map[string]any{
+															"containerPort": int64(
+																80,
+															),
+														},
+													},
+												},
 											},
 										},
 									},
 								},
 							},
 						},
-						Metadata: &MetadataNode{
-							"spec": &MetadataNode{
-								"replicas": &FieldMetadata{
-									IgnoreAttr: kube.OnConflict,
-								},
-								"template": &MetadataNode{
-									"spec": &MetadataNode{
-										"containers": &FieldMetadata{
-											IgnoreAttr: kube.OnConflict,
+						Metadata: &kube.ManifestMetadata{
+							Node: map[string]kube.ManifestMetadata{
+								"spec": {
+									Node: map[string]kube.ManifestMetadata{
+										"replicas": {
+											Field: &kube.ManifestFieldMetadata{
+												IgnoreAttr: kube.OnConflict,
+											},
+										},
+										"template": {
+											Node: map[string]kube.ManifestMetadata{
+												"spec": {
+													Node: map[string]kube.ManifestMetadata{
+														"containers": {
+															Field: &kube.ManifestFieldMetadata{
+																IgnoreAttr: kube.OnConflict,
+															},
+															List: []kube.ManifestMetadata{
+																{
+																	Node: map[string]kube.ManifestMetadata{
+																		"image": {
+																			Field: &kube.ManifestFieldMetadata{
+																				UpdateAttr: &kube.ManifestUpdateAttribute{
+																					Strategy: kube.Semver,
+																				},
+																			},
+																		},
+																	},
+																},
+																{
+																	Node: map[string]kube.ManifestMetadata{
+																		"image": {
+																			Field: &kube.ManifestFieldMetadata{
+																				IgnoreAttr: kube.OnConflict,
+																			},
+																		},
+																	},
+																},
+																{
+																	Node: map[string]kube.ManifestMetadata{
+																		"image": {
+																			Field: &kube.ManifestFieldMetadata{
+																				IgnoreAttr: kube.OnConflict,
+																				UpdateAttr: &kube.ManifestUpdateAttribute{
+																					Strategy: kube.Semver,
+																				},
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
 										},
 									},
 								},
 							},
-						},
-						AttributeInfo: AttributeInfo{
-							HasIgnoreConflictAttributes: true,
 						},
 					},
 					Dependencies: []string{"prometheus___Namespace"},
@@ -265,15 +337,18 @@ func TestBuilder_Build(t *testing.T) {
 											},
 										},
 									},
-									Metadata: &MetadataNode{
-										"spec": &MetadataNode{
-											"replicas": &FieldMetadata{
-												IgnoreAttr: kube.OnConflict,
+									Metadata: &kube.ManifestMetadata{
+										Node: map[string]kube.ManifestMetadata{
+											"spec": {
+												Node: map[string]kube.ManifestMetadata{
+													"replicas": {
+														Field: &kube.ManifestFieldMetadata{
+															IgnoreAttr: kube.OnConflict,
+														},
+													},
+												},
 											},
 										},
-									},
-									AttributeInfo: AttributeInfo{
-										HasIgnoreConflictAttributes: true,
 									},
 								},
 								"apps/v1-Deployment-prometheus-hello": {
@@ -318,22 +393,45 @@ func TestBuilder_Build(t *testing.T) {
 											},
 										},
 									},
-									Metadata: &MetadataNode{
-										"spec": &MetadataNode{
-											"replicas": &FieldMetadata{
-												IgnoreAttr: kube.OnConflict,
-											},
-											"template": &MetadataNode{
-												"spec": &MetadataNode{
-													"containers": &FieldMetadata{
-														IgnoreAttr: kube.OnConflict,
+									Metadata: &kube.ManifestMetadata{
+										Node: map[string]kube.ManifestMetadata{
+											"spec": {
+												Node: map[string]kube.ManifestMetadata{
+													"replicas": {
+														Field: &kube.ManifestFieldMetadata{
+															IgnoreAttr: kube.OnConflict,
+														},
+													},
+													"template": {
+														Node: map[string]kube.ManifestMetadata{
+															"spec": {
+																Node: map[string]kube.ManifestMetadata{
+																	"containers": {
+																		Field: &kube.ManifestFieldMetadata{
+																			IgnoreAttr: kube.OnConflict,
+																		},
+																		List: []kube.ManifestMetadata{
+																			{
+																				Node: map[string]kube.ManifestMetadata{
+																					"image": {
+																						Field: &kube.ManifestFieldMetadata{
+																							IgnoreAttr: kube.OnConflict,
+																							UpdateAttr: &kube.ManifestUpdateAttribute{
+																								Strategy: kube.Semver,
+																							},
+																						},
+																					},
+																				},
+																			},
+																		},
+																	},
+																},
+															},
+														},
 													},
 												},
 											},
 										},
-									},
-									AttributeInfo: AttributeInfo{
-										HasIgnoreConflictAttributes: true,
 									},
 								},
 							},
@@ -576,84 +674,98 @@ This field may not be empty.`,
 			expectedErr: "",
 		},
 		{
-			name:              "MissingID",
+			name:              "Content-Wrong-Field-Type",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			packagePath:       "./infra/contentwrongtype",
+			expectedInstances: []Instance{},
+			expectedErr:       "Invalid value: expected content to be of type struct",
+		},
+		{
+			name:              "Patches-Wrong-Field-Type",
+			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
+			packagePath:       "./infra/patcheswrongtype",
+			expectedInstances: []Instance{},
+			expectedErr:       "Invalid value: expected patches content to be of type struct",
+		},
+		{
+			name:              "Missing-ID",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/idmissing",
 			expectedInstances: []Instance{},
 			expectedErr:       "secret: field not found: id",
 		},
 		{
-			name:              "MissingMetadata",
+			name:              "Missing-Metadata",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/metadatamissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
-			name:              "MissingMetadataNameWithSchema",
+			name:              "Missing-Metadata-Name-With-Schema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/metadatanameschemamissing",
 			expectedInstances: []Instance{},
 			expectedErr:       "secret.id: invalid interpolation: cannot reference optional field: name",
 		},
 		{
-			name:              "MissingMetadataName",
+			name:              "Missing-Metadata-Name",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/metadatanamemissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
-			name:              "MissingApiVersion",
+			name:              "Missing-ApiVersion",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/apiversionmissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
-			name:              "MissingKind",
+			name:              "Missing-Kind",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/kindmissing",
 			expectedInstances: []Instance{},
 			expectedErr:       ErrMissingField.Error(),
 		},
 		{
-			name:              "EmptyReleaseNameWithSchema",
+			name:              "Empty-Release-Name-With-Schema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/emptyreleasenamewithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.name: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
-			name:              "EmptyReleaseChartNameWithSchema",
+			name:              "Empty-Release-Chart-Name-With-Schema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/emptyreleasechartnamewithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.name: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
-			name:              "EmptyReleaseChartVersionWithSchema",
+			name:              "Empty-Release-Chart-Version-With-Schema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/emptyreleasechartversionwithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.version: invalid value \"\" (does not satisfy strings.MinRunes(1))",
 		},
 		{
-			name:              "WrongPrefixReleaseChartUrlWithSchema",
+			name:              "Wrong-Prefix-Release-Chart-Url-With-Schema",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/wrongprefixreleasecharturlwithschema",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.repoURL: 3 errors in empty disjunction: (and 3 more errors)",
 		},
 		{
-			name:              "ConflictingChartAuth",
+			name:              "Conflicting-Chart-Auth",
 			projectRoot:       path.Join(cwd, "test", "testdata", "build"),
 			packagePath:       "./infra/conflictingchartauth",
 			expectedInstances: []Instance{},
 			expectedErr:       "release.chart.auth: 2 errors in empty disjunction: (and 2 more errors)",
 		},
 		{
-			name:        "AllowCRDsUpgrade",
+			name:        "Allow-CRDs-Upgrade",
 			projectRoot: path.Join(cwd, "test", "testdata", "build"),
 			packagePath: "./infra/allowcrdsupgrade",
 			expectedInstances: []Instance{

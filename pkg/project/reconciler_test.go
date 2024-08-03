@@ -226,22 +226,31 @@ func TestReconciler_Reconcile(t *testing.T) {
 										},
 									},
 								},
-								Metadata: &kube.ManifestMetadataNode{
-									"spec": &kube.ManifestMetadataNode{
-										"replicas": &kube.ManifestFieldMetadata{
-											IgnoreAttr: kube.OnConflict,
-										},
-										"template": &kube.ManifestMetadataNode{
-											"spec": &kube.ManifestMetadataNode{
-												"containers": &kube.ManifestFieldMetadata{
-													IgnoreAttr: kube.OnConflict,
+								Metadata: &kube.ManifestMetadata{
+									Node: map[string]kube.ManifestMetadata{
+										"spec": {
+											Node: map[string]kube.ManifestMetadata{
+												"replicas": {
+													Field: &kube.ManifestFieldMetadata{
+														IgnoreAttr: kube.OnConflict,
+													},
+												},
+												"template": {
+													Node: map[string]kube.ManifestMetadata{
+														"spec": {
+															Node: map[string]kube.ManifestMetadata{
+																"containers": {
+																	Field: &kube.ManifestFieldMetadata{
+																		IgnoreAttr: kube.OnConflict,
+																	},
+																},
+															},
+														},
+													},
 												},
 											},
 										},
 									},
-								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
 								},
 							},
 						},
