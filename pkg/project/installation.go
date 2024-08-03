@@ -97,7 +97,7 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 		}
 	}
 
-	instances, err := act.componentBuilder.Build(
+	buildResult, err := act.componentBuilder.Build(
 		component.WithPackagePath("./declcd"),
 		component.WithProjectRoot(act.projectRoot),
 	)
@@ -106,11 +106,11 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 	}
 
 	dag := component.NewDependencyGraph()
-	if err := dag.Insert(instances...); err != nil {
+	if err := dag.Insert(buildResult.Instances...); err != nil {
 		return err
 	}
 
-	instances, err = dag.TopologicalSort()
+	instances, err := dag.TopologicalSort()
 	if err != nil {
 		return err
 	}

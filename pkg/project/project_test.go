@@ -15,107 +15,115 @@
 package project_test
 
 import (
-	"io"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/helmtest"
-	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/internal/projecttest"
+	"github.com/kharf/declcd/internal/testtemplates"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
-	_ "github.com/kharf/declcd/test/workingdir"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
-	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-func setUp() logr.Logger {
-	zapConfig := zap.NewDevelopmentConfig()
-	zapConfig.OutputPaths = []string{"stdout"}
-	logOpts := ctrlZap.Options{
-		DestWriter:  io.Discard,
-		Development: true,
-		Level:       zapcore.Level(-3),
+func useManagerTemplate() string {
+	return fmt.Sprintf(`
+-- cue.mod/module.cue --
+module: "github.com/kharf/declcd/internal/controller/projectone@v0"
+language: version: "%s"
+deps: {
+	"github.com/kharf/declcd/schema@v0": {
+		v: "v0.0.99"
 	}
-	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
-	return log
+}
+
+-- infra/toola/namespace.cue --
+package toola
+
+import (
+	"github.com/kharf/declcd/schema/component"
+)
+
+#namespace: {
+	apiVersion: "v1"
+	kind:       "Namespace"
+	metadata: name: "toola"
+}
+
+ns: component.#Manifest & {
+	content: #namespace
+}
+
+-- infra/toolb/namespace.cue --
+package toolb
+
+import (
+	"github.com/kharf/declcd/schema/component"
+)
+
+#namespace: {
+	apiVersion: "v1"
+	kind:       "Namespace"
+	metadata: name: "toolb"
+}
+
+ns: component.#Manifest & {
+	content: #namespace
+}
+`, testtemplates.ModuleVersion)
 }
 
 func TestManager_Load(t *testing.T) {
 	var err error
 	dnsServer, err := dnstest.NewDNSServer()
-	assertError(err)
+	assert.NilError(t, err)
 	defer dnsServer.Close()
 
-	registryPath, err := os.MkdirTemp("", "declcd-cue-registry*")
-	assertError(err)
-
-	cueModuleRegistry, err := ocitest.StartCUERegistry(registryPath)
-	assertError(err)
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	env := projecttest.StartProjectEnv(t,
-		projecttest.WithProjectSource("simple"),
-		projecttest.WithKubernetes(
-			kubetest.WithEnabled(false),
-		),
-	)
-	defer env.Stop()
-	testProject := env.Projects[0]
-	err = helmtest.ReplaceTemplate(
-		helmtest.Template{
-			Name:                    "test",
-			TestProjectPath:         testProject.TargetPath,
-			RelativeReleaseFilePath: "infra/prometheus/releases.cue",
-			RepoURL:                 "oci://empty",
-		},
-		testProject.GitRepository,
-	)
+	env := projecttest.InitTestEnvironment(t, []byte(useManagerTemplate()))
+
+	pm := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
+	instance, err := pm.Load(env.LocalTestProject)
 	assert.NilError(t, err)
 
-	logger := setUp()
-	root := testProject.TargetPath
+	dag := instance.Dag
 
-	pm := project.NewManager(component.NewBuilder(), logger, runtime.GOMAXPROCS(0))
-	dag, err := pm.Load(root)
-	assert.NilError(t, err)
-
-	linkerd := dag.Get("linkerd___Namespace")
-	assert.Assert(t, linkerd != nil)
-	linkerdManifest, ok := linkerd.(*component.Manifest)
+	ns := dag.Get("toola___Namespace")
+	assert.Assert(t, ns != nil)
+	nsManifest, ok := ns.(*component.Manifest)
 	assert.Assert(t, ok)
-	assert.Assert(t, linkerdManifest.GetAPIVersion() == "v1")
-	assert.Assert(t, linkerdManifest.GetKind() == "Namespace")
-	assert.Assert(t, linkerdManifest.GetName() == "linkerd")
+	assert.Assert(t, nsManifest.GetAPIVersion() == "v1")
+	assert.Assert(t, nsManifest.GetKind() == "Namespace")
+	assert.Assert(t, nsManifest.GetName() == "toola")
 
-	prometheus := dag.Get("prometheus___Namespace")
-	assert.Assert(t, prometheus != nil)
-	prometheusRelease := dag.Get("test_prometheus_HelmRelease")
-	assert.Assert(t, prometheusRelease != nil)
-	subcomponent := dag.Get("mysubcomponent_prometheus_apps_Deployment")
-	assert.Assert(t, subcomponent != nil)
+	ns = dag.Get("toolb___Namespace")
+	assert.Assert(t, ns != nil)
+	nsManifest, ok = ns.(*component.Manifest)
+	assert.Assert(t, ok)
+	assert.Assert(t, nsManifest.GetAPIVersion() == "v1")
+	assert.Assert(t, nsManifest.GetKind() == "Namespace")
+	assert.Assert(t, nsManifest.GetName() == "toolb")
 }
 
-var dagResult *component.DependencyGraph
+var instance *project.Instance
 
 func BenchmarkManager_Load(b *testing.B) {
 	b.ReportAllocs()
-	logger := setUp()
 	cwd, err := os.Getwd()
 	assert.NilError(b, err)
 	root := filepath.Join(cwd, "test", "testdata", "complex")
-	pm := project.NewManager(component.NewBuilder(), logger, runtime.GOMAXPROCS(0))
+	pm := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
 	b.ResetTimer()
-	var dag *component.DependencyGraph
+	var inst *project.Instance
 	for n := 0; n < b.N; n++ {
-		dag, err = pm.Load(root)
+		inst, err = pm.Load(root)
 	}
-	dagResult = dag
+	instance = inst
 }

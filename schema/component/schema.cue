@@ -6,8 +6,8 @@ _manifestMetadata: {
 	apiVersion!: string & strings.MinRunes(1)
 	kind!:       string & strings.MinRunes(1)
 	metadata: {
-		namespace: string | *""
-		name!:     string & strings.MinRunes(1)
+		namespace?: string
+		name!:      string & strings.MinRunes(1)
 		...
 	}
 }
@@ -20,7 +20,7 @@ _manifestMetadata: {
 	if len(_groupVersion) >= 2 {
 		_group: _groupVersion[0]
 	}
-	id: "\(content.metadata.name)_\(content.metadata.namespace)_\(_group)_\(content.kind)"
+	id: "\(content.metadata.name)_\(*content.metadata.namespace | "")_\(_group)_\(content.kind)"
 	dependencies: [...string]
 	content: {
 		_manifestMetadata

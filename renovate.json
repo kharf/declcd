@@ -23,11 +23,13 @@
             "customType": "regex",
             "fileMatch": [
                 "^(.*?)cue.mod/module.cue$",
-                "^(.*?)project/init.go$"
+                "^(.*?)project/init.go$",
+                "^(.*?)testtemplates/templates.go$"
             ],
             "matchStrings": [
                 "version: \"(?<currentValue>.*?)\"",
-                "Language: &modfile.Language{\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)}"
+                "Language: &modfile.Language{\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)}",
+                "const ModuleVersion = \"(?<currentValue>.*?)\""
             ],
             "depNameTemplate": "cue-lang/cue",
             "versioningTemplate": "semver-coerced",
@@ -37,7 +39,8 @@
             "customType": "regex",
             "fileMatch": [
                 "^(.*?)cue.mod/module.cue$",
-                "^(.*?)project/init.go$"
+                "^(.*?)project/init.go$",
+                "^(.*?)testtemplates/templates.go$"
             ],
             "matchStrings": [
                 "\"github.com/kharf/declcd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",

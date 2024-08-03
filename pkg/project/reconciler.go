@@ -17,12 +17,12 @@ package project
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/go-logr/logr"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/container"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
@@ -61,6 +61,9 @@ type Reconciler struct {
 
 	// Force http for Helm registries.
 	PlainHTTP bool
+
+	// Directory used to cache vcs repositories or helm charts.
+	CacheDir string
 }
 
 // ReconcileResult reports the outcome and metadata of a reconciliation.
@@ -70,6 +73,9 @@ type ReconcileResult struct {
 
 	// The hash of the reconciled Git Commit.
 	CommitHash string
+
+	// VCS Repository cache.
+	LocalRepositoryPath string
 }
 
 // Reconcile clones, pulls and loads a GitOps Git repository containing the desired cluster state,
@@ -114,7 +120,7 @@ func (reconciler *Reconciler) Reconcile(
 	}
 
 	projectUID := string(gProject.GetUID())
-	repositoryDir := filepath.Join(os.TempDir(), "declcd", projectUID)
+	repositoryDir := filepath.Join(reconciler.CacheDir, "declcd", projectUID)
 
 	inventoryInstance := &inventory.Instance{
 		// /inventory is mounted as volume.
@@ -129,6 +135,7 @@ func (reconciler *Reconciler) Reconcile(
 		InsecureSkipTLSverify: reconciler.InsecureSkipTLSverify,
 		PlainHTTP:             reconciler.PlainHTTP,
 		Log:                   log,
+		ChartCacheRoot:        reconciler.CacheDir,
 	}
 
 	garbageCollector := garbage.Collector{
@@ -137,6 +144,14 @@ func (reconciler *Reconciler) Reconcile(
 		ChartReconciler:   chartReconciler,
 		InventoryInstance: inventoryInstance,
 		WorkerPoolSize:    reconciler.WorkerPoolSize,
+	}
+
+	componentReconciler := component.Reconciler{
+		Log:               log,
+		DynamicClient:     kubeDynamicClient,
+		ChartReconciler:   chartReconciler,
+		InventoryInstance: inventoryInstance,
+		FieldManager:      reconciler.FieldManager,
 	}
 
 	repository, err := reconciler.RepositoryManager.Load(
@@ -154,7 +169,7 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	commitHash, err := repository.Pull()
+	reconciledCommitHash, err := repository.Pull()
 	if err != nil {
 		log.Error(
 			err,
@@ -163,7 +178,7 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	dependencyGraph, err := reconciler.ProjectManager.Load(repositoryDir)
+	projectInstance, err := reconciler.ProjectManager.Load(repositoryDir)
 	if err != nil {
 		log.Error(
 			err,
@@ -172,7 +187,20 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	componentInstances, err := dependencyGraph.TopologicalSort()
+	updater := container.Updater{
+		Log:        log,
+		Repository: repository,
+	}
+	updates, err := updater.Update(projectInstance.UpdateInstructions)
+	if err != nil {
+		log.Error(
+			err,
+			"Unable to update images",
+		)
+		return nil, err
+	}
+
+	componentInstances, err := projectInstance.Dag.TopologicalSort()
 	if err != nil {
 		log.Error(
 			err,
@@ -181,16 +209,8 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	if err := garbageCollector.Collect(ctx, dependencyGraph); err != nil {
+	if err := garbageCollector.Collect(ctx, projectInstance.Dag); err != nil {
 		return nil, err
-	}
-
-	componentReconciler := component.Reconciler{
-		Log:               log,
-		DynamicClient:     kubeDynamicClient,
-		ChartReconciler:   chartReconciler,
-		InventoryInstance: inventoryInstance,
-		FieldManager:      reconciler.FieldManager,
 	}
 
 	if err := reconciler.reconcileComponents(ctx, componentReconciler, componentInstances); err != nil {
@@ -201,9 +221,16 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
+	// updates produce commits before core reconciliation,
+	// so the latest update commit becomes the reconciled commit.
+	if len(updates) > 0 {
+		reconciledCommitHash = updates[len(updates)-1].CommitHash
+	}
+
 	return &ReconcileResult{
-		Suspended:  false,
-		CommitHash: commitHash,
+		Suspended:           false,
+		CommitHash:          reconciledCommitHash,
+		LocalRepositoryPath: repositoryDir,
 	}, nil
 }
 

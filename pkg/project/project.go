@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/kube"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -34,22 +34,26 @@ var (
 // Manager loads a declcd project and resolves the component dependency graph.
 type Manager struct {
 	componentBuilder component.Builder
-	log              logr.Logger
 	workerPoolSize   int
 }
 
-func NewManager(componentBuilder component.Builder, log logr.Logger, workerPoolSize int) Manager {
+func NewManager(componentBuilder component.Builder, workerPoolSize int) Manager {
 	return Manager{
 		componentBuilder: componentBuilder,
-		log:              log,
 		workerPoolSize:   workerPoolSize,
 	}
+}
+
+// Instance represents the loaded project.
+type Instance struct {
+	Dag                *component.DependencyGraph
+	UpdateInstructions []kube.UpdateInstruction
 }
 
 // Load uses a given path to a project and returns the components as a directed acyclic dependency graph.
 func (manager *Manager) Load(
 	projectPath string,
-) (*component.DependencyGraph, error) {
+) (*Instance, error) {
 	projectPath = strings.TrimSuffix(projectPath, "/")
 	if _, err := os.Stat(projectPath); errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -58,14 +62,15 @@ func (manager *Manager) Load(
 	producerEg := &errgroup.Group{}
 	producerEg.SetLimit(manager.workerPoolSize)
 
-	resultChan := make(chan *component.DependencyGraph, 1)
+	resultChan := make(chan *Instance, 1)
 	packageChan := make(chan string, 250)
 
 	consumerEg := &errgroup.Group{}
 	consumerEg.Go(func() error {
 		dag := component.NewDependencyGraph()
+		var updateInstructions []kube.UpdateInstruction
 		for packagePath := range packageChan {
-			instances, err := manager.componentBuilder.Build(
+			buildResult, err := manager.componentBuilder.Build(
 				component.WithProjectRoot(projectPath),
 				component.WithPackagePath(packagePath),
 			)
@@ -73,12 +78,16 @@ func (manager *Manager) Load(
 				return err
 			}
 
-			if err := dag.Insert(instances...); err != nil {
+			if err := dag.Insert(buildResult.Instances...); err != nil {
 				return fmt.Errorf("%w: %w", ErrLoadProject, err)
 			}
+			updateInstructions = append(updateInstructions, buildResult.UpdateInstructions...)
 		}
 
-		resultChan <- &dag
+		resultChan <- &Instance{
+			Dag:                &dag,
+			UpdateInstructions: updateInstructions,
+		}
 		return nil
 	})
 

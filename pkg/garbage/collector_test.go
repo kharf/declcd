@@ -19,13 +19,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	goRuntime "runtime"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/helmtest"
-	"github.com/kharf/declcd/internal/projecttest"
+	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
@@ -42,16 +42,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func assertError(err error) {
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-}
-
 type testCaseContext struct {
 	ctx               context.Context
-	env               projecttest.Environment
+	kubernetes        *kubetest.Environment
 	inventoryInstance *inventory.Instance
 	collector         garbage.Collector
 	chartReconciler   helm.ChartReconciler
@@ -64,10 +57,11 @@ func TestCollector_Collect(t *testing.T) {
 
 	var err error
 	helmEnvironment, err := helmtest.NewHelmEnvironment(
+		t,
 		helmtest.WithOCI(false),
 		helmtest.WithPrivate(false),
 	)
-	assertError(err)
+	assert.NilError(t, err)
 	defer helmEnvironment.Close()
 
 	nsA := &inventory.ManifestItem{
@@ -129,13 +123,13 @@ func TestCollector_Collect(t *testing.T) {
 			runCase: func(context testCaseContext) {
 				dag := component.NewDependencyGraph()
 				ctx := context.ctx
-				env := context.env
+				kubernetes := context.kubernetes
 				inventoryInstance := context.inventoryInstance
 
 				prepareManifests(ctx,
 					t,
 					invManifests,
-					env,
+					kubernetes.DynamicTestKubeClient.DynamicClient(),
 					inventoryInstance,
 					dag,
 				)
@@ -153,7 +147,7 @@ func TestCollector_Collect(t *testing.T) {
 				storage, err := inventoryInstance.Load()
 				assert.NilError(t, err)
 
-				dynClient := env.DynamicTestKubeClient.DynamicClient()
+				dynClient := kubernetes.DynamicTestKubeClient.DynamicClient()
 				assertItems(t, invManifests, invHelmReleases, storage)
 				assertRunningAll := func(t *testing.T) {
 					assertRunning(ctx, t, dynClient, &unstructured.Unstructured{
@@ -207,7 +201,14 @@ func TestCollector_Collect(t *testing.T) {
 				}
 
 				dag = component.NewDependencyGraph()
-				prepareManifests(ctx, t, renderedManifests, env, inventoryInstance, dag)
+				prepareManifests(
+					ctx,
+					t,
+					renderedManifests,
+					kubernetes.DynamicTestKubeClient.DynamicClient(),
+					inventoryInstance,
+					dag,
+				)
 
 				err = context.collector.Collect(ctx, &dag)
 				assert.NilError(t, err)
@@ -256,10 +257,17 @@ func TestCollector_Collect(t *testing.T) {
 
 				dag := component.NewDependencyGraph()
 				ctx := context.ctx
-				env := context.env
+				kubernetes := context.kubernetes
 				inventoryInstance := context.inventoryInstance
 
-				prepareManifests(ctx, t, renderedManifests, env, inventoryInstance, dag)
+				prepareManifests(
+					ctx,
+					t,
+					renderedManifests,
+					kubernetes.DynamicTestKubeClient.DynamicClient(),
+					inventoryInstance,
+					dag,
+				)
 				storage, err := inventoryInstance.Load()
 				assert.NilError(t, err)
 				assertItems(t, renderedManifests, []*inventory.HelmReleaseItem{}, storage)
@@ -268,7 +276,7 @@ func TestCollector_Collect(t *testing.T) {
 				assert.NilError(t, err)
 				unstr := &unstructured.Unstructured{Object: obj}
 
-				dynClient := env.DynamicTestKubeClient.DynamicClient()
+				dynClient := kubernetes.DynamicTestKubeClient.DynamicClient()
 				assertRunning(ctx, t, dynClient, unstr)
 
 				err = dynClient.Delete(ctx, unstr)
@@ -300,27 +308,27 @@ func TestCollector_Collect(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			env := projecttest.StartProjectEnv(
-				t,
-			)
-			defer env.Stop()
+			kubernetes := kubetest.StartKubetestEnv(t, logr.Discard(), kubetest.WithEnabled(true))
+			defer kubernetes.Stop()
 
 			inventoryInstance := &inventory.Instance{
-				Path: filepath.Join(env.TestRoot, "inventory"),
+				Path: filepath.Join(t.TempDir(), "inventory"),
 			}
 
+			log := logr.Discard()
+
 			chartReconciler := helm.ChartReconciler{
-				KubeConfig:            env.ControlPlane.Config,
-				Client:                env.DynamicTestKubeClient,
+				KubeConfig:            kubernetes.ControlPlane.Config,
+				Client:                kubernetes.DynamicTestKubeClient,
 				FieldManager:          "controller",
 				InsecureSkipTLSverify: true,
 				InventoryInstance:     inventoryInstance,
-				Log:                   env.Log,
+				Log:                   log,
 			}
 
 			collector := garbage.Collector{
-				Log:               env.Log,
-				Client:            env.DynamicTestKubeClient.DynamicClient(),
+				Log:               log,
+				Client:            kubernetes.DynamicTestKubeClient.DynamicClient(),
 				ChartReconciler:   chartReconciler,
 				InventoryInstance: inventoryInstance,
 				WorkerPoolSize:    goRuntime.GOMAXPROCS(0),
@@ -329,7 +337,7 @@ func TestCollector_Collect(t *testing.T) {
 			ctx := context.Background()
 			tc.runCase(testCaseContext{
 				ctx:               ctx,
-				env:               env,
+				kubernetes:        kubernetes,
 				inventoryInstance: inventoryInstance,
 				collector:         collector,
 				chartReconciler:   chartReconciler,
@@ -436,14 +444,14 @@ func prepareManifests(
 	ctx context.Context,
 	t *testing.T,
 	invManifests []*inventory.ManifestItem,
-	env projecttest.Environment,
+	client *kube.DynamicClient,
 	inventoryInstance *inventory.Instance,
 	dag component.DependencyGraph,
 ) {
 	for _, im := range invManifests {
 		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
-		err = env.DynamicTestKubeClient.DynamicClient().Apply(ctx, &unstr, "test")
+		err = client.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
 		buf := &bytes.Buffer{}
 		json.NewEncoder(buf).Encode(unstr.Object)

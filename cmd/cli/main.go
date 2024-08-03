@@ -21,7 +21,6 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
@@ -104,7 +103,6 @@ func (builder VerifyCommandBuilder) Build() *cobra.Command {
 			}
 			projectManager := project.NewManager(
 				component.NewBuilder(),
-				logr.Discard(),
 				runtime.GOMAXPROCS(0),
 			)
 			_, err = projectManager.Load(cwd)

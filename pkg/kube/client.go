@@ -427,18 +427,18 @@ func (e *ExtendedDynamicClient) Apply(
 	if err := e.dynamicClient.apply(ctx, obj.Unstructured, fieldManager, applyOptions); err != nil {
 		statusErr, ok := err.(*k8sErrors.StatusError)
 		if ok && statusErr.Status().Reason == v1.StatusReasonConflict {
-			if !obj.AttributeInfo.HasIgnoreConflictAttributes && !originalForce {
+			if obj.Metadata == nil && !originalForce {
 				return err
 			}
 
 			unstr := obj.Unstructured
-			if obj.AttributeInfo.HasIgnoreConflictAttributes {
+			if obj.Metadata != nil {
 				causes := statusErr.Status().Details.Causes
 
 				unstr = obj.DeepCopy()
 
 				for _, cause := range causes {
-					if err := deleteIgnoredFields(cause.Field, unstr.Object, obj.Metadata); err != nil {
+					if err := deleteIgnoredFields(cause.Field, unstr.Object, *obj.Metadata); err != nil {
 						return err
 					}
 				}
@@ -462,12 +462,6 @@ func deleteIgnoredFields(
 	unstrMap map[string]any,
 	metadata ManifestMetadata,
 ) error {
-	mtn, ok := metadata.(*ManifestMetadataNode)
-	if !ok {
-		return nil
-	}
-	metadataNode := *mtn
-
 	keys := strings.Split(jsonPath, ".")
 
 	for i, key := range keys {
@@ -476,20 +470,22 @@ func deleteIgnoredFields(
 		}
 
 		if i == len(keys)-1 {
-			fieldMetadata, ok := metadataNode[key].(*ManifestFieldMetadata)
-			if ok && fieldMetadata.IgnoreAttr == OnConflict {
-				delete(unstrMap, key)
+			fieldMetadata, ok := metadata.Node[key]
+			if ok && fieldMetadata.Field != nil {
+				if ok && fieldMetadata.Field.IgnoreInstr == OnConflict {
+					delete(unstrMap, key)
+				}
 			}
 
 			return nil
 		}
 
-		metadata, found := metadataNode[key]
+		var found bool
+		metadata, found = metadata.Node[key]
 		if !found {
 			break
 		}
 		unstrMap = unstrMap[key].(map[string]any)
-		metadataNode = *(metadata.(*ManifestMetadataNode))
 	}
 
 	return nil

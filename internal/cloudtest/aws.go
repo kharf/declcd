@@ -96,27 +96,6 @@ func NewAWSEnvironment(
 	os.Setenv("AWS_CONTAINER_AUTHORIZATION_TOKEN", "Bearer aaaa")
 	fmt.Println("Pod Identity Agent Server listening on", agentServer.URL)
 
-	ecrTokenServerMux := http.NewServeMux()
-	ecrTokenServerMux.HandleFunc(
-		"POST /",
-		func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(200)
-			token := awsToken{
-				AuthorizationData: []authorizationData{
-					{
-						AuthorizationToken: "ZGVjbGNkOmFiY2Q=",
-						ExpiresAt:          time.Now().Add(10 * time.Minute).Unix(),
-					},
-				},
-			}
-			err := json.NewEncoder(w).Encode(&token)
-			if err != nil {
-				w.WriteHeader(500)
-				return
-			}
-		},
-	)
-
 	ecrMux := http.NewServeMux()
 	url, err := url.Parse("https://" + registryAddr)
 	if err != nil {
