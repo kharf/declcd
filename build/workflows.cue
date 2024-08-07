@@ -169,6 +169,7 @@ workflows: [
 						name: "Update Pipeline"
 						run:  "go run cmd/update/main.go"
 						env: {
+							LOG_LEVEL:      "DEBUG"
 							RENOVATE_TOKEN: "${{ secrets.PAT }}"
 						}
 					},
