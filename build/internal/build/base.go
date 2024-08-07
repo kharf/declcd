@@ -56,7 +56,7 @@ func RunWith(steps ...step) error {
 	defer client.Close()
 	goCache := client.CacheVolume("go")
 	base := client.Container().
-		From("golang:1.22.5").
+		From("golang:1.22.6").
 		WithExec([]string{"apt-get", "update"}).
 		WithExec([]string{"apt-get", "install", "-y", "docker.io"}).
 		WithDirectory(workDir, client.Host().Directory("."), dagger.ContainerWithDirectoryOpts{
