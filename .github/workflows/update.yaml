@@ -22,6 +22,5 @@ jobs:
         run: go run cmd/update/main.go
         working-directory: ./build
         env:
-          LOG_LEVEL: DEBUG
           RENOVATE_TOKEN: ${{ secrets.PAT }}
 permissions: read-all
