@@ -40,7 +40,8 @@ import (
 )
 
 type Registry struct {
-	httpsServer    *httptest.Server
+	httpsServer *httptest.Server
+	*ocimem.Registry
 	client         *http.Client
 	registryClient *modregistry.Client
 }
@@ -49,7 +50,7 @@ func (r *Registry) Client() *http.Client {
 	return r.client
 }
 
-func (r *Registry) OCIClient() *modregistry.Client {
+func (r *Registry) CUERegistryClient() *modregistry.Client {
 	return r.registryClient
 }
 
@@ -193,6 +194,7 @@ func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
 		httpsServer:    httpsServer,
 		client:         client,
 		registryClient: ociClient,
+		Registry:       registry,
 	}, nil
 }
 
@@ -204,7 +206,7 @@ func StartCUERegistry(
 		return nil, err
 	}
 
-	ociClient := cueModuleRegistry.OCIClient()
+	ociClient := cueModuleRegistry.CUERegistryClient()
 	modDir, err := os.MkdirTemp(registryPath, "")
 	if err != nil {
 		return nil, err

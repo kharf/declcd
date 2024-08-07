@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"text/template"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
@@ -142,4 +143,51 @@ func StartProjectEnv(t testing.TB, opts ...Option) Environment {
 		Environment:    env,
 		Log:            log,
 	}
+}
+
+type Template struct {
+	TestProjectPath  string
+	RelativeFilePath string
+	Data             any
+}
+
+func ReplaceTemplate(
+	tmpl Template,
+	gitRepository *gittest.LocalGitRepository,
+) error {
+	releasesFilePath := filepath.Join(
+		tmpl.TestProjectPath,
+		tmpl.RelativeFilePath,
+	)
+
+	releasesContent, err := os.ReadFile(releasesFilePath)
+	if err != nil {
+		return err
+	}
+
+	parsedTemplate, err := template.New("").Parse(string(releasesContent))
+	if err != nil {
+		return err
+	}
+
+	releasesFile, err := os.Create(releasesFilePath)
+	if err != nil {
+		return err
+	}
+	defer releasesFile.Close()
+
+	err = parsedTemplate.Execute(releasesFile, tmpl.Data)
+	if err != nil {
+		return err
+	}
+
+	_, err = gitRepository.CommitFile(
+		tmpl.RelativeFilePath,
+		"overwrite template",
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

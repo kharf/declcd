@@ -46,6 +46,12 @@ func NewDNSServer() (*DNSServer, error) {
 		"metadata.google.internal.": {
 			A: []string{"127.0.0.1"},
 		},
+		"docker.io.": {
+			CNAME: "declcd.io",
+		},
+		"index.docker.io.": {
+			CNAME: "declcd.io",
+		},
 		fmt.Sprintf("%s.", cloudtest.AWSRegistryHost): {
 			A: []string{"127.0.0.1"},
 		},

@@ -457,7 +457,6 @@ func ReplaceTemplate(
 	tmpl Template,
 	gitRepository *gittest.LocalGitRepository,
 ) error {
-
 	releasesFilePath := filepath.Join(
 		tmpl.TestProjectPath,
 		tmpl.RelativeReleaseFilePath,

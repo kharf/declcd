@@ -25,16 +25,16 @@ _deployment: v1.#Deployment & {
 				}
 				containers: [
 					{
-						name:  "subcomponent"
-						image: "subcomponent:1.14.2"
+						name:  "containerone"
+						image: "{{.Container1}}" @update(strategy=semver, constraint="1.2.x")
 						ports: [{
 							name:          "http"
 							containerPort: 80
 						}]
 					},
 					{
-						name:  "sidecar"
-						image: "sidecar:1.14.2"
+						name:  "containertwo"
+						image: "{{.Container2}}" @update(strategy=semver, constraint="<=1.15")
 						ports: [{
 							name:          "http"
 							containerPort: 80

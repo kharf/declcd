@@ -18,26 +18,41 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// ManifestIgnoreAttribute is a CUE build attribute a user can define on a field or declaration
+// IgnoreAttribute is an attribute a user can define on a field or declaration
 // to tell Declcd to ignore fields or structs when applying Kubernetes Manifests.
-type ManifestIgnoreAttribute int
+type IgnoreAttribute int
 
 const (
 	// Default. Declcd will enforce the field/struct.
-	None ManifestIgnoreAttribute = iota
+	None IgnoreAttribute = iota
 
 	// This tells Declcd to omit the field/struct 'tagged' with this value on a retry ssa patch request.
 	OnConflict
 )
 
+// ManifestUpdateStrategy defines the container image update strategy to calculate the latest image.
 type ManifestUpdateStrategy int
 
 const (
+	// Semantic Versioning as defined in https://semver.org/.
 	Semver ManifestUpdateStrategy = iota
 )
 
-type ManifestUpdateAttribute struct {
-	Strategy ManifestUpdateStrategy
+// UpdateAttribute is an attribute a user can define on a field
+// to tell Declcd to automatically update container images.
+type UpdateAttribute struct {
+	Strategy   ManifestUpdateStrategy
+	Constraint string
+	SecretRef  string
+
+	// File path where the attribute was found.
+	File string
+
+	// Line number of the 'tagged' field.
+	Line int
+
+	// Image value of the 'tagged' field.
+	Image string
 }
 
 // ManifestMetadata extends unstructured fields, structs or lists with additional information.
@@ -49,8 +64,8 @@ type ManifestMetadata struct {
 
 // ManifestFieldMetadata extends unstructured fields with additional information.
 type ManifestFieldMetadata struct {
-	IgnoreAttr ManifestIgnoreAttribute
-	UpdateAttr *ManifestUpdateAttribute
+	IgnoreAttr IgnoreAttribute
+	UpdateAttr *UpdateAttribute
 }
 
 // ExtendedUnstructured enhances Kubernetes Unstructured struct with additional Metadata, like IgnoreAttributes.

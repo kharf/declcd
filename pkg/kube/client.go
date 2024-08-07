@@ -427,7 +427,7 @@ func (e *ExtendedDynamicClient) Apply(
 	if err := e.dynamicClient.apply(ctx, obj.Unstructured, fieldManager, applyOptions); err != nil {
 		statusErr, ok := err.(*k8sErrors.StatusError)
 		if ok && statusErr.Status().Reason == v1.StatusReasonConflict {
-			if obj.Metadata.Node == nil && !originalForce {
+			if obj.Metadata == nil && !originalForce {
 				return err
 			}
 

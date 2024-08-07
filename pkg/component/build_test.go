@@ -226,8 +226,13 @@ func TestBuilder_Build(t *testing.T) {
 																	Node: map[string]kube.ManifestMetadata{
 																		"image": {
 																			Field: &kube.ManifestFieldMetadata{
-																				UpdateAttr: &kube.ManifestUpdateAttribute{
-																					Strategy: kube.Semver,
+																				UpdateAttr: &kube.UpdateAttribute{
+																					Strategy:   kube.Semver,
+																					Constraint: "<= 1.15.3, >= 1.4",
+																					SecretRef:  "promreg",
+																					File:       "/declcd/test/testdata/build/infra/success/component.cue",
+																					Line:       66,
+																					Image:      "prometheus:1.14.2",
 																				},
 																			},
 																		},
@@ -247,8 +252,11 @@ func TestBuilder_Build(t *testing.T) {
 																		"image": {
 																			Field: &kube.ManifestFieldMetadata{
 																				IgnoreAttr: kube.OnConflict,
-																				UpdateAttr: &kube.ManifestUpdateAttribute{
+																				UpdateAttr: &kube.UpdateAttribute{
 																					Strategy: kube.Semver,
+																					File:     "/declcd/test/testdata/build/infra/success/component.cue",
+																					Line:     80,
+																					Image:    "sidecar2:1.14.2",
 																				},
 																			},
 																		},
@@ -416,8 +424,12 @@ func TestBuilder_Build(t *testing.T) {
 																					"image": {
 																						Field: &kube.ManifestFieldMetadata{
 																							IgnoreAttr: kube.OnConflict,
-																							UpdateAttr: &kube.ManifestUpdateAttribute{
-																								Strategy: kube.Semver,
+																							UpdateAttr: &kube.UpdateAttribute{
+																								Strategy:  kube.Semver,
+																								SecretRef: "sidecarreg",
+																								File:      "/declcd/test/testdata/build/infra/success/component.cue",
+																								Line:      175,
+																								Image:     "sidecar:1.14.2",
 																							},
 																						},
 																					},

@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/ast"
 	internalCue "github.com/kharf/declcd/internal/cue"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/kube"
@@ -312,7 +313,7 @@ func decodeValue(
 		return nil, nil, value.Err()
 	}
 
-	fieldMeta, err := evaluateFieldMetadata(value)
+	fieldMeta, err := evalFieldMetadata(value)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -469,7 +470,7 @@ func decodeStruct(
 	return content, nil, nil
 }
 
-func evaluateFieldMetadata(value cue.Value) (*FieldMetadata, error) {
+func evalFieldMetadata(value cue.Value) (*FieldMetadata, error) {
 	attributes := value.Attributes(cue.ValueAttr)
 
 	var meta *FieldMetadata
@@ -485,19 +486,40 @@ func evaluateFieldMetadata(value cue.Value) (*FieldMetadata, error) {
 			if meta == nil {
 				meta = new(FieldMetadata)
 			}
-			val, _, err := attr.Lookup(0, "strategy")
+			stratDef, _, err := attr.Lookup(0, "strategy")
 			if err != nil {
 				return nil, err
 			}
 
+			constraint, _, err := attr.Lookup(0, "constraint")
+			if err != nil {
+				return nil, err
+			}
+
+			secretRef, _, err := attr.Lookup(0, "secret")
+			if err != nil {
+				return nil, err
+			}
+
+			var image string
+			switch syntax := value.Syntax().(type) {
+			case *ast.BasicLit:
+				image = strings.ReplaceAll(syntax.Value, "\"", "")
+			}
+
 			strat := kube.Semver
-			switch val {
+			switch stratDef {
 			case "semver":
 				strat = kube.Semver
 			}
 
-			meta.UpdateAttr = &kube.ManifestUpdateAttribute{
-				Strategy: strat,
+			meta.UpdateAttr = &kube.UpdateAttribute{
+				Strategy:   strat,
+				Constraint: constraint,
+				SecretRef:  secretRef,
+				File:       value.Pos().Filename(),
+				Line:       value.Pos().Line(),
+				Image:      image,
 			}
 		}
 	}
