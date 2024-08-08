@@ -1,6 +1,6 @@
 module github.com/kharf/declcd/build
 
-go 1.22.6
+go 1.22
 
 require dagger.io/dagger v0.12.4
 

@@ -1,6 +1,6 @@
 module getting-started
 
-go 1.22.6
+go 1.22
 
 require (
 	github.com/go-logr/logr v1.4.1 // indirect
