@@ -16,6 +16,7 @@ package build
 	fileMatch: [
 		"^(.*?)cue.mod/module.cue$",
 		"^(.*?)project/init.go$",
+		"^(.*?)testtemplates/templates.go$",
 	]
 	versioningTemplate: "semver-coerced"
 }
@@ -24,6 +25,7 @@ _cueModuleVersionManager: #cueModuleManager & {
 	matchStrings: [
 		"version: \"(?<currentValue>.*?)\"",
 		"Language: &modfile.Language{\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)}",
+		"const ModuleVersion = \"(?<currentValue>.*?)\"",
 	]
 	depNameTemplate:    "cue-lang/cue"
 	datasourceTemplate: "github-releases"

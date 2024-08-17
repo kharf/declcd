@@ -20,17 +20,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"testing"
 
-	_ "github.com/kharf/declcd/test/workingdir"
+	"go.uber.org/zap/zapcore"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/release"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
@@ -42,7 +42,6 @@ import (
 	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	. "github.com/kharf/declcd/pkg/helm"
@@ -51,1211 +50,27 @@ import (
 )
 
 func newHelmEnvironment(
+	t *testing.T,
 	oci bool,
 	private bool,
 	cloudProvider cloud.ProviderID,
 ) *helmtest.Environment {
 	helmEnvironment, err := helmtest.NewHelmEnvironment(
+		t,
 		helmtest.WithOCI(oci),
 		helmtest.WithPrivate(private),
 		helmtest.WithProvider(cloudProvider),
 	)
-	assertError(err)
+	assert.NilError(t, err)
 	return helmEnvironment
-}
-
-func assertError(err error) {
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-}
-
-type assertFunc func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName string, namespace string)
-
-func defaultAssertionFunc(release ReleaseDeclaration) assertFunc {
-	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-		assert.NilError(t, reconcileErr)
-		assertChartv1(t, env, liveName, namespace, 1)
-		assert.Equal(t, actualRelease.Version, 1)
-		assert.Equal(t, actualRelease.Name, release.Name)
-		assert.Equal(t, actualRelease.Namespace, release.Namespace)
-
-		contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
-			Name:      release.Name,
-			Namespace: release.Namespace,
-			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
-		})
-		defer contentReader.Close()
-
-		storedBytes, err := io.ReadAll(contentReader)
-		assert.NilError(t, err)
-
-		desiredBuf := &bytes.Buffer{}
-		err = json.NewEncoder(desiredBuf).Encode(release)
-		assert.NilError(t, err)
-
-		assert.Equal(t, string(storedBytes), desiredBuf.String())
-	}
-}
-
-func defaultPatchesAssertionFunc(release ReleaseDeclaration) assertFunc {
-	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-		assert.NilError(t, reconcileErr)
-		assertChartv1Patches(t, env, liveName, namespace)
-		assert.Equal(t, actualRelease.Version, 1)
-		assert.Equal(t, actualRelease.Name, release.Name)
-		assert.Equal(t, actualRelease.Namespace, release.Namespace)
-
-		contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
-			Name:      release.Name,
-			Namespace: release.Namespace,
-			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
-		})
-		defer contentReader.Close()
-
-		storedBytes, err := io.ReadAll(contentReader)
-		assert.NilError(t, err)
-
-		desiredBuf := &bytes.Buffer{}
-		err = json.NewEncoder(desiredBuf).Encode(release)
-		assert.NilError(t, err)
-
-		assert.Equal(t, string(storedBytes), desiredBuf.String())
-	}
-}
-
-func defaultV2AssertionFunc(release ReleaseDeclaration) assertFunc {
-	return func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-		assert.NilError(t, reconcileErr)
-		assertChartv2(t, env, liveName, namespace)
-		assert.Equal(t, actualRelease.Version, 1)
-		assert.Equal(t, actualRelease.Name, release.Name)
-		assert.Equal(t, actualRelease.Namespace, release.Namespace)
-
-		contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
-			Name:      release.Name,
-			Namespace: release.Namespace,
-			ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
-		})
-		defer contentReader.Close()
-
-		storedRelease := helm.Release{}
-		err = json.NewDecoder(contentReader).Decode(&storedRelease)
-		assert.NilError(t, err)
-		assert.DeepEqual(t, storedRelease, release)
-	}
-}
-
-type testCaseContext struct {
-	environment        *projecttest.Environment
-	chartServer        helmtest.Server
-	releaseDeclaration helm.ReleaseDeclaration
-	createAuthSecret   bool
-	assertFunc         assertFunc
-	chartReconciler    helm.ChartReconciler
-}
-
-func TestChartReconciler_Reconcile(t *testing.T) {
-	testRoot, err := os.MkdirTemp("", "declcd-cue-registry*")
-	assertError(err)
-
-	dnsServer, err := dnstest.NewDNSServer()
-	assertError(err)
-	defer dnsServer.Close()
-
-	cueModuleRegistry, err := ocitest.StartCUERegistry(testRoot)
-	assertError(err)
-	defer cueModuleRegistry.Close()
-
-	publicHelmEnvironment := newHelmEnvironment(false, false, "")
-	defer publicHelmEnvironment.Close()
-
-	privateHelmEnvironment := newHelmEnvironment(false, true, "")
-	defer privateHelmEnvironment.Close()
-
-	publicOciHelmEnvironment := newHelmEnvironment(true, false, "")
-	defer publicOciHelmEnvironment.Close()
-
-	privateOciHelmEnvironment := newHelmEnvironment(true, true, "")
-	defer privateOciHelmEnvironment.Close()
-
-	gcpHelmEnvironment := newHelmEnvironment(true, true, cloud.GCP)
-	defer gcpHelmEnvironment.Close()
-	gcpCloudEnvironment, err := cloudtest.NewGCPEnvironment()
-	assertError(err)
-	defer gcpCloudEnvironment.Close()
-
-	azureHelmEnvironment := newHelmEnvironment(true, true, cloud.Azure)
-	defer azureHelmEnvironment.Close()
-	azureCloudEnvironment, err := cloudtest.NewAzureEnvironment()
-	assertError(err)
-	defer azureCloudEnvironment.Close()
-
-	awsHelmEnvironment := newHelmEnvironment(true, true, cloud.AWS)
-	defer awsHelmEnvironment.Close()
-	awsEnvironment, err := cloudtest.NewAWSEnvironment(
-		awsHelmEnvironment.ChartServer.Addr(),
-	)
-	assertError(err)
-	defer awsEnvironment.Close()
-
-	cloudEnvironment, err := cloudtest.NewMetaServer(
-		azureCloudEnvironment.OIDCIssuerServer.URL,
-	)
-	assertError(err)
-	defer cloudEnvironment.Close()
-
-	testCases := []struct {
-		name    string
-		setup   func() testCaseContext
-		postRun func(context testCaseContext)
-	}{
-		{
-			name: "HTTP",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{
-						"autoscaling": map[string]interface{}{
-							"enabled": true,
-						},
-					},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				var hpa autoscalingv2.HorizontalPodAutoscaler
-				err := context.environment.TestKubeClient.Get(
-					context.environment.Ctx,
-					types.NamespacedName{
-						Name:      context.releaseDeclaration.Name,
-						Namespace: context.releaseDeclaration.Namespace,
-					},
-					&hpa,
-				)
-				assert.NilError(t, err)
-				assert.Equal(t, hpa.Name, context.releaseDeclaration.Name)
-				assert.Equal(t, hpa.Namespace, context.releaseDeclaration.Namespace)
-			},
-		},
-		{
-			name: "HTTP-Auth-Secret-Not-Found",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						SecretRef: &SecretRef{
-							Name:      "repauth",
-							Namespace: "default",
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-						assert.Error(t, reconcileErr, "secrets \"repauth\" not found")
-					},
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "HTTP-Auth-Secret-SecretRef-Not-Set",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						SecretRef: nil,
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-						assert.ErrorIs(t, reconcileErr, helm.ErrAuthSecretValueNotFound)
-					},
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "HTTP-Auth",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					privateHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						SecretRef: &SecretRef{
-							Name:      "auth",
-							Namespace: "default",
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					createAuthSecret:   true,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicOciHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicOciHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI-Auth-Secret-Not-Found",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					privateOciHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						SecretRef: &SecretRef{
-							Name:      "regauth",
-							Namespace: "default",
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					createAuthSecret:   false,
-					chartServer:        privateHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-						assert.Error(t, reconcileErr, "secrets \"regauth\" not found")
-					},
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI-Secret-Auth",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					privateOciHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						SecretRef: &SecretRef{
-							Name:      "auth",
-							Namespace: "default",
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					createAuthSecret:   true,
-					chartServer:        privateOciHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI-Secret-Auth-SecretRef-Not-Set",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					privateOciHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						SecretRef: nil,
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc: func(t *testing.T, env *kubetest.Environment, inventoryInstance inventory.Instance, reconcileErr error, actualRelease *helm.Release, liveName, namespace string) {
-						assert.ErrorIs(t, reconcileErr, helm.ErrAuthSecretValueNotFound)
-					},
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI-GCP-Workload-Identity-Auth",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					gcpHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						WorkloadIdentity: &WorkloadIdentity{
-							Provider: string(cloud.GCP),
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI-AWS-Workload-Identity-Auth",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					awsEnvironment.ECRServer.URL,
-					"1.0.0",
-					&Auth{
-						WorkloadIdentity: &WorkloadIdentity{
-							Provider: string(cloud.AWS),
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "OCI-Azure-Workload-Identity-Auth",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					azureHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					&Auth{
-						WorkloadIdentity: &WorkloadIdentity{
-							Provider: string(cloud.Azure),
-						},
-					},
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "Namespaced",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"mynamespace",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "Cached",
-			setup: func() testCaseContext {
-				flakyHelmEnvironment, err := helmtest.NewHelmEnvironment(
-					helmtest.WithOCI(false),
-					helmtest.WithPrivate(false),
-				)
-				assert.NilError(t, err)
-
-				release := createReleaseDeclaration(
-					"default",
-					flakyHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        flakyHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				context.chartServer.Close()
-				ctx := context.environment.Ctx
-				err := context.environment.TestKubeClient.Delete(ctx, &appsv1.Deployment{
-					ObjectMeta: v1.ObjectMeta{
-						Name:      "test",
-						Namespace: "default",
-					},
-				})
-				assert.NilError(t, err)
-
-				var deployment appsv1.Deployment
-				err = context.environment.TestKubeClient.Get(
-					ctx,
-					types.NamespacedName{Name: "test", Namespace: "default"},
-					&deployment,
-				)
-				assert.Error(t, err, "deployments.apps \"test\" not found")
-
-				actualRelease, err := context.chartReconciler.Reconcile(
-					ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv1(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-					1,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "Install-Patches",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					&helm.Patches{
-						Unstructureds: map[string]kube.ExtendedUnstructured{
-							"v1-Service-default-test": {
-								Unstructured: &unstructured.Unstructured{
-									Object: map[string]interface{}{
-										"apiVersion": "v1",
-										"kind":       "Service",
-										"metadata": map[string]any{
-											"name":      "test",
-											"namespace": "default",
-										},
-										"spec": map[string]any{
-											"type": "NodePort",
-										},
-									},
-								},
-							},
-							"apps/v1-Deployment-default-test": {
-								Unstructured: &unstructured.Unstructured{
-									Object: map[string]interface{}{
-										"apiVersion": "apps/v1",
-										"kind":       "Deployment",
-										"metadata": map[string]any{
-											"name": "test",
-										},
-										"spec": map[string]any{
-											"replicas": int64(2),
-											"template": map[string]any{
-												"spec": map[string]any{
-													"containers": []any{
-														map[string]any{
-															"name":  "prometheus",
-															"image": "prometheus:1.14.2",
-															"ports": []any{
-																map[string]any{
-																	"containerPort": int64(
-																		80,
-																	),
-																},
-															},
-														},
-														map[string]any{
-															"name":  "sidecar",
-															"image": "sidecar:1.14.2",
-															"ports": []any{
-																map[string]any{
-																	"containerPort": int64(
-																		80,
-																	),
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-								Metadata: &kube.ManifestMetadataNode{
-									"spec": &kube.ManifestMetadataNode{
-										"replicas": &kube.ManifestFieldMetadata{
-											IgnoreAttr: kube.OnConflict,
-										},
-										"template": &kube.ManifestMetadataNode{
-											"spec": &kube.ManifestMetadataNode{
-												"containers": &kube.ManifestFieldMetadata{
-													IgnoreAttr: kube.OnConflict,
-												},
-											},
-										},
-									},
-								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
-								},
-							},
-						},
-					})
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultPatchesAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-			},
-		},
-		{
-			name: "Upgrade",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				chart := Chart{
-					Name:    "test",
-					RepoURL: context.chartServer.URL(),
-					Version: "2.0.0",
-				}
-
-				context.releaseDeclaration.Chart = chart
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv2(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "Upgrade-CRDs",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"2.0.0",
-					nil,
-					true,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultV2AssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				chart := Chart{
-					Name:    "test",
-					RepoURL: context.chartServer.URL(),
-					Version: "3.0.0",
-				}
-
-				context.releaseDeclaration.Chart = chart
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv3(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "No-Allowance-To-Upgrade-CRDs",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"2.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultV2AssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				chart := Chart{
-					Name:    "test",
-					RepoURL: context.chartServer.URL(),
-					Version: "3.0.0",
-				}
-
-				context.releaseDeclaration.Chart = chart
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv2(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "No-Upgrade",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					true,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv1(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-					1,
-				)
-				assert.Equal(t, actualRelease.Version, 1)
-			},
-		},
-		{
-			name: "Conflicts",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				unstr := unstructured.Unstructured{
-					Object: map[string]interface{}{
-						"apiVersion": "apps/v1",
-						"kind":       "Deployment",
-						"metadata": map[string]interface{}{
-							"name":      "test",
-							"namespace": "default",
-						},
-						"spec": map[string]interface{}{
-							"replicas": 2,
-						},
-					},
-				}
-
-				err := context.environment.DynamicTestKubeClient.DynamicClient().Apply(
-					context.environment.Ctx,
-					&unstr,
-					"imposter",
-					kube.Force(true),
-				)
-				assert.NilError(t, err)
-
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv1(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-					1,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "Ignore-Conflicts",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					&helm.Patches{
-						Unstructureds: map[string]kube.ExtendedUnstructured{
-							"apps/v1-Deployment-default-test": {
-								Unstructured: &unstructured.Unstructured{
-									Object: map[string]interface{}{
-										"apiVersion": "apps/v1",
-										"kind":       "Deployment",
-										"metadata": map[string]any{
-											"name":      "test",
-											"namespace": "default",
-										},
-										"spec": map[string]any{
-											"replicas": int64(1),
-										},
-									},
-								},
-								Metadata: &kube.ManifestMetadataNode{
-									"spec": &kube.ManifestMetadataNode{
-										"replicas": &kube.ManifestFieldMetadata{
-											IgnoreAttr: kube.OnConflict,
-										},
-									},
-								},
-								AttributeInfo: kube.ManifestAttributeInfo{
-									HasIgnoreConflictAttributes: true,
-								},
-							},
-						},
-					},
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				unstr := unstructured.Unstructured{
-					Object: map[string]interface{}{
-						"apiVersion": "apps/v1",
-						"kind":       "Deployment",
-						"metadata": map[string]interface{}{
-							"name":      "test",
-							"namespace": "default",
-						},
-						"spec": map[string]interface{}{
-							"replicas": 2,
-						},
-					},
-				}
-
-				err := context.environment.DynamicTestKubeClient.DynamicClient().Apply(
-					context.environment.Ctx,
-					&unstr,
-					"imposter",
-					kube.Force(true),
-				)
-				assert.NilError(t, err)
-
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv1(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-					2,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "Pending-Upgrade-Recovery",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				helmConfig, err := helmtest.ConfigureHelm(context.chartReconciler.KubeConfig)
-				assert.NilError(t, err)
-
-				helmGet := action.NewGet(helmConfig)
-				rel, err := helmGet.Run("test")
-				assert.NilError(t, err)
-
-				rel.Info.Status = release.StatusPendingUpgrade
-				rel.Version = 2
-
-				err = helmConfig.Releases.Create(rel)
-				assert.NilError(t, err)
-
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv1(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-					1,
-				)
-				assert.Equal(t, actualRelease.Version, 2)
-			},
-		},
-		{
-			name: "Pending-Install-Recovery",
-			setup: func() testCaseContext {
-				release := createReleaseDeclaration(
-					"default",
-					publicHelmEnvironment.ChartServer.URL(),
-					"1.0.0",
-					nil,
-					false,
-					Values{},
-					nil,
-				)
-
-				return testCaseContext{
-					releaseDeclaration: release,
-					chartServer:        publicHelmEnvironment.ChartServer,
-					assertFunc:         defaultAssertionFunc(release),
-				}
-			},
-			postRun: func(context testCaseContext) {
-				helmConfig, err := helmtest.ConfigureHelm(context.chartReconciler.KubeConfig)
-				assert.NilError(t, err)
-
-				helmGet := action.NewGet(helmConfig)
-				rel, err := helmGet.Run("test")
-				assert.NilError(t, err)
-
-				rel.Info.Status = release.StatusPendingInstall
-				err = helmConfig.Releases.Update(rel)
-				assert.NilError(t, err)
-
-				actualRelease, err := context.chartReconciler.Reconcile(
-					context.environment.Ctx,
-					&helm.ReleaseComponent{
-						ID: fmt.Sprintf(
-							"%s_%s_%s",
-							context.releaseDeclaration.Name,
-							context.releaseDeclaration.Namespace,
-							"HelmRelease",
-						),
-						Content: context.releaseDeclaration,
-					},
-				)
-				assert.NilError(t, err)
-
-				assertChartv1(
-					t,
-					context.environment.Environment,
-					actualRelease.Name,
-					actualRelease.Namespace,
-					1,
-				)
-				assert.Equal(t, actualRelease.Version, 1)
-			},
-		},
-	}
-	for _, tc := range testCases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			context := tc.setup()
-			if context.environment == nil {
-				env := projecttest.StartProjectEnv(
-					t,
-				)
-				defer env.Stop()
-				context.environment = &env
-			}
-
-			inventoryInstance := inventory.Instance{
-				Path: filepath.Join(context.environment.TestRoot, "inventory"),
-			}
-
-			auth := context.releaseDeclaration.Chart.Auth
-			if auth != nil && auth.SecretRef != nil && context.createAuthSecret {
-				applyRepoAuthSecret(
-					t,
-					auth.SecretRef.Name,
-					auth.SecretRef.Namespace,
-					context.environment,
-				)
-			}
-
-			err := Remove(context.releaseDeclaration.Chart)
-			defer Remove(context.releaseDeclaration.Chart)
-			assert.NilError(t, err)
-
-			chartReconciler := helm.ChartReconciler{
-				Log:                   context.environment.Log,
-				KubeConfig:            context.environment.ControlPlane.Config,
-				Client:                context.environment.DynamicTestKubeClient,
-				FieldManager:          "controller",
-				InventoryInstance:     &inventoryInstance,
-				InsecureSkipTLSverify: true,
-			}
-			context.chartReconciler = chartReconciler
-
-			ns := &unstructured.Unstructured{}
-			ns.SetAPIVersion("v1")
-			ns.SetKind("Namespace")
-			ns.SetName(context.releaseDeclaration.Namespace)
-
-			err = context.environment.DynamicTestKubeClient.DynamicClient().Apply(
-				context.environment.Ctx,
-				ns,
-				"controller",
-			)
-			assert.NilError(t, err)
-
-			release, err := chartReconciler.Reconcile(
-				context.environment.Ctx,
-				&helm.ReleaseComponent{
-					ID: fmt.Sprintf(
-						"%s_%s_%s",
-						context.releaseDeclaration.Name,
-						context.releaseDeclaration.Namespace,
-						"HelmRelease",
-					),
-					Content: context.releaseDeclaration,
-				},
-			)
-
-			context.assertFunc(
-				t,
-				context.environment.Environment,
-				inventoryInstance,
-				err,
-				release,
-				context.releaseDeclaration.Name,
-				context.releaseDeclaration.Namespace,
-			)
-
-			tc.postRun(context)
-		})
-	}
 }
 
 func applyRepoAuthSecret(
 	t *testing.T,
+	ctx context.Context,
 	name string,
 	namespace string,
-	env *projecttest.Environment,
+	client *kube.DynamicClient,
 ) {
 	unstr := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -1271,8 +86,8 @@ func applyRepoAuthSecret(
 			},
 		},
 	}
-	err := env.DynamicTestKubeClient.DynamicClient().Apply(
-		env.Ctx,
+	err := client.Apply(
+		ctx,
 		&unstr,
 		"charttest",
 	)
@@ -1709,4 +524,2403 @@ func assertCRDChartv3(t *testing.T, ctx context.Context, dynamicClient *kube.Dyn
 
 	_, ok := getReplicas(crontabCRD)
 	assert.Assert(t, !ok)
+}
+
+func TestChartReconciler_Reconcile_HTTP(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{
+			"autoscaling": map[string]interface{}{
+				"enabled": true,
+			},
+		},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{
+			Name:      releaseDeclaration.Name,
+			Namespace: releaseDeclaration.Namespace,
+		},
+		&hpa,
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, hpa.Name, releaseDeclaration.Name)
+	assert.Equal(t, hpa.Namespace, releaseDeclaration.Namespace)
+}
+
+func TestChartReconciler_Reconcile_HTTPAuthSecretNotFound(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			SecretRef: &SecretRef{
+				Name:      "repauth",
+				Namespace: "default",
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.Error(t, err, "secrets \"repauth\" not found")
+}
+
+func TestChartReconciler_Reconcile_HTTPAuthSecretRefNotFound(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			SecretRef: nil,
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.ErrorIs(t, err, helm.ErrAuthSecretValueNotFound)
+}
+
+func TestChartReconciler_Reconcile_HTTPAuth(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	privateHelmEnvironment := newHelmEnvironment(t, false, true, "")
+	defer privateHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		privateHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			SecretRef: &SecretRef{
+				Name:      "auth",
+				Namespace: "default",
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	applyRepoAuthSecret(
+		t,
+		ctx,
+		releaseDeclaration.Chart.Auth.SecretRef.Name,
+		releaseDeclaration.Chart.Auth.SecretRef.Namespace,
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+	)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_OCI(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicOciHelmEnvironment := newHelmEnvironment(t, true, false, "")
+	defer publicOciHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicOciHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_OCIAuthSecretNotFound(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "")
+	defer privateOciHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		privateOciHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			SecretRef: &SecretRef{
+				Name:      "regauth",
+				Namespace: "default",
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.Error(t, err, "secrets \"regauth\" not found")
+}
+
+func TestChartReconciler_Reconcile_OCIAuthSecretRefNotFound(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "")
+	defer privateOciHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		privateOciHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			SecretRef: nil,
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.ErrorIs(t, err, helm.ErrAuthSecretValueNotFound)
+}
+
+func TestChartReconciler_Reconcile_OCIAuth(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "")
+	defer privateOciHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		privateOciHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			SecretRef: &SecretRef{
+				Name:      "auth",
+				Namespace: "default",
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	applyRepoAuthSecret(
+		t,
+		ctx,
+		releaseDeclaration.Chart.Auth.SecretRef.Name,
+		releaseDeclaration.Chart.Auth.SecretRef.Namespace,
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+	)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_OCIGCPWorkloadIdentity(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	gcpHelmEnvironment := newHelmEnvironment(t, true, true, cloud.GCP)
+	defer gcpHelmEnvironment.Close()
+	gcpCloudEnvironment, err := cloudtest.NewGCPEnvironment()
+	assert.NilError(t, err)
+	defer gcpCloudEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		gcpHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			WorkloadIdentity: &WorkloadIdentity{
+				Provider: string(cloud.GCP),
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_OCIAWSWorkloadIdentity(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	awsHelmEnvironment := newHelmEnvironment(t, true, true, cloud.AWS)
+	defer awsHelmEnvironment.Close()
+	awsEnvironment, err := cloudtest.NewAWSEnvironment(
+		awsHelmEnvironment.ChartServer.Addr(),
+	)
+	assert.NilError(t, err)
+	defer awsEnvironment.Close()
+
+	cloudEnvironment, err := cloudtest.NewMetaServer(
+		"",
+	)
+	assert.NilError(t, err)
+	defer cloudEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		awsEnvironment.ECRServer.URL,
+		"1.0.0",
+		&Auth{
+			WorkloadIdentity: &WorkloadIdentity{
+				Provider: string(cloud.AWS),
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_OCIAzureWorkloadIdentity(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	azureHelmEnvironment := newHelmEnvironment(t, true, true, cloud.Azure)
+	defer azureHelmEnvironment.Close()
+	azureEnvironment, err := cloudtest.NewAzureEnvironment()
+	assert.NilError(t, err)
+	defer azureEnvironment.Close()
+
+	cloudEnvironment, err := cloudtest.NewMetaServer(
+		azureEnvironment.OIDCIssuerServer.URL,
+	)
+	assert.NilError(t, err)
+	defer cloudEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		azureHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		&Auth{
+			WorkloadIdentity: &WorkloadIdentity{
+				Provider: string(cloud.Azure),
+			},
+		},
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"mynamespace",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_Cached(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	flakyHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer flakyHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		flakyHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+
+	flakyHelmEnvironment.ChartServer.Close()
+
+	err = kubernetes.TestKubeClient.Delete(ctx, &appsv1.Deployment{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "test",
+			Namespace: "default",
+		},
+	})
+	assert.NilError(t, err)
+
+	var deployment appsv1.Deployment
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "test", Namespace: "default"},
+		&deployment,
+	)
+	assert.Error(t, err, "deployments.apps \"test\" not found")
+
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv1(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+		1,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_InstallPatches(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		&helm.Patches{
+			Unstructureds: map[string]kube.ExtendedUnstructured{
+				"v1-Service-default-test": {
+					Unstructured: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "Service",
+							"metadata": map[string]any{
+								"name":      "test",
+								"namespace": "default",
+							},
+							"spec": map[string]any{
+								"type": "NodePort",
+							},
+						},
+					},
+				},
+				"apps/v1-Deployment-default-test": {
+					Unstructured: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "apps/v1",
+							"kind":       "Deployment",
+							"metadata": map[string]any{
+								"name": "test",
+							},
+							"spec": map[string]any{
+								"replicas": int64(2),
+								"template": map[string]any{
+									"spec": map[string]any{
+										"containers": []any{
+											map[string]any{
+												"name":  "prometheus",
+												"image": "prometheus:1.14.2",
+												"ports": []any{
+													map[string]any{
+														"containerPort": int64(
+															80,
+														),
+													},
+												},
+											},
+											map[string]any{
+												"name":  "sidecar",
+												"image": "sidecar:1.14.2",
+												"ports": []any{
+													map[string]any{
+														"containerPort": int64(
+															80,
+														),
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					Metadata: &kube.ManifestMetadata{
+						Node: map[string]kube.ManifestMetadata{
+							"spec": {
+								Node: map[string]kube.ManifestMetadata{
+									"replicas": {
+										Field: &kube.ManifestFieldMetadata{
+											IgnoreInstr: kube.OnConflict,
+										},
+									},
+									"template": {
+										Node: map[string]kube.ManifestMetadata{
+											"spec": {
+												Node: map[string]kube.ManifestMetadata{
+													"containers": {
+														Field: &kube.ManifestFieldMetadata{
+															IgnoreInstr: kube.OnConflict,
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1Patches(t, kubernetes, release.Name, release.Namespace)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+}
+
+func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+
+	chart := Chart{
+		Name:    "test",
+		RepoURL: publicHelmEnvironment.ChartServer.URL(),
+		Version: "2.0.0",
+	}
+
+	releaseDeclaration.Chart = chart
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv2(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_UpgradeCRDs(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"2.0.0",
+		nil,
+		true,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv2(t, kubernetes, release.Name, release.Namespace)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+
+	chart := Chart{
+		Name:    "test",
+		RepoURL: publicHelmEnvironment.ChartServer.URL(),
+		Version: "3.0.0",
+	}
+
+	releaseDeclaration.Chart = chart
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv3(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_UpgradeCRDsForbidden(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"2.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv2(t, kubernetes, release.Name, release.Namespace)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+
+	chart := Chart{
+		Name:    "test",
+		RepoURL: publicHelmEnvironment.ChartServer.URL(),
+		Version: "3.0.0",
+	}
+
+	releaseDeclaration.Chart = chart
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv2(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_NoUpgrade(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	release, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+	assertChartv1(t, kubernetes, release.Name, release.Namespace, 1)
+	assert.Equal(t, release.Version, 1)
+	assert.Equal(t, release.Name, releaseDeclaration.Name)
+	assert.Equal(t, release.Namespace, releaseDeclaration.Namespace)
+
+	contentReader, err := inventoryInstance.GetItem(&inventory.HelmReleaseItem{
+		Name:      release.Name,
+		Namespace: release.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", release.Name, release.Namespace),
+	})
+	defer contentReader.Close()
+
+	storedBytes, err := io.ReadAll(contentReader)
+	assert.NilError(t, err)
+
+	desiredBuf := &bytes.Buffer{}
+	err = json.NewEncoder(desiredBuf).Encode(release)
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(storedBytes), desiredBuf.String())
+
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv1(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+		1,
+	)
+	assert.Equal(t, actualRelease.Version, 1)
+}
+
+func TestChartReconciler_Reconcile_Conflicts(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	unstr := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]interface{}{
+				"name":      "test",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"replicas": 2,
+			},
+		},
+	}
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		&unstr,
+		"imposter",
+		kube.Force(true),
+	)
+	assert.NilError(t, err)
+
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv1(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+		1,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_IngoreConflicts(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		&helm.Patches{
+			Unstructureds: map[string]kube.ExtendedUnstructured{
+				"apps/v1-Deployment-default-test": {
+					Unstructured: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "apps/v1",
+							"kind":       "Deployment",
+							"metadata": map[string]any{
+								"name":      "test",
+								"namespace": "default",
+							},
+							"spec": map[string]any{
+								"replicas": int64(1),
+							},
+						},
+					},
+					Metadata: &kube.ManifestMetadata{
+						Node: map[string]kube.ManifestMetadata{
+							"spec": {
+								Node: map[string]kube.ManifestMetadata{
+									"replicas": {
+										Field: &kube.ManifestFieldMetadata{
+											IgnoreInstr: kube.OnConflict,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	unstr := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]interface{}{
+				"name":      "test",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"replicas": 2,
+			},
+		},
+	}
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		&unstr,
+		"imposter",
+		kube.Force(true),
+	)
+	assert.NilError(t, err)
+
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv1(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+		2,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_PendingUpgradeRecovery(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	helmConfig, err := helmtest.ConfigureHelm(chartReconciler.KubeConfig)
+	assert.NilError(t, err)
+
+	helmGet := action.NewGet(helmConfig)
+	rel, err := helmGet.Run("test")
+	assert.NilError(t, err)
+
+	rel.Info.Status = release.StatusPendingUpgrade
+	rel.Version = 2
+
+	err = helmConfig.Releases.Create(rel)
+	assert.NilError(t, err)
+
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv1(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+		1,
+	)
+	assert.Equal(t, actualRelease.Version, 2)
+}
+
+func TestChartReconciler_Reconcile_PendingInstallRecovery(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	defer publicHelmEnvironment.Close()
+
+	releaseDeclaration := createReleaseDeclaration(
+		"default",
+		publicHelmEnvironment.ChartServer.URL(),
+		"1.0.0",
+		nil,
+		false,
+		Values{},
+		nil,
+	)
+
+	ctx := context.Background()
+
+	logOpts := ctrlZap.Options{
+		Development: false,
+		Level:       zapcore.Level(-1),
+	}
+	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
+	kubernetes := kubetest.StartKubetestEnv(t, log, kubetest.WithEnabled(true))
+	defer kubernetes.Stop()
+
+	inventoryInstance := inventory.Instance{
+		Path: filepath.Join(t.TempDir(), "inventory"),
+	}
+
+	chartReconciler := helm.ChartReconciler{
+		Log:                   log,
+		KubeConfig:            kubernetes.ControlPlane.Config,
+		Client:                kubernetes.DynamicTestKubeClient,
+		FieldManager:          "controller",
+		InventoryInstance:     &inventoryInstance,
+		InsecureSkipTLSverify: true,
+		ChartCacheRoot:        t.TempDir(),
+	}
+
+	ns := &unstructured.Unstructured{}
+	ns.SetAPIVersion("v1")
+	ns.SetKind("Namespace")
+	ns.SetName(releaseDeclaration.Namespace)
+
+	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+		ctx,
+		ns,
+		"controller",
+	)
+	assert.NilError(t, err)
+
+	_, err = chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+
+	helmConfig, err := helmtest.ConfigureHelm(chartReconciler.KubeConfig)
+	assert.NilError(t, err)
+
+	helmGet := action.NewGet(helmConfig)
+	rel, err := helmGet.Run("test")
+	assert.NilError(t, err)
+
+	rel.Info.Status = release.StatusPendingInstall
+	err = helmConfig.Releases.Update(rel)
+	assert.NilError(t, err)
+
+	actualRelease, err := chartReconciler.Reconcile(
+		ctx,
+		&helm.ReleaseComponent{
+			ID: fmt.Sprintf(
+				"%s_%s_%s",
+				releaseDeclaration.Name,
+				releaseDeclaration.Namespace,
+				"HelmRelease",
+			),
+			Content: releaseDeclaration,
+		},
+	)
+	assert.NilError(t, err)
+
+	assertChartv1(
+		t,
+		kubernetes,
+		actualRelease.Name,
+		actualRelease.Namespace,
+		1,
+	)
+	assert.Equal(t, actualRelease.Version, 1)
 }

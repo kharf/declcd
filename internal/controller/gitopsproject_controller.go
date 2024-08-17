@@ -315,7 +315,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 
 	maxProcs := goRuntime.GOMAXPROCS(0)
 
-	projectManager := project.NewManager(componentBuilder, log, maxProcs)
+	projectManager := project.NewManager(componentBuilder, maxProcs)
 
 	helmKube.ManagedFieldsManager = controllerName
 
@@ -349,6 +349,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 			WorkerPoolSize:        maxProcs,
 			InsecureSkipTLSverify: opts.InsecureSkipTLSverify,
 			PlainHTTP:             opts.PlainHTTP,
+			CacheDir:              os.TempDir(),
 		},
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller")

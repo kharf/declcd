@@ -107,6 +107,9 @@ type ChartReconciler struct {
 
 	// Force http for Helm registries.
 	PlainHTTP bool
+
+	// Root directory where the charts are stored/cached.
+	ChartCacheRoot string
 }
 
 type logKey struct{}
@@ -659,7 +662,7 @@ func (c *ChartReconciler) load(
 	log := ctx.Value(logKey{}).(*logr.Logger)
 
 	var err error
-	archivePath := newArchivePath(chartRequest)
+	archivePath := newArchivePath(chartRequest, c.ChartCacheRoot)
 	chart, err := loader.Load(archivePath.fullPath)
 	if err != nil {
 		pathErr := &fs.PathError{}
@@ -831,19 +834,14 @@ func getSecretValue(data map[string]interface{}, key string, isOptional bool) (s
 	return string(bytes), nil
 }
 
-// Remove removes the locally stored Helm Chart from the file system, but does not uninstall the Chart/Release.
-func Remove(chart Chart) error {
-	return os.RemoveAll(newArchivePath(chart).fullPath)
-}
-
 type archivePath struct {
 	dir      string
 	fullPath string
 }
 
-func newArchivePath(chart Chart) archivePath {
+func newArchivePath(chart Chart, chartCacheRoot string) archivePath {
 	chartIdentifier := fmt.Sprintf("%s-%s", chart.Name, chart.Version)
-	chartDestPath := filepath.Join(os.TempDir(), chart.Name)
+	chartDestPath := filepath.Join(chartCacheRoot, chart.Name)
 	fullPath := filepath.Join(chartDestPath, fmt.Sprintf("%s.tgz", chartIdentifier))
 	return archivePath{
 		dir:      chartDestPath,
@@ -988,7 +986,6 @@ func (c *Client) apply(ctx context.Context, unstr *unstructured.Unstructured) er
 	extendedUnstr := &kube.ExtendedUnstructured{}
 	if patch != nil {
 		extendedUnstr.Metadata = patch.Metadata
-		extendedUnstr.AttributeInfo = patch.AttributeInfo
 	}
 	extendedUnstr.Unstructured = unstr
 

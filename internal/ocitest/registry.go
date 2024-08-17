@@ -25,7 +25,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -35,12 +37,14 @@ import (
 	"cuelang.org/go/mod/module"
 	"cuelang.org/go/mod/modzip"
 
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/otiai10/copy"
 )
 
 type Registry struct {
-	httpsServer    *httptest.Server
+	httpsServer *httptest.Server
+	*ocimem.Registry
 	client         *http.Client
 	registryClient *modregistry.Client
 }
@@ -49,7 +53,7 @@ func (r *Registry) Client() *http.Client {
 	return r.client
 }
 
-func (r *Registry) OCIClient() *modregistry.Client {
+func (r *Registry) CUERegistryClient() *modregistry.Client {
 	return r.registryClient
 }
 
@@ -180,6 +184,11 @@ func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
 		},
 	}
 	client.Transport = transport
+	remote.DefaultTransport = transport
+	// set to to true globally as CUE for example uses the DefaultTransport
+	http.DefaultTransport = transport
+	http.DefaultClient.Transport = transport
+
 	ociClient := modregistry.NewClient(registry)
 
 	httpsServer.URL = strings.Replace(
@@ -193,6 +202,7 @@ func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
 		httpsServer:    httpsServer,
 		client:         client,
 		registryClient: ociClient,
+		Registry:       registry,
 	}, nil
 }
 
@@ -204,8 +214,15 @@ func StartCUERegistry(
 		return nil, err
 	}
 
-	ociClient := cueModuleRegistry.OCIClient()
+	ociClient := cueModuleRegistry.CUERegistryClient()
 	modDir, err := os.MkdirTemp(registryPath, "")
+	if err != nil {
+		return nil, err
+	}
+
+	_, filename, _, _ := runtime.Caller(0)
+	dir := path.Join(path.Dir(filename), "../..")
+	err = os.Chdir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +234,7 @@ func StartCUERegistry(
 	}
 
 	ctx := context.Background()
-	m, err := module.NewVersion("github.com/kharf/declcd/schema", "v0.9.1")
+	m, err := module.NewVersion("github.com/kharf/declcd/schema", "v0.0.99")
 	if err != nil {
 		return nil, err
 	}
@@ -232,37 +249,6 @@ func StartCUERegistry(
 		return nil, err
 	}
 
-	modDirSrc := "test/mod/cue/k8s"
-	err = copy.Copy(modDirSrc, filepath.Join(modDir, "k8s"))
-	if err != nil {
-		return nil, err
-	}
-
-	m, err = module.NewVersion("github.com/kharf/cuepkgs/modules/k8s", "v0.0.5")
-	if err != nil {
-		return nil, err
-	}
-
-	cuepkgsModuleReader, cuepkgsLen, err := createImage(m, modDir, "k8s")
-	if err != nil {
-		return nil, err
-	}
-
-	err = ociClient.PutModule(ctx, m, cuepkgsModuleReader, cuepkgsLen)
-	if err != nil {
-		return nil, err
-	}
-
-	err = ociClient.PutModule(ctx, m, cuepkgsModuleReader, int64(cuepkgsLen))
-	if err != nil {
-		return nil, err
-	}
-
-	http.DefaultClient.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
 	err = os.Setenv("CUE_REGISTRY", cueModuleRegistry.Addr())
 	if err != nil {
 		return nil, err

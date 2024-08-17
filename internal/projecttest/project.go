@@ -15,50 +15,27 @@
 package projecttest
 
 import (
-	"crypto/tls"
-	"fmt"
-	"net/http"
+	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
+	"text/template"
 
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/project"
-	_ "github.com/kharf/declcd/test/workingdir"
-	"github.com/otiai10/copy"
+	"github.com/kharf/declcd/internal/txtar"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
-	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-type Project struct {
-	Name          string
-	GitRepository *gittest.LocalGitRepository
-	TargetPath    string
-}
-
 type Environment struct {
-	Log            logr.Logger
-	ProjectManager project.Manager
-	TestRoot       string
-	Projects       []Project
-	*kubetest.Environment
-}
-
-func (env *Environment) Stop() {
-	if env.Environment != nil {
-		env.Environment.Stop()
-	}
-	_ = os.RemoveAll(env.TestRoot)
-
-	for _, project := range env.Projects {
-		_ = os.RemoveAll(project.GitRepository.Directory)
-	}
+	Log              logr.Logger
+	TestRoot         string
+	TestProject      string
+	LocalTestProject string
+	GitRepository    *gittest.LocalGitRepository
 }
 
 type Option interface {
@@ -90,56 +67,78 @@ func (opt withKubernetes) Apply(opts *options) {
 	opts.kubeOpts = opt
 }
 
-func StartProjectEnv(t testing.TB, opts ...Option) Environment {
-	options := options{}
-	for _, o := range opts {
-		o.Apply(&options)
-	}
+func InitTestEnvironment(t testing.TB, txtarData []byte) Environment {
+	testRoot := t.TempDir()
+
+	localProject, err := os.MkdirTemp(testRoot, "")
+	assert.NilError(t, err)
+
+	err = txtar.Create(localProject, bytes.NewReader(txtarData))
+	assert.NilError(t, err)
+
+	remoteProject, err := os.MkdirTemp(testRoot, "")
+	assert.NilError(t, err)
+
+	gitRepository, err := gittest.InitGitRepository(t, remoteProject, localProject, "main")
+	assert.NilError(t, err)
 
 	logOpts := ctrlZap.Options{
 		Development: false,
 		Level:       zapcore.Level(-1),
 	}
 	log := ctrlZap.New(ctrlZap.UseFlagOptions(&logOpts))
-	ctrl.SetLogger(log)
-
-	testRoot, err := os.MkdirTemp("", "declcd-*")
-	assert.NilError(t, err)
-
-	var projects []Project
-	for _, source := range options.projectSources {
-		testProject, err := os.MkdirTemp(testRoot, fmt.Sprintf("%s-*", source))
-		assert.NilError(t, err)
-
-		err = copy.Copy(filepath.Join("test/testdata", source), testProject)
-		assert.NilError(t, err)
-
-		repo, err := gittest.InitGitRepository(testProject, "main")
-		assert.NilError(t, err)
-		projects = append(projects, Project{
-			Name:          source,
-			GitRepository: repo,
-			TargetPath:    testProject,
-		})
-	}
-
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-
-	// set to to true globally as CUE for example uses the DefaultTransport
-	http.DefaultTransport = transport
-
-	env := kubetest.StartKubetestEnv(t, log, options.kubeOpts...)
-	projectManager := project.NewManager(component.NewBuilder(), log, runtime.GOMAXPROCS(0))
-
 	return Environment{
-		ProjectManager: projectManager,
-		TestRoot:       testRoot,
-		Projects:       projects,
-		Environment:    env,
-		Log:            log,
+		TestRoot:         testRoot,
+		TestProject:      remoteProject,
+		LocalTestProject: localProject,
+		GitRepository:    gitRepository,
+		Log:              log,
 	}
+}
+
+type Template struct {
+	TestProjectPath  string
+	RelativeFilePath string
+	Data             any
+}
+
+func ReplaceTemplate(
+	tmpl Template,
+	gitRepository *gittest.LocalGitRepository,
+) error {
+	releasesFilePath := filepath.Join(
+		tmpl.TestProjectPath,
+		tmpl.RelativeFilePath,
+	)
+
+	releasesContent, err := os.ReadFile(releasesFilePath)
+	if err != nil {
+		return err
+	}
+
+	parsedTemplate, err := template.New("").Parse(string(releasesContent))
+	if err != nil {
+		return err
+	}
+
+	releasesFile, err := os.Create(releasesFilePath)
+	if err != nil {
+		return err
+	}
+	defer releasesFile.Close()
+
+	err = parsedTemplate.Execute(releasesFile, tmpl.Data)
+	if err != nil {
+		return err
+	}
+
+	_, err = gitRepository.CommitFile(
+		tmpl.RelativeFilePath,
+		"overwrite template",
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

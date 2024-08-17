@@ -24,16 +24,12 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/helmtest"
 	"github.com/kharf/declcd/internal/ocitest"
-
-	_ "github.com/kharf/declcd/test/workingdir"
 )
 
 var (
 	dnsServer         *dnstest.DNSServer
 	cueModuleRegistry *ocitest.Registry
-	helmEnvironment   *helmtest.Environment
 	test              *testing.T
 )
 
@@ -55,17 +51,9 @@ var _ = BeforeSuite(func() {
 
 	cueModuleRegistry, err = ocitest.StartCUERegistry(registryPath)
 	Expect(err).NotTo(HaveOccurred())
-
-	helmEnvironment, err = helmtest.NewHelmEnvironment(
-		helmtest.WithOCI(false),
-		helmtest.WithPrivate(false),
-	)
-	Expect(err).NotTo(HaveOccurred())
-
 })
 
 var _ = AfterSuite(func() {
 	dnsServer.Close()
 	cueModuleRegistry.Close()
-	helmEnvironment.Close()
 })

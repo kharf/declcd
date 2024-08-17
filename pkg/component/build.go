@@ -17,8 +17,9 @@ package component
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
+
+	cueErrors "cuelang.org/go/cue/errors"
 
 	"cuelang.org/go/cue"
 	internalCue "github.com/kharf/declcd/internal/cue"
@@ -27,18 +28,23 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-type MetadataNode = kube.ManifestMetadataNode
 type Manifest = kube.Manifest
 type ExtendedUnstructured = kube.ExtendedUnstructured
-type AttributeInfo = kube.ManifestAttributeInfo
 type FieldMetadata = kube.ManifestFieldMetadata
 
 var (
-	ErrMissingField = errors.New("Missing content field")
+	ErrMissingField    = errors.New("Missing content field")
+	ErrEmptyFieldLabel = errors.New("Unexpected empty field label")
+	ErrCUEBuildError   = errors.New("CUE Build Error")
 )
 
 const (
+	// ignoreAttr is a CUE build attribute a user can define on a field or declaration
+	// to tell Declcd to ignore fields or structs when applying Kubernetes Manifests.
 	ignoreAttr = "ignore"
+	// updateAttr is a CUE build attribute a user can define on a field
+	// to tell Declcd to automatically update container images.
+	updateAttr = "update"
 )
 
 // Builder compiles and decodes CUE kubernetes manifest definitions of a component to the corresponding Go struct.
@@ -76,9 +82,14 @@ const (
 	ProjectRootPath = "."
 )
 
+type BuildResult struct {
+	Instances          []Instance
+	UpdateInstructions []kube.UpdateInstruction
+}
+
 // Build accepts options defining which cue package to compile
 // and compiles it to a slice of component Instances.
-func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
+func (b Builder) Build(opts ...buildOptions) (*BuildResult, error) {
 	options := &BuildOptions{
 		packagePath: "",
 		projectRoot: ProjectRootPath,
@@ -92,130 +103,138 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 		options.projectRoot,
 	)
 	if err != nil {
-		return nil, err
+		return nil, buildError(err)
 	}
 
 	iter, err := value.Fields()
 	if err != nil {
-		return nil, err
+		return nil, buildError(err)
 	}
 
-	instances := make([]Instance, 0)
+	var instances []Instance
+	var updateInstructions []kube.UpdateInstruction
+
 	for iter.Next() {
 		componentValue := iter.Value()
 
 		instanceType, err := getStringValue(componentValue, "type")
 		if err != nil {
-			return nil, err
+			return nil, buildError(err)
 		}
 
 		id, err := getStringValue(componentValue, "id")
 		if err != nil {
-			return nil, err
+			return nil, buildError(err)
 		}
 
 		dependencies, err := getStringSliceValue(componentValue, "dependencies")
 		if err != nil {
-			return nil, err
+			return nil, buildError(err)
 		}
 
 		switch instanceType {
 		case "Manifest":
 			contentValue, err := getValue(componentValue, "content")
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
-			metadata := MetadataNode{}
-			content := make(map[string]any, 1)
-			attrInfo, err := decodeValue(*contentValue, content, metadata, true)
+			content, metadata, updateInstr, err := decodeValue(*contentValue, nil)
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
-			contentField := content["content"]
+			contentNode, ok := content.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf(
+					"%w: expected content to be of type struct",
+					ErrCUEBuildError,
+				)
+			}
+
 			manifest := Manifest{
 				ID:           id,
 				Dependencies: dependencies,
 				Content: ExtendedUnstructured{
 					Unstructured: &unstructured.Unstructured{
-						Object: contentField.(map[string]any),
+						Object: contentNode,
 					},
-					AttributeInfo: *attrInfo,
+					Metadata: metadata,
 				},
 			}
 
-			if attrInfo.HasIgnoreConflictAttributes {
-				manifest.Content.Metadata = metadata["content"]
-			}
-
 			if err := validateManifest(manifest); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%w: %w", ErrCUEBuildError, err)
 			}
 			instances = append(instances, &manifest)
+			updateInstructions = append(updateInstructions, updateInstr...)
 
 		case "HelmRelease":
 			name, err := getStringValue(componentValue, "name")
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			namespace, err := getStringValue(componentValue, "namespace")
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			chart, err := decodeChart(componentValue)
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			values, err := decodeValues(componentValue)
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			patchesValue, err := getValue(componentValue, "patches")
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			patchesValueIter, err := patchesValue.List()
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			patches := helm.NewPatches()
 			for patchesValueIter.Next() {
-				metadata := MetadataNode{}
-				content := make(map[string]any)
 				value := patchesValueIter.Value()
-				attrInfo, err := decodeValue(value, content, metadata, true)
+				content, metadata, updateInstr, err := decodeValue(value, nil)
 				if err != nil {
-					return nil, err
+					return nil, buildError(err)
+				}
+
+				contentNode, ok := content.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf(
+						"%w: expected patches content to be of type struct",
+						ErrCUEBuildError,
+					)
 				}
 
 				unstr := kube.ExtendedUnstructured{
 					Unstructured: &unstructured.Unstructured{
-						Object: content,
+						Object: contentNode,
 					},
-					AttributeInfo: *attrInfo,
-				}
-				if attrInfo.HasIgnoreConflictAttributes {
-					unstr.Metadata = &metadata
+					Metadata: metadata,
 				}
 
 				patches.Put(unstr)
+				updateInstructions = append(updateInstructions, updateInstr...)
 			}
 
 			crdsValue, err := getValue(componentValue, "crds")
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			allowUpgrade, err := getBoolValue(*crdsValue, "allowUpgrade")
 			if err != nil {
-				return nil, err
+				return nil, buildError(err)
 			}
 
 			hr := &helm.ReleaseComponent{
@@ -240,7 +259,10 @@ func (b Builder) Build(opts ...buildOptions) ([]Instance, error) {
 		}
 	}
 
-	return instances, nil
+	return &BuildResult{
+		Instances:          instances,
+		UpdateInstructions: updateInstructions,
+	}, nil
 }
 
 func decodeValues(componentValue cue.Value) (helm.Values, error) {
@@ -303,325 +325,284 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, error) {
 
 func decodeValue(
 	value cue.Value,
-	content map[string]any,
-	metadata MetadataNode,
-	evaluateMetadata bool,
-) (*AttributeInfo, error) {
+	parentNode map[string]any,
+) (any, *kube.ManifestMetadata, []kube.UpdateInstruction, error) {
 	if value.Err() != nil {
-		return nil, value.Err()
+		return nil, nil, nil, value.Err()
 	}
+
+	var err error
+	var content any
+	var metadata *kube.ManifestMetadata
+	var fieldMeta *kube.ManifestFieldMetadata
+	var updateInstructions []kube.UpdateInstruction
 
 	switch value.Kind() {
 	case cue.StructKind:
-		return decodeStruct(value, content, metadata, evaluateMetadata)
+		fieldMeta, err = decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		content, metadata, updateInstructions, err = decodeStruct(value)
 
 	case cue.ListKind:
-		return decodeList(value, content, metadata, evaluateMetadata)
+		fieldMeta, err = decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		content, metadata, updateInstructions, err = decodeList(value)
 
 	case cue.BottomKind:
-		if defaultValue, exists := value.Default(); exists {
-			return decodeValue(defaultValue, content, metadata, evaluateMetadata)
+		defaultValue, exists := value.Default()
+		if !exists {
+			return nil, nil, nil, fmt.Errorf(
+				"%w: invalid value %v",
+				ErrCUEBuildError,
+				getLabel(value),
+			)
 		}
-		return nil, nil
+
+		return decodeValue(defaultValue, parentNode)
 
 	default:
-		return decodePrimitives(value, content, metadata, evaluateMetadata)
+		var updateInstr *kube.UpdateInstruction
+		content, fieldMeta, updateInstr, err = decodeField(value, parentNode)
+		if updateInstr != nil {
+			updateInstructions = append(updateInstructions, *updateInstr)
+		}
 	}
 
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if metadata == nil && fieldMeta != nil {
+		metadata = &kube.ManifestMetadata{
+			Field: fieldMeta,
+		}
+	}
+
+	if metadata != nil {
+		metadata.Field = fieldMeta
+	}
+
+	return content, metadata, updateInstructions, nil
 }
 
 func decodeList(
 	value cue.Value,
-	content map[string]any,
-	metadata MetadataNode,
-	evaluateMetadata bool,
-) (*AttributeInfo, error) {
-	if value.Kind() != cue.ListKind {
-		return nil, nil
-	}
-
-	name := getLabel(value)
-
-	attrInfo := &AttributeInfo{
-		HasIgnoreConflictAttributes: false,
-	}
-
-	ignoreAttr := getIgnoreAttribute(value)
-
-	if name != "" && evaluateMetadata {
-		switch ignoreAttr {
-
-		case kube.OnConflict:
-			metadata[name] = &FieldMetadata{
-				IgnoreAttr: kube.OnConflict,
-			}
-
-			attrInfo.HasIgnoreConflictAttributes = true
-
-		}
-	}
-
-	list, err := handleList(value)
+) ([]any, *kube.ManifestMetadata, []kube.UpdateInstruction, error) {
+	iter, err := value.List()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
-	content[name] = list
+	var content []any
+	var metadata []kube.ManifestMetadata
+	var updateInstructions []kube.UpdateInstruction
 
-	return attrInfo, nil
+	for iter.Next() {
+		childValue := iter.Value()
+		childContent, childMetadata, childUpdateInstructions, err := decodeValue(childValue, nil)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		content = append(content, childContent)
+		if childMetadata != nil {
+			metadata = append(metadata, *childMetadata)
+		}
+		updateInstructions = append(updateInstructions, childUpdateInstructions...)
+	}
+
+	if len(metadata) != 0 {
+		return content, &kube.ManifestMetadata{
+			List: metadata,
+		}, updateInstructions, nil
+	}
+
+	return content, nil, updateInstructions, nil
 }
 
-func decodePrimitives(
+func decodeField(
 	value cue.Value,
-	content map[string]any,
-	metadata MetadataNode,
-	evaluateMetadata bool,
-) (*AttributeInfo, error) {
-	name := getLabel(value)
-
-	attrInfo := &AttributeInfo{
-		HasIgnoreConflictAttributes: false,
-	}
-
-	ignoreAttr := getIgnoreAttribute(value)
-
-	if name != "" && evaluateMetadata {
-		switch ignoreAttr {
-
-		case kube.OnConflict:
-			metadata[name] = &FieldMetadata{
-				IgnoreAttr: kube.OnConflict,
-			}
-
-			attrInfo.HasIgnoreConflictAttributes = true
-
-		}
-	}
-
-	concreteValue, err := getConcreteValue(value)
-	if err != nil {
-		return nil, err
-	}
-
-	if concreteValue != nil {
-		content[name] = concreteValue
-	}
-
-	return attrInfo, nil
-}
-
-func getConcreteValue(value cue.Value) (any, error) {
-
+	parentNode map[string]any,
+) (any, *kube.ManifestFieldMetadata, *kube.UpdateInstruction, error) {
 	switch value.Kind() {
-	case cue.BottomKind:
-		if defaultValue, exists := value.Default(); exists {
-			concreteValue, err := getConcreteValue(defaultValue)
-			if err != nil {
-				return nil, err
-			}
-			return concreteValue, nil
-		}
-
 	case cue.StringKind:
+		fieldMeta, updateInstr, err := decodeStringBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		concreteValue, err := value.String()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		return concreteValue, nil
+
+		if updateInstr != nil {
+			updateInstr.Image = concreteValue
+			updateInstr.UnstructuredKey = getLabel(value)
+			updateInstr.UnstructuredNode = parentNode
+		}
+
+		return concreteValue, fieldMeta, updateInstr, nil
 
 	case cue.BytesKind:
+		fieldMeta, err := decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		concreteValue, err := value.Bytes()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		return concreteValue, nil
+		return concreteValue, fieldMeta, nil, nil
 
 	case cue.BoolKind:
+		fieldMeta, err := decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		concreteValue, err := value.Bool()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		return concreteValue, nil
+		return concreteValue, fieldMeta, nil, nil
 
 	case cue.FloatKind:
+		fieldMeta, err := decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		concreteValue, err := value.Float64()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		return concreteValue, nil
+		return concreteValue, fieldMeta, nil, nil
 
 	case cue.IntKind:
+		fieldMeta, err := decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		concreteValue, err := value.Int64()
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		return concreteValue, nil
-
+		return concreteValue, fieldMeta, nil, nil
 	}
 
-	return nil, nil
+	return nil, nil, nil, nil
 }
 
 func decodeStruct(
 	value cue.Value,
-	content map[string]any,
-	metadata MetadataNode,
-	evaluateMetadata bool,
-) (*AttributeInfo, error) {
-	if value.Kind() != cue.StructKind {
-		return nil, nil
-	}
-
-	name := getLabel(value)
-
-	attrInfo := &AttributeInfo{
-		HasIgnoreConflictAttributes: false,
-	}
-
-	ignoreAttr := getIgnoreAttribute(value)
-
-	var childContent map[string]any
-	var childMetadataNode MetadataNode
-
-	if name != "" {
-
-		if evaluateMetadata {
-			switch ignoreAttr {
-
-			case kube.OnConflict:
-				metadata[name] = &FieldMetadata{
-					IgnoreAttr: kube.OnConflict,
-				}
-
-				evaluateMetadata = false
-
-				attrInfo.HasIgnoreConflictAttributes = true
-
-			default:
-				childMetadataNode = MetadataNode{}
-
-			}
-		}
-
-		childContent = map[string]any{}
-
-	} else {
-		childContent = content
-		childMetadataNode = metadata
-	}
-
+) (map[string]any, *kube.ManifestMetadata, []kube.UpdateInstruction, error) {
 	iter, err := value.Fields()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
+
+	content := map[string]any{}
+	nodeMetadata := map[string]kube.ManifestMetadata{}
+	var updateInstructions []kube.UpdateInstruction
 
 	for iter.Next() {
 		childValue := iter.Value()
-		childAttrInfo, err := decodeValue(
-			childValue,
-			childContent,
-			childMetadataNode,
-			evaluateMetadata,
-		)
+		childLabel := getLabel(childValue)
+		if childLabel == "" {
+			return nil, nil, nil, ErrEmptyFieldLabel
+		}
+
+		childContent, childMetadata, childUpdateInstr, err := decodeValue(childValue, content)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
-		if !attrInfo.HasIgnoreConflictAttributes && childAttrInfo.HasIgnoreConflictAttributes {
-			attrInfo.HasIgnoreConflictAttributes = true
+		content[childLabel] = childContent
+		if childMetadata != nil {
+			nodeMetadata[childLabel] = *childMetadata
 		}
+		updateInstructions = append(updateInstructions, childUpdateInstr...)
 	}
 
-	if name != "" {
-		content[name] = childContent
-
-		if attrInfo.HasIgnoreConflictAttributes && evaluateMetadata {
-			metadata[name] = &childMetadataNode
-		}
+	if len(nodeMetadata) != 0 {
+		return content, &kube.ManifestMetadata{
+			Node: nodeMetadata,
+		}, updateInstructions, nil
 	}
 
-	return attrInfo, nil
+	return content, nil, updateInstructions, nil
 }
 
-func handleList(value cue.Value) ([]any, error) {
-	iter, err := value.List()
-	if err != nil {
-		return nil, err
-	}
-
-	listContent := []any{}
-	for iter.Next() {
-		childValue := iter.Value()
-
-		switch childValue.Kind() {
-
-		case cue.StructKind:
-			childContent := map[string]any{}
-			if _, err := decodeStruct(childValue, childContent, nil, false); err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, childContent)
-
-		case cue.ListKind:
-			childList, err := handleList(childValue)
-			if err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, childList)
-
-		case cue.StringKind:
-			actualValue, err := childValue.String()
-			if err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, actualValue)
-
-		case cue.IntKind:
-			actualValue, err := childValue.Int64()
-			if err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, actualValue)
-
-		case cue.FloatKind:
-			actualValue, err := childValue.Float64()
-			if err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, actualValue)
-
-		case cue.BoolKind:
-			actualValue, err := childValue.Bool()
-			if err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, actualValue)
-
-		case cue.BytesKind:
-			actualValue, err := childValue.Bytes()
-			if err != nil {
-				return nil, err
-			}
-			listContent = append(listContent, actualValue)
-		}
-	}
-
-	return listContent, nil
-}
-
-func getIgnoreAttribute(value cue.Value) kube.ManifestIgnoreAttribute {
+func decodeBuildAttributes(value cue.Value) (*FieldMetadata, error) {
 	attributes := value.Attributes(cue.ValueAttr)
 
+	var meta *FieldMetadata
 	for _, attr := range attributes {
-		if attr.Name() == ignoreAttr {
-			switch attr.Name() {
-			case ignoreAttr:
-				return kube.OnConflict
+		switch attr.Name() {
+		case ignoreAttr:
+			if meta == nil {
+				meta = new(FieldMetadata)
+			}
+			meta.IgnoreInstr = kube.OnConflict
+		}
+	}
+
+	return meta, nil
+}
+
+func decodeStringBuildAttributes(
+	value cue.Value,
+) (*FieldMetadata, *kube.UpdateInstruction, error) {
+	attributes := value.Attributes(cue.ValueAttr)
+
+	var meta *FieldMetadata
+	var updateInstr *kube.UpdateInstruction
+	for _, attr := range attributes {
+		switch attr.Name() {
+		case ignoreAttr:
+			if meta == nil {
+				meta = new(FieldMetadata)
+			}
+			meta.IgnoreInstr = kube.OnConflict
+
+		case updateAttr:
+			if meta == nil {
+				meta = new(FieldMetadata)
+			}
+			stratDef, _, err := attr.Lookup(0, "strategy")
+			if err != nil {
+				return nil, nil, err
+			}
+
+			constraint, _, err := attr.Lookup(0, "constraint")
+			if err != nil {
+				return nil, nil, err
+			}
+
+			secretRef, _, err := attr.Lookup(0, "secret")
+			if err != nil {
+				return nil, nil, err
+			}
+
+			strat := kube.Semver
+			switch stratDef {
+			case "semver":
+				strat = kube.Semver
+			}
+
+			updateInstr = &kube.UpdateInstruction{
+				Strategy:   strat,
+				Constraint: constraint,
+				SecretRef:  secretRef,
+				File:       value.Pos().Filename(),
+				Line:       value.Pos().Line(),
 			}
 		}
 	}
 
-	return kube.None
+	return meta, updateInstr, nil
 }
 
 func getStringValue(value cue.Value, key string) (string, error) {
@@ -731,9 +712,9 @@ func getLabel(value cue.Value) string {
 	}
 
 	label := selector[len-1].String()
-	if _, err := strconv.Atoi(label); err == nil {
-		return ""
-	}
-
 	return strings.ReplaceAll(label, "\"", "")
+}
+
+func buildError(err error) error {
+	return fmt.Errorf("%w: %s", ErrCUEBuildError, cueErrors.Details(err, nil))
 }

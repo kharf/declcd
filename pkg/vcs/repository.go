@@ -19,11 +19,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -44,18 +46,114 @@ const (
 
 // A vcs Repository.
 type Repository struct {
-	Path string
-	pull PullFunc
+	Path   string
+	pull   PullFunc
+	commit CommitFunc
+	push   PushFunc
+}
+
+func NewRepository(
+	path string,
+	gitRepository *git.Repository,
+	refName plumbing.ReferenceName,
+	authMethod transport.AuthMethod,
+) (*Repository, error) {
+	worktree, err := gitRepository.Worktree()
+	if err != nil {
+		return nil, err
+	}
+
+	pullFunc := func() (string, error) {
+		err := worktree.Pull(&git.PullOptions{
+			Auth:          authMethod,
+			ReferenceName: refName,
+		})
+		if err != nil && err != git.NoErrAlreadyUpToDate {
+			return "", err
+		}
+
+		ref, err := gitRepository.Head()
+		if err != nil {
+			return "", err
+		}
+
+		return ref.Hash().String(), nil
+	}
+
+	commitFunc := func(file string, message string) (string, error) {
+		relPath, err := filepath.Rel(
+			worktree.Filesystem.Root(),
+			file,
+		)
+		if err != nil {
+			return "", err
+		}
+
+		_, err = worktree.Add(relPath)
+		if err != nil {
+			return "", err
+		}
+
+		hash, err := worktree.Commit(
+			message,
+			&git.CommitOptions{
+				Author: &object.Signature{
+					Name: "declcd-bot",
+					When: time.Now(),
+				},
+			},
+		)
+		if err != nil {
+			return "", err
+		}
+
+		return hash.String(), nil
+	}
+
+	pushFunc := func() error {
+		return gitRepository.Push(&git.PushOptions{
+			Auth: authMethod,
+		})
+	}
+
+	return &Repository{
+		Path:   path,
+		pull:   pullFunc,
+		commit: commitFunc,
+		push:   pushFunc,
+	}, nil
 }
 
 type PullFunc = func() (string, error)
-
-func NewRepository(path string, pull PullFunc) Repository {
-	return Repository{Path: path, pull: pull}
-}
+type CommitFunc = func(file string, message string) (string, error)
+type PushFunc = func() error
 
 func (repository *Repository) Pull() (string, error) {
 	return repository.pull()
+}
+
+func (repository *Repository) Commit(file string, message string) (string, error) {
+	return repository.commit(file, message)
+}
+
+func (repository *Repository) Push() error {
+	return repository.push()
+}
+
+func Open(
+	branch string,
+	path string,
+	authMethod transport.AuthMethod,
+) (*Repository, error) {
+	gitRepository, err := git.PlainOpen(path)
+	if err != nil {
+		return nil, err
+	}
+
+	refName := plumbing.NewBranchReferenceName(branch)
+	return NewRepository(
+		path, gitRepository, refName, authMethod,
+	)
 }
 
 // RepositoryManager clones a remote vcs repository to a local path.
@@ -125,21 +223,21 @@ func (manager RepositoryManager) Load(
 
 	log.V(1).Info("Opening repository")
 
-	gitRepository, err := git.PlainOpen(targetPath)
+	repository, err := Open(branch, targetPath, authMethod)
 	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
 
-	refName := plumbing.NewBranchReferenceName(branch)
 	if err == git.ErrRepositoryNotExists {
 		log.V(1).Info("Repository not cloned yet")
 		log.V(1).Info("Cloning repository")
 
-		gitRepository, err = git.PlainClone(
+		refName := plumbing.NewBranchReferenceName(branch)
+		gitRepository, err := git.PlainClone(
 			targetPath, false,
 			&git.CloneOptions{
 				URL:           remoteURL,
-				Progress:      os.Stdout,
+				Progress:      nil,
 				Auth:          authMethod,
 				ReferenceName: refName,
 			},
@@ -147,30 +245,14 @@ func (manager RepositoryManager) Load(
 		if err != nil {
 			return nil, err
 		}
-	}
 
-	worktree, err := gitRepository.Worktree()
-	if err != nil {
-		return nil, err
-	}
-
-	pullFunc := func() (string, error) {
-		err := worktree.Pull(&git.PullOptions{
-			Auth:          authMethod,
-			ReferenceName: refName,
-		})
-		if err != nil && err != git.NoErrAlreadyUpToDate {
-			return "", err
-		}
-		ref, err := gitRepository.Head()
+		repository, err = NewRepository(targetPath, gitRepository, refName, authMethod)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		return ref.Hash().String(), nil
 	}
 
-	repository := NewRepository(targetPath, pullFunc)
-	return &repository, nil
+	return repository, nil
 }
 
 func getAuthSecret(

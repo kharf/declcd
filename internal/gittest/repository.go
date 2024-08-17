@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/kharf/declcd/pkg/vcs"
@@ -33,12 +34,9 @@ import (
 )
 
 type LocalGitRepository struct {
-	Worktree  *git.Worktree
-	Directory string
-}
-
-func (r *LocalGitRepository) Clean() error {
-	return os.RemoveAll(r.Directory)
+	Repository *git.Repository
+	Worktree   *git.Worktree
+	Directory  string
 }
 
 func (r *LocalGitRepository) CommitFile(file string, message string) (string, error) {
@@ -46,6 +44,7 @@ func (r *LocalGitRepository) CommitFile(file string, message string) (string, er
 	if _, err := worktree.Add(file); err != nil {
 		return "", err
 	}
+
 	hash, err := worktree.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  "John Doe",
@@ -54,6 +53,10 @@ func (r *LocalGitRepository) CommitFile(file string, message string) (string, er
 		},
 	})
 	if err != nil {
+		return "", err
+	}
+
+	if err := r.Repository.Push(&git.PushOptions{}); err != nil {
 		return "", err
 	}
 	return hash.String(), nil
@@ -66,11 +69,9 @@ func (r *LocalGitRepository) CommitNewFile(file string, message string) (string,
 	return r.CommitFile(file, message)
 }
 
-func SetupGitRepository(branch string) (*LocalGitRepository, error) {
-	dir, err := os.MkdirTemp("", "")
-	if err != nil {
-		return nil, err
-	}
+func SetupGitRepository(t testing.TB, branch string) (*LocalGitRepository, error) {
+	dir := t.TempDir()
+
 	fileName := "test1"
 	r, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
 		Bare: false,
@@ -81,22 +82,57 @@ func SetupGitRepository(branch string) (*LocalGitRepository, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	worktree, err := r.Worktree()
 	if err != nil {
 		return nil, err
 	}
-	localRepository := &LocalGitRepository{
-		Worktree:  worktree,
-		Directory: dir,
+
+	remoteDir := t.TempDir()
+	_, err = git.PlainInitWithOptions(remoteDir, &git.PlainInitOptions{
+		Bare: true,
+		InitOptions: git.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName(branch),
+		},
+	})
+	if err != nil {
+		return nil, err
 	}
+	_, err = r.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remoteDir}})
+	if err != nil {
+		return nil, err
+	}
+
+	localRepository := &LocalGitRepository{
+		Repository: r,
+		Worktree:   worktree,
+		Directory:  dir,
+	}
+
 	if _, err := localRepository.CommitNewFile(fileName, "first commit"); err != nil {
 		return nil, err
 	}
+
 	return localRepository, nil
 }
 
-func InitGitRepository(dir string, branch string) (*LocalGitRepository, error) {
-	r, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
+func InitGitRepository(
+	t testing.TB,
+	remoteDir string,
+	dir string,
+	branch string,
+) (*LocalGitRepository, error) {
+	_, err := git.PlainInitWithOptions(remoteDir, &git.PlainInitOptions{
+		Bare: true,
+		InitOptions: git.InitOptions{
+			DefaultBranch: plumbing.NewBranchReferenceName(branch),
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	localRepo, err := git.PlainInitWithOptions(dir, &git.PlainInitOptions{
 		Bare: false,
 		InitOptions: git.InitOptions{
 			DefaultBranch: plumbing.NewBranchReferenceName(branch),
@@ -105,33 +141,24 @@ func InitGitRepository(dir string, branch string) (*LocalGitRepository, error) {
 	if err != nil {
 		return nil, err
 	}
-	worktree, err := r.Worktree()
+	_, err = localRepo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{remoteDir}})
 	if err != nil {
 		return nil, err
 	}
-	localRepository := &LocalGitRepository{
-		Worktree:  worktree,
-		Directory: dir,
+
+	worktree, err := localRepo.Worktree()
+	if err != nil {
+		return nil, err
 	}
+
+	localRepository := &LocalGitRepository{
+		Repository: localRepo,
+		Worktree:   worktree,
+		Directory:  dir,
+	}
+
 	if _, err := localRepository.CommitFile(".", "first commit"); err != nil {
 		return nil, err
-	}
-
-	return localRepository, nil
-}
-
-func OpenGitRepository(dir string) (*LocalGitRepository, error) {
-	r, err := git.PlainOpen(dir)
-	if err != nil {
-		return nil, err
-	}
-	worktree, err := r.Worktree()
-	if err != nil {
-		return nil, err
-	}
-	localRepository := &LocalGitRepository{
-		Worktree:  worktree,
-		Directory: dir,
 	}
 
 	return localRepository, nil

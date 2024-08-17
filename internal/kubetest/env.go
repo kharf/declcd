@@ -16,7 +16,6 @@ package kubetest
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -29,9 +28,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/vcs"
-	_ "github.com/kharf/declcd/test/workingdir"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/kubectl/pkg/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
@@ -42,11 +41,11 @@ type Environment struct {
 	DynamicTestKubeClient *kube.ExtendedDynamicClient
 	RepositoryManager     vcs.RepositoryManager
 	Ctx                   context.Context
-	clean                 func()
+	clean                 func() error
 }
 
-func (env Environment) Stop() {
-	env.clean()
+func (env Environment) Stop() error {
+	return env.clean()
 }
 
 type enabled bool
@@ -97,6 +96,8 @@ func StartKubetestEnv(t testing.TB, log logr.Logger, opts ...Option) *Environmen
 	if !options.enabled {
 		return nil
 	}
+
+	ctrl.SetLogger(log)
 
 	testEnv := &envtest.Environment{
 		ErrorIfCRDPathMissing: false,
@@ -169,11 +170,9 @@ hrA1u6Ox2hD5LAq5+gAAAEDiqr5GEHcp1oHqJCNhc+LBYF9LDmuJ9oL0LUw5pYZy
 		DynamicTestKubeClient: client,
 		RepositoryManager:     repositoryManger,
 		Ctx:                   ctx,
-		clean: func() {
+		clean: func() error {
 			cancel()
-			if err := testEnv.Stop(); err != nil {
-				fmt.Println(err)
-			}
+			return testEnv.Stop()
 		},
 	}
 }

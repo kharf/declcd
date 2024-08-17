@@ -18,50 +18,63 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// ManifestIgnoreAttribute is a CUE build attribute a user can define on a field or declaration
-// to tell Declcd to ignore fields or structs when applying Kubernetes Manifests.
-type ManifestIgnoreAttribute int
+// IgnoreInstruction is an instruction to tell Declcd to ignore fields or structs on certain events when applying Kubernetes Manifests.
+type IgnoreInstruction int
 
 const (
 	// Default. Declcd will enforce the field/struct.
-	None ManifestIgnoreAttribute = iota
+	None IgnoreInstruction = iota
 
 	// This tells Declcd to omit the field/struct 'tagged' with this value on a retry ssa patch request.
 	OnConflict
 )
 
-// ManifestMetadata extends unstructured fields with additional information.
-type ManifestMetadata interface {
-	Metadata() *ManifestFieldMetadata
+// ManifestUpdateStrategy defines the container image update strategy to calculate the latest image.
+type ManifestUpdateStrategy int
+
+const (
+	// Semantic Versioning as defined in https://semver.org/.
+	Semver ManifestUpdateStrategy = iota
+)
+
+// UpdateInstruction is an instruction to tell Declcd to automatically update container images.
+type UpdateInstruction struct {
+	Strategy   ManifestUpdateStrategy
+	Constraint string
+	SecretRef  string
+
+	// File path of the 'tagged' field.
+	File string
+
+	// Line number of the 'tagged' field.
+	Line int
+
+	// Image value of the 'tagged' field.
+	Image string
+
+	// Reference to the struct holding the image field.
+	UnstructuredNode map[string]any
+
+	// Field key or label of the image.
+	UnstructuredKey string
 }
 
-type ManifestMetadataNode map[string]ManifestMetadata
-
-var _ ManifestMetadata = (*ManifestMetadataNode)(nil)
-
-func (s *ManifestMetadataNode) Metadata() *ManifestFieldMetadata {
-	return nil
+// ManifestMetadata extends unstructured fields, structs or lists with additional information.
+type ManifestMetadata struct {
+	Field *ManifestFieldMetadata
+	Node  map[string]ManifestMetadata
+	List  []ManifestMetadata
 }
 
+// ManifestFieldMetadata extends unstructured fields with additional information.
 type ManifestFieldMetadata struct {
-	IgnoreAttr ManifestIgnoreAttribute
-}
-
-var _ ManifestMetadata = (*ManifestFieldMetadata)(nil)
-
-func (v *ManifestFieldMetadata) Metadata() *ManifestFieldMetadata {
-	return v
-}
-
-type ManifestAttributeInfo struct {
-	HasIgnoreConflictAttributes bool
+	IgnoreInstr IgnoreInstruction
 }
 
 // ExtendedUnstructured enhances Kubernetes Unstructured struct with additional Metadata, like IgnoreAttributes.
 type ExtendedUnstructured struct {
 	*unstructured.Unstructured
-	Metadata      ManifestMetadata      `json:"-"`
-	AttributeInfo ManifestAttributeInfo `json:"-"`
+	Metadata *ManifestMetadata `json:"-"`
 }
 
 // Manifest represents a Declcd component with its id, dependencies and content.

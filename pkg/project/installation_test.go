@@ -20,19 +20,20 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/go-logr/logr"
 
+	"github.com/google/go-cmp/cmp"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/dnstest"
 	"github.com/kharf/declcd/internal/gittest"
+	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/manifest"
 	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/internal/projecttest"
-	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/vcs"
 	"gotest.tools/v3/assert"
@@ -41,211 +42,24 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-const (
-	intervalInSeconds = 5
-	url               = "git@github.com:kharf/declcd.git"
-	branch            = "main"
-)
-
-type testProject struct {
-	name        string
-	shard       string
-	isSecondary bool
-}
-
-func TestInstallAction_Install(t *testing.T) {
-	testRoot, err := os.MkdirTemp("", "declcd-cue-registry*")
-	assertError(err)
-
-	dnsServer, err := dnstest.NewDNSServer()
-	assertError(err)
-	defer dnsServer.Close()
-
-	cueModuleRegistry, err := ocitest.StartCUERegistry(testRoot)
-	assertError(err)
-	defer cueModuleRegistry.Close()
-
-	testCases := []struct {
-		name      string
-		project   testProject
-		assertion func(env projecttest.Environment, testProject testProject)
-		post      func(env projecttest.Environment, action project.InstallAction, testProjectCR testProject)
-	}{
-		{
-			name: "Fresh",
-			project: testProject{
-				name:        "fresh",
-				shard:       "fresh",
-				isSecondary: false,
-			},
-			assertion: func(env projecttest.Environment, testProject testProject) {
-				defaultAssertion(t, env, testProject)
-			},
-			post: func(env projecttest.Environment, action project.InstallAction, testProject testProject) {},
-		},
-		{
-			name: "MultiTenancy",
-			project: testProject{
-				name:        "primary",
-				shard:       "primary",
-				isSecondary: false,
-			},
-			assertion: func(env projecttest.Environment, testProject testProject) {
-				defaultAssertion(t, env, testProject)
-			},
-			post: func(env projecttest.Environment, action project.InstallAction, testProjectCR testProject) {
-				err = project.Init(
-					"github.com/kharf/declcd/installation",
-					"secondary",
-					true,
-					env.Projects[0].TargetPath,
-					"1.0.0",
-				)
-				assert.NilError(t, err)
-
-				server, client := gittest.MockGitProvider(
-					t,
-					vcs.GitHub,
-					fmt.Sprintf("declcd-%s", "secondary"),
-				)
-				defer server.Close()
-
-				kubeClient, err := kube.NewDynamicClient(env.ControlPlane.Config)
-				assert.NilError(t, err)
-
-				action = project.NewInstallAction(kubeClient, client, env.Projects[0].TargetPath)
-				ctx := context.Background()
-				err = action.Install(
-					ctx,
-					project.InstallOptions{
-						Name:     "secondary",
-						Shard:    "secondary",
-						Branch:   branch,
-						Interval: intervalInSeconds,
-						Url:      url,
-						Token:    "aaaa",
-					},
-				)
-				assert.NilError(t, err)
-
-				defaultAssertion(t, env, testProjectCR)
-				defaultAssertion(t, env, testProject{
-					name:        "secondary",
-					shard:       "secondary",
-					isSecondary: true,
-				},
-				)
-			},
-		},
-		{
-			name: "RunTwice",
-			project: testProject{
-				name:        "runtwice",
-				shard:       "runtwice",
-				isSecondary: false,
-			},
-			assertion: func(env projecttest.Environment, testProject testProject) {
-				defaultAssertion(t, env, testProject)
-			},
-			post: func(env projecttest.Environment, action project.InstallAction, testProject testProject) {
-				ctx := context.Background()
-				var getSecret func() v1.Secret
-				getSecret = func() v1.Secret {
-					var vcsKey v1.Secret
-					err := env.TestKubeClient.Get(
-						ctx,
-						types.NamespacedName{
-							Name:      vcs.SecretName(testProject.name),
-							Namespace: project.ControllerNamespace,
-						},
-						&vcsKey,
-					)
-					assert.NilError(t, err)
-					return vcsKey
-				}
-				vcsKeyBefore := getSecret()
-				err := action.Install(
-					ctx,
-					project.InstallOptions{
-						Branch:   branch,
-						Interval: intervalInSeconds,
-						Name:     testProject.name,
-						Shard:    testProject.shard,
-						Url:      url,
-						Token:    "aaaa",
-					},
-				)
-				assert.NilError(t, err)
-				defaultAssertion(t, env, testProject)
-				vcsKeyAfter := getSecret()
-				assert.Assert(t, cmp.Equal(vcsKeyAfter.Data, vcsKeyBefore.Data))
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			server, client := gittest.MockGitProvider(
-				t,
-				vcs.GitHub,
-				fmt.Sprintf("declcd-%s", tc.project.name),
-			)
-			defer server.Close()
-
-			env := projecttest.StartProjectEnv(t, projecttest.WithProjectSource("simple"))
-			defer env.Stop()
-
-			ctx := context.Background()
-			kubeClient, err := kube.NewDynamicClient(env.ControlPlane.Config)
-			assert.NilError(t, err)
-
-			testProject := env.Projects[0]
-			err = project.Init(
-				"github.com/kharf/declcd/installation",
-				tc.project.shard,
-				tc.project.isSecondary,
-				testProject.TargetPath,
-				"1.0.0",
-			)
-			assert.NilError(t, err)
-
-			action := project.NewInstallAction(kubeClient, client, testProject.TargetPath)
-
-			err = action.Install(
-				ctx,
-				project.InstallOptions{
-					Name:     tc.project.name,
-					Shard:    tc.project.shard,
-					Branch:   branch,
-					Interval: intervalInSeconds,
-					Url:      url,
-					Token:    "aaaa",
-				},
-			)
-			assert.NilError(t, err)
-
-			tc.assertion(env, tc.project)
-
-			tc.post(env, action, tc.project)
-		})
-	}
-}
-
 func defaultAssertion(
 	t *testing.T,
-	env projecttest.Environment,
-	testProjectCR testProject,
+	kubernetes *kubetest.Environment,
+	projectName string,
+	testProject string,
 ) {
 	ctx := context.Background()
 	var ns v1.Namespace
-	err := env.TestKubeClient.Get(ctx, types.NamespacedName{Name: project.ControllerNamespace}, &ns)
+	err := kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: project.ControllerNamespace},
+		&ns,
+	)
 	assert.NilError(t, err)
 
-	projectName := testProjectCR.name
-
 	var deployment appsv1.Deployment
-	controllerName := fmt.Sprintf("%s-%s", "project-controller", testProjectCR.shard)
-	err = env.TestKubeClient.Get(
+	controllerName := fmt.Sprintf("%s-%s", "project-controller", projectName)
+	err = kubernetes.TestKubeClient.Get(
 		ctx,
 		types.NamespacedName{
 			Name:      controllerName,
@@ -256,18 +70,17 @@ func defaultAssertion(
 	assert.NilError(t, err)
 
 	var gitOpsProject gitops.GitOpsProject
-	err = env.TestKubeClient.Get(
+	err = kubernetes.TestKubeClient.Get(
 		ctx,
 		types.NamespacedName{Name: projectName, Namespace: project.ControllerNamespace},
 		&gitOpsProject,
 	)
 	assert.NilError(t, err)
 
-	testProject := env.Projects[0]
 	projectFile, err := os.Open(
 		filepath.Join(
-			testProject.TargetPath,
-			fmt.Sprintf("declcd/%s_project.cue", testProjectCR.name),
+			testProject,
+			fmt.Sprintf("declcd/%s_project.cue", projectName),
 		),
 	)
 	assert.NilError(t, err)
@@ -285,14 +98,14 @@ func defaultAssertion(
 		"Branch":              branch,
 		"PullIntervalSeconds": intervalInSeconds,
 		"Url":                 url,
-		"Shard":               testProjectCR.shard,
+		"Shard":               projectName,
 	})
 	assert.NilError(t, err)
 
 	assert.Equal(t, string(projectContent), projectBuf.String())
 
 	var vcsKey v1.Secret
-	err = env.TestKubeClient.Get(
+	err = kubernetes.TestKubeClient.Get(
 		ctx,
 		types.NamespacedName{
 			Name:      vcs.SecretName(projectName),
@@ -303,7 +116,7 @@ func defaultAssertion(
 	assert.NilError(t, err)
 
 	var knownHostsCm v1.ConfigMap
-	err = env.TestKubeClient.Get(
+	err = kubernetes.TestKubeClient.Get(
 		ctx,
 		types.NamespacedName{Name: "known-hosts", Namespace: project.ControllerNamespace},
 		&knownHostsCm,
@@ -311,10 +124,339 @@ func defaultAssertion(
 	assert.NilError(t, err)
 
 	var service v1.Service
-	err = env.TestKubeClient.Get(
+	err = kubernetes.TestKubeClient.Get(
 		ctx,
 		types.NamespacedName{Name: controllerName, Namespace: project.ControllerNamespace},
 		&service,
 	)
 	assert.NilError(t, err)
+}
+
+const (
+	intervalInSeconds = 5
+	url               = "git@github.com:kharf/declcd.git"
+	branch            = "main"
+)
+
+type testContext struct {
+	kubernetes *kubetest.Environment
+}
+
+func TestInstallAction_Install(t *testing.T) {
+	dnsServer, err := dnstest.NewDNSServer()
+	assert.NilError(t, err)
+	defer dnsServer.Close()
+
+	cueModuleRegistry, err := ocitest.StartCUERegistry(t.TempDir())
+	assert.NilError(t, err)
+	defer cueModuleRegistry.Close()
+
+	testCases := []struct {
+		name string
+		test func(*testing.T, testContext)
+	}{
+		{
+			name: "Fresh",
+			test: fresh,
+		},
+		{
+			name: "MultiTenancy",
+			test: multiTenancy,
+		},
+		{
+			name: "RunTwice",
+			test: runTwice,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			kubernetes := kubetest.StartKubetestEnv(t, logr.Discard(), kubetest.WithEnabled(true))
+			defer kubernetes.Stop()
+			tc.test(t, testContext{
+				kubernetes: kubernetes,
+			})
+		})
+	}
+}
+
+func fresh(t *testing.T, testContext testContext) {
+	projectName := "fresh"
+	kubernetes := testContext.kubernetes
+
+	var server *httptest.Server
+	server, client := gittest.MockGitProvider(
+		t,
+		vcs.GitHub,
+		fmt.Sprintf("declcd-%s", projectName),
+	)
+	defer server.Close()
+
+	testProject := t.TempDir()
+	err := project.Init(
+		"github.com/kharf/declcd/installation",
+		projectName,
+		false,
+		testProject,
+		"0.0.99",
+	)
+	assert.NilError(t, err)
+
+	action := project.NewInstallAction(
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+		client,
+		testProject,
+	)
+
+	ctx := context.Background()
+	err = action.Install(
+		ctx,
+		project.InstallOptions{
+			Name:     projectName,
+			Shard:    projectName,
+			Branch:   branch,
+			Interval: intervalInSeconds,
+			Url:      url,
+			Token:    "aaaa",
+		},
+	)
+	assert.NilError(t, err)
+
+	var ns v1.Namespace
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: project.ControllerNamespace},
+		&ns,
+	)
+	assert.NilError(t, err)
+
+	var deployment appsv1.Deployment
+	controllerName := fmt.Sprintf("%s-%s", "project-controller", projectName)
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{
+			Name:      controllerName,
+			Namespace: project.ControllerNamespace,
+		},
+		&deployment,
+	)
+	assert.NilError(t, err)
+
+	var gitOpsProject gitops.GitOpsProject
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: projectName, Namespace: project.ControllerNamespace},
+		&gitOpsProject,
+	)
+	assert.NilError(t, err)
+
+	projectFile, err := os.Open(
+		filepath.Join(
+			testProject,
+			fmt.Sprintf("declcd/%s_project.cue", projectName),
+		),
+	)
+	assert.NilError(t, err)
+
+	projectContent, err := io.ReadAll(projectFile)
+	assert.NilError(t, err)
+
+	var projectBuf bytes.Buffer
+	projectTmpl, err := template.New("").Parse(manifest.Project)
+
+	assert.NilError(t, err)
+	err = projectTmpl.Execute(&projectBuf, map[string]interface{}{
+		"Name":                projectName,
+		"Namespace":           project.ControllerNamespace,
+		"Branch":              branch,
+		"PullIntervalSeconds": intervalInSeconds,
+		"Url":                 url,
+		"Shard":               projectName,
+	})
+	assert.NilError(t, err)
+
+	assert.Equal(t, string(projectContent), projectBuf.String())
+
+	var vcsKey v1.Secret
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{
+			Name:      vcs.SecretName(projectName),
+			Namespace: project.ControllerNamespace,
+		},
+		&vcsKey,
+	)
+	assert.NilError(t, err)
+
+	var knownHostsCm v1.ConfigMap
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "known-hosts", Namespace: project.ControllerNamespace},
+		&knownHostsCm,
+	)
+	assert.NilError(t, err)
+
+	var service v1.Service
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: controllerName, Namespace: project.ControllerNamespace},
+		&service,
+	)
+	assert.NilError(t, err)
+}
+
+func multiTenancy(t *testing.T, testContext testContext) {
+	projectName := "primary"
+	kubernetes := testContext.kubernetes
+
+	server, client := gittest.MockGitProvider(
+		t,
+		vcs.GitHub,
+		fmt.Sprintf("declcd-%s", projectName),
+	)
+	defer server.Close()
+
+	testProject := t.TempDir()
+	err := project.Init(
+		"github.com/kharf/declcd/installation",
+		projectName,
+		false,
+		testProject,
+		"0.0.99",
+	)
+	assert.NilError(t, err)
+
+	action := project.NewInstallAction(
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+		client,
+		testProject,
+	)
+
+	ctx := context.Background()
+	err = action.Install(
+		ctx,
+		project.InstallOptions{
+			Name:     projectName,
+			Shard:    projectName,
+			Branch:   branch,
+			Interval: intervalInSeconds,
+			Url:      url,
+			Token:    "aaaa",
+		},
+	)
+	assert.NilError(t, err)
+
+	defaultAssertion(t, kubernetes, projectName, testProject)
+
+	secondaryProjectName := "secondary"
+	server, client = gittest.MockGitProvider(
+		t,
+		vcs.GitHub,
+		fmt.Sprintf("declcd-%s", secondaryProjectName),
+	)
+	defer server.Close()
+	action = project.NewInstallAction(
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+		client,
+		testProject,
+	)
+
+	err = project.Init(
+		"github.com/kharf/declcd/installation",
+		secondaryProjectName,
+		true,
+		testProject,
+		"0.0.99",
+	)
+	assert.NilError(t, err)
+
+	err = action.Install(
+		ctx,
+		project.InstallOptions{
+			Name:     secondaryProjectName,
+			Shard:    secondaryProjectName,
+			Branch:   branch,
+			Interval: intervalInSeconds,
+			Url:      url,
+			Token:    "aaaa",
+		},
+	)
+	assert.NilError(t, err)
+
+	defaultAssertion(t, kubernetes, secondaryProjectName, testProject)
+}
+
+func runTwice(t *testing.T, testContext testContext) {
+	projectName := "runtwice"
+	kubernetes := testContext.kubernetes
+
+	server, client := gittest.MockGitProvider(
+		t,
+		vcs.GitHub,
+		fmt.Sprintf("declcd-%s", projectName),
+	)
+	defer server.Close()
+
+	testProject := t.TempDir()
+	err := project.Init(
+		"github.com/kharf/declcd/installation",
+		projectName,
+		false,
+		testProject,
+		"0.0.99",
+	)
+	assert.NilError(t, err)
+
+	action := project.NewInstallAction(
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+		client,
+		testProject,
+	)
+
+	ctx := context.Background()
+	err = action.Install(
+		ctx,
+		project.InstallOptions{
+			Name:     projectName,
+			Shard:    projectName,
+			Branch:   branch,
+			Interval: intervalInSeconds,
+			Url:      url,
+			Token:    "aaaa",
+		},
+	)
+	assert.NilError(t, err)
+
+	defaultAssertion(t, kubernetes, projectName, testProject)
+
+	var getSecret func() v1.Secret
+	getSecret = func() v1.Secret {
+		var vcsKey v1.Secret
+		err := kubernetes.TestKubeClient.Get(
+			ctx,
+			types.NamespacedName{
+				Name:      vcs.SecretName(projectName),
+				Namespace: project.ControllerNamespace,
+			},
+			&vcsKey,
+		)
+		assert.NilError(t, err)
+		return vcsKey
+	}
+	vcsKeyBefore := getSecret()
+	err = action.Install(
+		ctx,
+		project.InstallOptions{
+			Branch:   branch,
+			Interval: intervalInSeconds,
+			Name:     projectName,
+			Shard:    projectName,
+			Url:      url,
+			Token:    "aaaa",
+		},
+	)
+	assert.NilError(t, err)
+	defaultAssertion(t, kubernetes, projectName, testProject)
+	vcsKeyAfter := getSecret()
+	assert.Assert(t, cmp.Equal(vcsKeyAfter.Data, vcsKeyBefore.Data))
 }

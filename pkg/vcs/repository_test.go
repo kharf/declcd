@@ -40,7 +40,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 		remoteBranch string
 		withSecret   bool
 		expectedErr  string
-		post         func(env projecttest.Environment, localRepository string, remoteRepository string)
+		post         func(kubernetes *kubetest.Environment, localRepository string, remoteRepository string)
 	}{
 		{
 			name:       "Clone",
@@ -51,8 +51,8 @@ func TestRepositoryManager_Load(t *testing.T) {
 			name:       "Open",
 			branch:     "main",
 			withSecret: true,
-			post: func(env projecttest.Environment, localRepository string, remoteRepository string) {
-				_, err := env.RepositoryManager.Load(
+			post: func(kubernetes *kubetest.Environment, localRepository string, remoteRepository string) {
+				_, err := kubernetes.RepositoryManager.Load(
 					context.Background(),
 					remoteRepository,
 					"main",
@@ -78,28 +78,23 @@ func TestRepositoryManager_Load(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			localRepository, err := os.MkdirTemp("", "")
-			assert.NilError(t, err)
-			defer os.RemoveAll(localRepository)
+			localRepository := t.TempDir()
 			if tc.remoteBranch == "" {
 				tc.remoteBranch = tc.branch
 			}
-			remoteRepository, err := gittest.SetupGitRepository(tc.remoteBranch)
+			remoteRepository, err := gittest.SetupGitRepository(t, tc.remoteBranch)
 			assert.NilError(t, err)
-			defer remoteRepository.Clean()
 
 			kubernetesOpts := projecttest.WithKubernetes()
 			if tc.withSecret {
 				kubernetesOpts = append(kubernetesOpts, kubetest.WithVCSAuthSecretFor("test"))
 			}
-			env := projecttest.StartProjectEnv(t,
-				projecttest.WithProjectSource("simple"),
-				kubernetesOpts,
-			)
-			defer env.Stop()
+			env := projecttest.Environment{}
 
-			repository, err := env.RepositoryManager.Load(
-				env.Ctx,
+			kubernetes := kubetest.StartKubetestEnv(t, env.Log, kubetest.WithEnabled(true))
+			defer kubernetes.Stop()
+			repository, err := kubernetes.RepositoryManager.Load(
+				context.Background(),
 				remoteRepository.Directory,
 				tc.branch,
 				localRepository,
@@ -127,7 +122,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 			}
 
 			if tc.post != nil {
-				tc.post(env, localRepository, remoteRepository.Directory)
+				tc.post(kubernetes, localRepository, remoteRepository.Directory)
 			}
 		})
 	}
@@ -215,35 +210,39 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 	testCases := []struct {
 		name         string
 		projectNames []string
-		post         func(env projecttest.Environment, sec corev1.Secret, client *http.Client)
+		post         func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client)
 	}{
 		{
 			name:         "NonExisting",
 			projectNames: []string{"non-existing"},
-			post:         func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {},
+			post:         func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client) {},
 		},
 		{
 			name:         "MultipleNonExisting",
 			projectNames: []string{"a", "b"},
-			post:         func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {},
+			post:         func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client) {},
 		},
 		{
 			name:         "Existing",
 			projectNames: []string{"existing"},
-			post: func(env projecttest.Environment, sec corev1.Secret, client *http.Client) {
+			post: func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client) {
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
-					env.DynamicTestKubeClient.DynamicClient(),
+					kubernetes.DynamicTestKubeClient.DynamicClient(),
 					client,
 					"git@github.com:kharf/declcd.git",
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeyIfNotExists(env.Ctx, "manager", "existing")
+				err = configurator.CreateDeployKeyIfNotExists(
+					context.Background(),
+					"manager",
+					"existing",
+				)
 				assert.NilError(t, err)
 				var sec2 corev1.Secret
-				err = env.TestKubeClient.Get(
-					env.Ctx,
+				err = kubernetes.TestKubeClient.Get(
+					context.Background(),
 					types.NamespacedName{
 						Namespace: ns,
 						Name:      vcs.SecretName("existing"),
@@ -259,10 +258,9 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			env := projecttest.StartProjectEnv(t,
-				projecttest.WithProjectSource("empty"),
-			)
-			defer env.Stop()
+			env := projecttest.Environment{}
+			kubernetes := kubetest.StartKubetestEnv(t, env.Log, kubetest.WithEnabled(true))
+			defer kubernetes.Stop()
 
 			projectNames := tc.projectNames
 
@@ -272,21 +270,26 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					vcs.GitHub,
 					fmt.Sprintf("declcd-%s", projectName),
 				)
+				defer server.Close()
 
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
-					env.DynamicTestKubeClient.DynamicClient(),
+					kubernetes.DynamicTestKubeClient.DynamicClient(),
 					client,
 					"git@github.com:kharf/declcd.git",
 					"abcd",
 				)
 				assert.NilError(t, err)
-				err = configurator.CreateDeployKeyIfNotExists(env.Ctx, "manager", projectName)
+				err = configurator.CreateDeployKeyIfNotExists(
+					context.Background(),
+					"manager",
+					projectName,
+				)
 				assert.NilError(t, err)
 
 				var sec corev1.Secret
-				err = env.TestKubeClient.Get(
-					env.Ctx,
+				err = kubernetes.TestKubeClient.Get(
+					context.Background(),
 					types.NamespacedName{
 						Namespace: ns,
 						Name:      vcs.SecretName(projectName),
@@ -307,8 +310,8 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 				assert.Assert(t, strings.HasPrefix(string(pubKey), "ssh-ed25519 AAAA"))
 				authType, _ := sec.Data[vcs.K8sSecretDataAuthType]
 				assert.Equal(t, string(authType), vcs.K8sSecretDataAuthTypeSSH)
-				tc.post(env, sec, client)
-				server.Close()
+
+				tc.post(kubernetes, sec, client)
 			}
 		})
 	}
