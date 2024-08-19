@@ -73,6 +73,11 @@ func (updater *Updater) Update(updateInstructions []kube.UpdateInstruction) ([]U
 
 		switch updateInstr.Strategy {
 		case kube.Semver:
+			currentVersion, err := semver.NewVersion(currentTag)
+			if err != nil {
+				return nil, err
+			}
+
 			latestRemoteVersion, err := getLatestRemoteVersion(updateInstr.Constraint, remoteTags)
 			if err != nil {
 				return nil, err
@@ -80,11 +85,6 @@ func (updater *Updater) Update(updateInstructions []kube.UpdateInstruction) ([]U
 
 			if latestRemoteVersion == nil {
 				continue
-			}
-
-			currentVersion, err := semver.NewVersion(currentTag)
-			if err != nil {
-				return nil, err
 			}
 
 			if latestRemoteVersion.GreaterThan(currentVersion) {

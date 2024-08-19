@@ -905,6 +905,39 @@ release: component.#HelmRelease & {
 `, testtemplates.ModuleVersion)
 }
 
+func useWrongUpdateBuildAttributeUsageTemplate() string {
+	return fmt.Sprintf(`
+-- cue.mod/module.cue --
+module: "github.com/kharf/declcd/internal/component/build@v0"
+language: version: "%s"
+deps: {
+	"github.com/kharf/declcd/schema@v0": {
+		v: "v0.0.99"
+	}
+}
+
+-- infra/wrongupdatebuildattributeusage/component.cue --
+package wrongupdatebuildattributeusage
+
+import (
+	"github.com/kharf/declcd/schema/component"
+)
+
+deployment: component.#Manifest & {
+	content: {
+		apiVersion: "apps/v1"
+		kind: "Deployment"
+		metadata: {
+			name: "test"
+		}
+		spec: {
+			replicas: 1 @update()
+		} @update()
+	}
+}
+`, testtemplates.ModuleVersion)
+}
+
 func TestBuilder_Build(t *testing.T) {
 	defer goleak.VerifyNone(
 		t,
@@ -1681,6 +1714,33 @@ This field may not be empty.`,
 							},
 						},
 						Dependencies: []string{},
+					},
+				},
+			},
+			expectedErr: "",
+		},
+		{
+			name:        "Wrong-Update-Build-Attribute-Usage",
+			packagePath: "./infra/wrongupdatebuildattributeusage",
+			template:    useWrongUpdateBuildAttributeUsageTemplate(),
+			expectedBuildResult: &BuildResult{
+				Instances: []Instance{
+					&Manifest{
+						ID: "__test_apps_Deployment",
+						Content: ExtendedUnstructured{
+							Unstructured: &unstructured.Unstructured{
+								Object: map[string]any{
+									"apiVersion": "apps/v1",
+									"kind":       "Deployment",
+									"metadata": map[string]any{
+										"name": "test",
+									},
+									"spec": map[string]any{
+										"replicas": int64(1),
+									},
+								},
+							},
+						},
 					},
 				},
 			},

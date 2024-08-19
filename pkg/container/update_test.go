@@ -90,6 +90,7 @@ deployment: {
 
 	testCases := []struct {
 		name             string
+		container        string
 		containerVersion string
 		constraint       string
 		registryVersions []string
@@ -109,6 +110,28 @@ deployment: {
 			constraint:       "< 1.1.3",
 			registryVersions: []string{"1.14.2", "notsemver", "1.2.6", "1.13.0", "1.2", "1.2.2"},
 			wantVersion:      "1.14.2",
+		},
+		{
+			name:             "Invalid-Semver-Version",
+			containerVersion: "latest",
+			constraint:       "<= 1.15.3, >= 1.4",
+			registryVersions: []string{"1.14.2", "notsemver", "1.2.6", "1.13.0", "1.2", "1.2.2"},
+			wantErr:          "Invalid Semantic Version",
+		},
+		{
+			name:             "No-Remote-Semver-Version",
+			containerVersion: "1.14.2",
+			constraint:       "<= 1.15.3, >= 1.4",
+			registryVersions: []string{"notsemver"},
+			wantVersion:      "1.14.2",
+		},
+		{
+			name:             "Container-Not-Found",
+			container:        "idontexist",
+			containerVersion: "1.14.2",
+			constraint:       "<= 1.15.3, >= 1.4",
+			registryVersions: []string{"notsemver"},
+			wantErr:          "repository name not known to registry",
 		},
 		{
 			name:             "Update",
@@ -150,7 +173,11 @@ deployment: {
 			parsedTemplate, err := template.New("").Parse(projectFiles)
 			assert.NilError(t, err)
 			buf := &bytes.Buffer{}
-			containerImage := fmt.Sprintf("%v/%v", tlsRegistry.Addr(), "container")
+			containerName := "container"
+			if tc.container != "" {
+				containerName = tc.container
+			}
+			containerImage := fmt.Sprintf("%v/%v", tlsRegistry.Addr(), containerName)
 			err = parsedTemplate.Execute(buf, struct {
 				Container        string
 				ContainerVersion string
@@ -232,7 +259,7 @@ deployment: {
 				assert.NilError(t, err)
 				assert.Equal(t, commit.Author.Name, "declcd-bot")
 			} else {
-				assert.Error(t, err, tc.wantErr)
+				assert.ErrorContains(t, err, tc.wantErr)
 			}
 		})
 	}
