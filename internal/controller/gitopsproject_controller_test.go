@@ -108,22 +108,6 @@ const (
 
 var _ = Describe("GitOpsProject controller", Ordered, func() {
 
-	BeforeAll(func() {
-		err := os.Mkdir("/podinfo", 0700)
-		Expect(err).NotTo(HaveOccurred())
-		err = os.WriteFile("/podinfo/name", []byte("project-controller-primary"), 0600)
-		Expect(err).NotTo(HaveOccurred())
-		err = os.WriteFile("/podinfo/namespace", []byte(project.ControllerNamespace), 0600)
-		Expect(err).NotTo(HaveOccurred())
-		err = os.WriteFile("/podinfo/shard", []byte("primary"), 0600)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	AfterAll(func() {
-		err := os.RemoveAll("/podinfo")
-		Expect(err).NotTo(HaveOccurred())
-	})
-
 	When("Creating a GitOpsProject", func() {
 
 		var (
@@ -142,12 +126,15 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 			err := kubernetes.Stop()
 			Expect(err).NotTo(HaveOccurred())
 			metrics.Registry = prometheus.NewRegistry()
+			err = os.RemoveAll("/podinfo")
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		When("The pull interval is less than 5 seconds", func() {
 
 			It("Should not allow a pull interval less than 5 seconds", func() {
-				var gitOpsProjectName = "test"
+				gitOpsProjectName := "test"
+
 				err := project.Init(
 					"github.com/kharf/declcd/controller",
 					"primary",
@@ -191,11 +178,13 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 		})
 
 		When("The pull interval is greater than or equal to 5 seconds", func() {
-			var gitOpsProjectName = "test"
 
 			It(
 				"Should reconcile the declared cluster state with the current cluster state",
 				func() {
+					gitOpsProjectName := "test"
+					setupPodInfo(gitOpsProjectName)
+
 					ctx := context.Background()
 					err := project.Init(
 						"github.com/kharf/declcd/controller",
@@ -316,6 +305,8 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				useProjectOneTemplate(), useProjectTwoTemplate(),
 			}
 
+			setupPodInfo("multitenancy")
+
 			envs = make(map[string]projecttest.Environment, 2)
 			for i, projectTemplate := range projectTemplates {
 				env := projecttest.InitTestEnvironment(test, []byte(projectTemplate))
@@ -367,6 +358,8 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 		AfterAll(func() {
 			err := kubernetes.Stop()
+			Expect(err).NotTo(HaveOccurred())
+			err = os.RemoveAll("/podinfo")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -458,3 +451,14 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 		)
 	})
 })
+
+func setupPodInfo(name string) {
+	err := os.Mkdir("/podinfo", 0700)
+	Expect(err).NotTo(HaveOccurred())
+	err = os.WriteFile("/podinfo/name", []byte(name), 0600)
+	Expect(err).NotTo(HaveOccurred())
+	err = os.WriteFile("/podinfo/namespace", []byte(project.ControllerNamespace), 0600)
+	Expect(err).NotTo(HaveOccurred())
+	err = os.WriteFile("/podinfo/shard", []byte("primary"), 0600)
+	Expect(err).NotTo(HaveOccurred())
+}
