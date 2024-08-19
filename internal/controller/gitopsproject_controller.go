@@ -153,9 +153,13 @@ func (reconciler *GitOpsProjectController) updateCondition(
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (reconciler *GitOpsProjectController) SetupWithManager(mgr ctrl.Manager) error {
+func (reconciler *GitOpsProjectController) SetupWithManager(
+	mgr ctrl.Manager,
+	controllerName string,
+) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gitops.GitOpsProject{}).
+		Named(controllerName).
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(reconciler)
 }
@@ -351,7 +355,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 			PlainHTTP:             opts.PlainHTTP,
 			CacheDir:              os.TempDir(),
 		},
-	}).SetupWithManager(mgr); err != nil {
+	}).SetupWithManager(mgr, controllerName); err != nil {
 		log.Error(err, "Unable to create controller")
 		return nil, err
 	}
