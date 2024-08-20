@@ -33,9 +33,9 @@ func TestDependencyGraph_Insert(t *testing.T) {
 			name: "NoConflict",
 			nodes: []component.Instance{
 				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -48,9 +48,9 @@ func TestDependencyGraph_Insert(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager"},
-					component.ExtendedUnstructured{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -69,9 +69,9 @@ func TestDependencyGraph_Insert(t *testing.T) {
 			name: "Conflict",
 			nodes: []component.Instance{
 				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -84,9 +84,9 @@ func TestDependencyGraph_Insert(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{"certmanager"},
-					component.ExtendedUnstructured{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{"certmanager"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -99,9 +99,9 @@ func TestDependencyGraph_Insert(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"shouldntmatter___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "shouldntmatter___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -177,9 +177,9 @@ func TestDependencyGraph_Delete(t *testing.T) {
 	graph := component.NewDependencyGraph()
 	err := graph.Insert(
 		&component.Manifest{
-			"prometheus___Namespace",
-			[]string{},
-			component.ExtendedUnstructured{
+			ID:           "prometheus___Namespace",
+			Dependencies: []string{},
+			Content: component.ExtendedUnstructured{
 				Unstructured: &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"kind":       "Namespace",
@@ -192,9 +192,9 @@ func TestDependencyGraph_Delete(t *testing.T) {
 			},
 		},
 		&component.Manifest{
-			"linkerd___Namespace",
-			[]string{"certmanager"},
-			component.ExtendedUnstructured{
+			ID:           "linkerd___Namespace",
+			Dependencies: []string{"certmanager"},
+			Content: component.ExtendedUnstructured{
 				Unstructured: &unstructured.Unstructured{
 					Object: map[string]interface{}{
 						"kind":       "Namespace",
@@ -225,9 +225,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 			name: "Positive",
 			nodes: []component.Instance{
 				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -240,9 +240,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -255,9 +255,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -270,9 +270,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"emissaryingress___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "emissaryingress___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -285,9 +285,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"keda___Namespace",
-					[]string{"prometheus___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "keda___Namespace",
+					Dependencies: []string{"prometheus___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -303,62 +303,58 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 			err: nil,
 		}, {
 			name: "UnknownDependencyID",
-			nodes: []component.Instance{
-				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
+			nodes: []component.Instance{&component.Manifest{
+				ID:           "prometheus___Namespace",
+				Dependencies: []string{},
+				Content: component.ExtendedUnstructured{
+					Unstructured: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"kind":       "Namespace",
+							"apiVersion": "v1",
+							"metadata": map[string]interface{}{
+								"name": "linkerd",
 							},
 						},
 					},
 				},
-				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager"},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "linkerd",
-								},
+			}, &component.Manifest{
+				ID:           "linkerd___Namespace",
+				Dependencies: []string{"certmanager"},
+				Content: component.ExtendedUnstructured{
+					Unstructured: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"kind":       "Namespace",
+							"apiVersion": "v1",
+							"metadata": map[string]interface{}{
+								"name": "linkerd",
 							},
 						},
 					},
 				},
-				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
-						Unstructured: &unstructured.Unstructured{
-							Object: map[string]interface{}{
-								"kind":       "Namespace",
-								"apiVersion": "v1",
-								"metadata": map[string]interface{}{
-									"name": "certmanager",
-								},
+			}, &component.Manifest{
+				ID:           "certmanager___Namespace",
+				Dependencies: []string{},
+				Content: component.ExtendedUnstructured{
+					Unstructured: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"kind":       "Namespace",
+							"apiVersion": "v1",
+							"metadata": map[string]interface{}{
+								"name": "certmanager",
 							},
 						},
 					},
 				},
-			},
+			}},
 			err: component.ErrUnknownComponentID,
 		},
 		{
 			name: "Cycle",
 			nodes: []component.Instance{
 				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -371,9 +367,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -386,9 +382,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{"linkerd___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{"linkerd___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -401,9 +397,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"emissaryingress___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "emissaryingress___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -416,9 +412,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"keda___Namespace",
-					[]string{"prometheus___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "keda___Namespace",
+					Dependencies: []string{"prometheus___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -437,9 +433,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 			name: "DistantCycle",
 			nodes: []component.Instance{
 				&component.Manifest{
-					"prometheus___Namespace",
-					[]string{"keda___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "prometheus___Namespace",
+					Dependencies: []string{"keda___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -452,9 +448,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"linkerd___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "linkerd___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -467,9 +463,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"certmanager___Namespace",
-					[]string{},
-					component.ExtendedUnstructured{
+					ID:           "certmanager___Namespace",
+					Dependencies: []string{},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -482,9 +478,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"emissaryingress___Namespace",
-					[]string{"certmanager___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "emissaryingress___Namespace",
+					Dependencies: []string{"certmanager___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",
@@ -497,9 +493,9 @@ func TestDependencyGraph_TopologicalSort(t *testing.T) {
 					},
 				},
 				&component.Manifest{
-					"keda___Namespace",
-					[]string{"prometheus___Namespace"},
-					component.ExtendedUnstructured{
+					ID:           "keda___Namespace",
+					Dependencies: []string{"prometheus___Namespace"},
+					Content: component.ExtendedUnstructured{
 						Unstructured: &unstructured.Unstructured{
 							Object: map[string]interface{}{
 								"kind":       "Namespace",

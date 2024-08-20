@@ -29,36 +29,6 @@ const (
 	OnConflict
 )
 
-// ManifestUpdateStrategy defines the container image update strategy to calculate the latest image.
-type ManifestUpdateStrategy int
-
-const (
-	// Semantic Versioning as defined in https://semver.org/.
-	Semver ManifestUpdateStrategy = iota
-)
-
-// UpdateInstruction is an instruction to tell Declcd to automatically update container images.
-type UpdateInstruction struct {
-	Strategy   ManifestUpdateStrategy
-	Constraint string
-	SecretRef  string
-
-	// File path of the 'tagged' field.
-	File string
-
-	// Line number of the 'tagged' field.
-	Line int
-
-	// Image value of the 'tagged' field.
-	Image string
-
-	// Reference to the struct holding the image field.
-	UnstructuredNode map[string]any
-
-	// Field key or label of the image.
-	UnstructuredKey string
-}
-
 // ManifestMetadata extends unstructured fields, structs or lists with additional information.
 type ManifestMetadata struct {
 	Field *ManifestFieldMetadata

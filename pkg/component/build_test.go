@@ -175,17 +175,20 @@ role: component.#Manifest & {
 	...
 }
 
+_chart: {
+	name:    "test"
+	repoURL: "oci://test"
+	version: "4.9.9"
+}
+
 release: component.#HelmRelease & {
 	dependencies: [
 		ns.id,
 	]
 	name:      "test"
 	namespace: #namespace.metadata.name
-	chart: {
-		name:    "test"
-		repoURL: "oci://test"
-		version: "test"
-	}
+
+	chart: _chart @update(strategy=semver, constraint="<5.0.0", integration=pr)
 
 	patches: [
 		#deployment & {
@@ -1554,57 +1557,76 @@ This field may not be empty.`,
 						Dependencies: []string{},
 					},
 				},
-				UpdateInstructions: []kube.UpdateInstruction{
+				UpdateInstructions: []UpdateInstruction{
 					{
-						Strategy:   kube.Semver,
+						Strategy:   SemVer,
 						Constraint: "<= 1.15.3, >= 1.4",
 						SecretRef:  "promreg",
 						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
 						Line:       65,
-						Image:      "prometheus:1.14.2",
-						UnstructuredNode: map[string]any{
-							"image": "prometheus:1.14.2",
-							"name":  "prometheus",
-							"ports": []any{
-								map[string]any{
-									"containerPort": int64(80),
+						Target: &ContainerUpdateTarget{
+							Image: "prometheus:1.14.2",
+							UnstructuredNode: map[string]any{
+								"image": "prometheus:1.14.2",
+								"name":  "prometheus",
+								"ports": []any{
+									map[string]any{
+										"containerPort": int64(80),
+									},
 								},
 							},
+							UnstructuredKey: "image",
 						},
-						UnstructuredKey: "image",
 					},
 					{
-						Strategy: kube.Semver,
+						Strategy: SemVer,
 						File:     fmt.Sprintf("%s/infra/success/component.cue", rootDir),
 						Line:     79,
-						Image:    "sidecar2:1.14.2",
-						UnstructuredNode: map[string]any{
-							"image": "sidecar2:1.14.2",
-							"name":  "sidecar2",
-							"ports": []any{
-								map[string]any{
-									"containerPort": int64(80),
+						Target: &ContainerUpdateTarget{
+							Image: "sidecar2:1.14.2",
+							UnstructuredNode: map[string]any{
+								"image": "sidecar2:1.14.2",
+								"name":  "sidecar2",
+								"ports": []any{
+									map[string]any{
+										"containerPort": int64(80),
+									},
 								},
 							},
+							UnstructuredKey: "image",
 						},
-						UnstructuredKey: "image",
 					},
 					{
-						Strategy:  kube.Semver,
-						SecretRef: "sidecarreg",
-						File:      fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line:      175,
-						Image:     "sidecar:1.14.2",
-						UnstructuredNode: map[string]any{
-							"image": "sidecar:1.14.2",
-							"name":  "sidecar",
-							"ports": []any{
-								map[string]any{
-									"containerPort": int64(80),
-								},
+						Strategy:   SemVer,
+						Constraint: "<5.0.0",
+						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:       137,
+						Target: &ChartUpdateTarget{
+							Chart: &helm.Chart{
+								Name:    "test",
+								RepoURL: "oci://test",
+								Version: "4.9.9",
 							},
 						},
-						UnstructuredKey: "image",
+					},
+					{
+						Strategy:  SemVer,
+						SecretRef: "sidecarreg",
+						File:      fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:      178,
+						Target: &ContainerUpdateTarget{
+							Image: "sidecar:1.14.2",
+							UnstructuredNode: map[string]any{
+								"image": "sidecar:1.14.2",
+								"name":  "sidecar",
+								"ports": []any{
+									map[string]any{
+										"containerPort": int64(80),
+									},
+								},
+							},
+							UnstructuredKey: "image",
+						},
 					},
 				},
 			},

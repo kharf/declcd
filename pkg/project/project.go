@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/kube"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -47,7 +46,7 @@ func NewManager(componentBuilder component.Builder, workerPoolSize int) Manager 
 // Instance represents the loaded project.
 type Instance struct {
 	Dag                *component.DependencyGraph
-	UpdateInstructions []kube.UpdateInstruction
+	UpdateInstructions []component.UpdateInstruction
 }
 
 // Load uses a given path to a project and returns the components as a directed acyclic dependency graph.
@@ -68,7 +67,7 @@ func (manager *Manager) Load(
 	consumerEg := &errgroup.Group{}
 	consumerEg.Go(func() error {
 		dag := component.NewDependencyGraph()
-		var updateInstructions []kube.UpdateInstruction
+		var updateInstructions []component.UpdateInstruction
 		for packagePath := range packageChan {
 			buildResult, err := manager.componentBuilder.Build(
 				component.WithProjectRoot(projectPath),
