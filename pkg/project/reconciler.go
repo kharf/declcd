@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/container"
 	"github.com/kharf/declcd/pkg/garbage"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/inventory"
@@ -187,7 +186,7 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	updater := container.Updater{
+	updater := component.Updater{
 		Log:        log,
 		Repository: repository,
 	}

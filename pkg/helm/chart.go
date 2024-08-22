@@ -42,6 +42,7 @@ import (
 	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -1063,4 +1064,19 @@ func (c *Client) deleteResource(info *resource.Info, policy v1.DeletionPropagati
 		WithFieldManager(c.FieldManager).
 		DeleteWithOptions(info.Namespace, info.Name, opts)
 	return err
+}
+
+type ChartVersionIter struct {
+	currIdx  int
+	Versions repo.ChartVersions
+}
+
+func (iter *ChartVersionIter) HasNext() bool {
+	return iter.currIdx < len(iter.Versions)
+}
+
+func (iter *ChartVersionIter) Next() string {
+	version := iter.Versions[iter.currIdx].Version
+	iter.currIdx++
+	return version
 }
