@@ -247,7 +247,7 @@ func (b Builder) Build(opts ...buildOptions) (*BuildResult, error) {
 				Content: helm.ReleaseDeclaration{
 					Name:      name,
 					Namespace: namespace,
-					Chart:     *chart,
+					Chart:     chart,
 					Values:    values,
 					CRDs: helm.CRDs{
 						AllowUpgrade: allowUpgrade,

@@ -37,10 +37,10 @@ import (
 	"github.com/kharf/declcd/pkg/component"
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/kharf/declcd/pkg/vcs"
-	"gopkg.in/yaml.v3"
 	"gotest.tools/v3/assert"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/repo"
+	"sigs.k8s.io/yaml"
 )
 
 func TestUpdater_Update(t *testing.T) {
@@ -590,11 +590,12 @@ release: {
 			}
 			mux := http.NewServeMux()
 			mux.HandleFunc("/index.yaml", func(w http.ResponseWriter, r *http.Request) {
-				encoder := yaml.NewEncoder(w)
-				if err := encoder.Encode(indexFile); err != nil {
+				bytes, err := yaml.Marshal(indexFile)
+				if err != nil {
 					w.WriteHeader(500)
 					w.Write([]byte(err.Error()))
 				}
+				_, _ = w.Write(bytes)
 			})
 			helmServer := httptest.NewTLSServer(mux)
 			defer helmServer.Close()

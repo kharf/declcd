@@ -27,9 +27,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"gopkg.in/yaml.v3"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/repo"
+	"sigs.k8s.io/yaml"
 
 	"github.com/kharf/declcd/internal/slices"
 	"github.com/kharf/declcd/pkg/helm"
@@ -64,8 +64,7 @@ type ContainerUpdateTarget struct {
 }
 
 func (c *ContainerUpdateTarget) Name() string {
-	name, _, _ := strings.Cut(c.Image, ":")
-	return name
+	return c.Image
 }
 
 func (c *ContainerUpdateTarget) Parse() (string, string, string, error) {
@@ -228,9 +227,12 @@ func (updater *Updater) updateHttpHelmChartIfNotLatest(
 		return nil, fmt.Errorf("%w: %s", ErrUnexpectedResponse, body)
 	}
 
-	decoder := yaml.NewDecoder(resp.Body)
 	var indexFile repo.IndexFile
-	if err := decoder.Decode(&indexFile); err != nil {
+	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal(bytes, &indexFile); err != nil {
 		return nil, err
 	}
 

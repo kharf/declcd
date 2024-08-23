@@ -1196,7 +1196,7 @@ func TestBuilder_Build(t *testing.T) {
 						Content: helm.ReleaseDeclaration{
 							Name:      "test",
 							Namespace: "prometheus",
-							Chart: helm.Chart{
+							Chart: &helm.Chart{
 								Name:    "test",
 								RepoURL: "oci://test",
 								Version: "test",
@@ -1330,7 +1330,7 @@ func TestBuilder_Build(t *testing.T) {
 						Content: helm.ReleaseDeclaration{
 							Name:      "test-secret-ref",
 							Namespace: "prometheus",
-							Chart: helm.Chart{
+							Chart: &helm.Chart{
 								Name:    "test",
 								RepoURL: "oci://test",
 								Version: "test",
@@ -1350,7 +1350,7 @@ func TestBuilder_Build(t *testing.T) {
 						Content: helm.ReleaseDeclaration{
 							Name:      "test-workload-identity",
 							Namespace: "prometheus",
-							Chart: helm.Chart{
+							Chart: &helm.Chart{
 								Name:    "test",
 								RepoURL: "oci://test",
 								Version: "test",
@@ -1721,7 +1721,7 @@ This field may not be empty.`,
 						Content: helm.ReleaseDeclaration{
 							Name:      "test",
 							Namespace: "test",
-							Chart: helm.Chart{
+							Chart: &helm.Chart{
 								Name:    "test",
 								RepoURL: "http://test",
 								Version: "test",
