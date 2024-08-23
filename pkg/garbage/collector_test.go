@@ -409,7 +409,7 @@ func prepareHelmReleases(
 		release := helm.ReleaseDeclaration{
 			Name:      hrMetadata.GetName(),
 			Namespace: hrMetadata.GetNamespace(),
-			Chart: helm.Chart{
+			Chart: &helm.Chart{
 				Name:    "test",
 				RepoURL: helmEnvironment.ChartServer.URL(),
 				Version: "1.0.0",

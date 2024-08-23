@@ -1517,6 +1517,7 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 					w.WriteHeader(500)
 					return
 				}
+
 				return
 			}
 			archive := v1Archive

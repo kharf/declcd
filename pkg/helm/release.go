@@ -53,7 +53,7 @@ type ReleaseDeclaration struct {
 
 	// A Helm package that contains information
 	// sufficient for installing a set of Kubernetes resources into a Kubernetes cluster.
-	Chart Chart `json:"chart"`
+	Chart *Chart `json:"chart"`
 
 	// Values provide a way to override Helm Chart template defaults with custom information.
 	Values Values `json:"values"`

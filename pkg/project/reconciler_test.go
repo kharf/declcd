@@ -149,7 +149,7 @@ release: component.#HelmRelease & {
 		name:    "test"
 		repoURL: "{{.HelmRepoURL}}"
 		version: "1.0.0"
-	}
+	} @update(constraint="<=2.0.0")
 
 	crds: {
 		allowUpgrade: true
@@ -174,7 +174,7 @@ release: component.#HelmRelease & {
 						containers: [
 							{
 								name:  "toolb"
-								image: "{{.ContainerRegistry}}/toolb:1.14.2"
+								image: "{{.ContainerRegistry}}/toolb:1.14.2" @update(constraint="*")
 								ports: [{
 									containerPort: 80
 								}]
@@ -487,10 +487,10 @@ func TestReconciler_Reconcile(t *testing.T) {
 		CRDs: helm.CRDs{
 			AllowUpgrade: true,
 		},
-		Chart: helm.Chart{
+		Chart: &helm.Chart{
 			Name:    "test",
 			RepoURL: publicHelmEnvironment.ChartServer.URL(),
-			Version: "1.0.0",
+			Version: "2.0.0",
 			Auth:    nil,
 		},
 		Values: helm.Values{
@@ -517,7 +517,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 											map[string]any{
 												"name": "toolb",
 												"image": fmt.Sprintf(
-													"%s/toolb:1.14.2",
+													"%s/toolb:1.15.3",
 													tlsRegistry.Addr(),
 												),
 												"ports": []any{

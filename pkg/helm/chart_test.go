@@ -109,7 +109,7 @@ func createReleaseDeclaration(
 		CRDs: CRDs{
 			AllowUpgrade: allowUpgrade,
 		},
-		Chart: Chart{
+		Chart: &Chart{
 			Name:    "test",
 			RepoURL: url,
 			Version: version,
@@ -2059,7 +2059,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 
 	assert.Equal(t, string(storedBytes), desiredBuf.String())
 
-	chart := Chart{
+	chart := &Chart{
 		Name:    "test",
 		RepoURL: publicHelmEnvironment.ChartServer.URL(),
 		Version: "2.0.0",
@@ -2181,7 +2181,7 @@ func TestChartReconciler_Reconcile_UpgradeCRDs(t *testing.T) {
 
 	assert.Equal(t, string(storedBytes), desiredBuf.String())
 
-	chart := Chart{
+	chart := &Chart{
 		Name:    "test",
 		RepoURL: publicHelmEnvironment.ChartServer.URL(),
 		Version: "3.0.0",
@@ -2303,7 +2303,7 @@ func TestChartReconciler_Reconcile_UpgradeCRDsForbidden(t *testing.T) {
 
 	assert.Equal(t, string(storedBytes), desiredBuf.String())
 
-	chart := Chart{
+	chart := &Chart{
 		Name:    "test",
 		RepoURL: publicHelmEnvironment.ChartServer.URL(),
 		Version: "3.0.0",

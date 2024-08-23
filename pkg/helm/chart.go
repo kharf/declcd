@@ -658,7 +658,7 @@ func reset(
 
 func (c *ChartReconciler) load(
 	ctx context.Context,
-	chartRequest Chart,
+	chartRequest *Chart,
 ) (*chart.Chart, error) {
 	log := ctx.Value(logKey{}).(*logr.Logger)
 
@@ -685,7 +685,7 @@ func (c *ChartReconciler) load(
 
 func (c *ChartReconciler) pull(
 	ctx context.Context,
-	chartRequest Chart,
+	chartRequest *Chart,
 	chartDestPath string,
 ) error {
 	helmConfig := ctx.Value(configKey{}).(*action.Configuration)
@@ -778,7 +778,7 @@ func (c *ChartReconciler) pull(
 
 func (c *ChartReconciler) readCredentialsFromSecret(
 	ctx context.Context,
-	chartRequest Chart,
+	chartRequest *Chart,
 ) (*cloud.Credentials, error) {
 	if chartRequest.Auth.SecretRef == nil {
 		return nil, fmt.Errorf("%w: secretRef not set", ErrAuthSecretValueNotFound)
@@ -840,7 +840,7 @@ type archivePath struct {
 	fullPath string
 }
 
-func newArchivePath(chart Chart, chartCacheRoot string) archivePath {
+func newArchivePath(chart *Chart, chartCacheRoot string) archivePath {
 	chartIdentifier := fmt.Sprintf("%s-%s", chart.Name, chart.Version)
 	chartDestPath := filepath.Join(chartCacheRoot, chart.Name)
 	fullPath := filepath.Join(chartDestPath, fmt.Sprintf("%s.tgz", chartIdentifier))
