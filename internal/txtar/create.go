@@ -22,10 +22,10 @@ import (
 	"golang.org/x/tools/txtar"
 )
 
-func Create(rootDir string, txtarData io.Reader) error {
+func Create(rootDir string, txtarData io.Reader) (*txtar.Archive, error) {
 	bytes, err := io.ReadAll(txtarData)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	arch := txtar.Parse(bytes)
@@ -36,14 +36,14 @@ func Create(rootDir string, txtarData io.Reader) error {
 
 		err := os.MkdirAll(parentDir, 0700)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		err = os.WriteFile(absFilePath, file.Data, 0666)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return arch, nil
 }

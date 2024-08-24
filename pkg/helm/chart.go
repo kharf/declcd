@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,27 +51,6 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-var (
-	ErrAuthSecretValueNotFound = errors.New("Auth secret value not found")
-)
-
-// SecretRef is the reference to the secret containing the repository/registry authentication.
-type SecretRef struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-}
-
-// WorkloadIdentity is a keyless approach used for repository/registry authentication.
-type WorkloadIdentity struct {
-	Provider string `json:"provider"`
-}
-
-// Auth contains methods for repository/registry authentication.
-type Auth struct {
-	SecretRef        *SecretRef        `json:"secretRef"`
-	WorkloadIdentity *WorkloadIdentity `json:"workloadIdentity"`
-}
-
 // A Helm package that contains information
 // sufficient for installing a set of Kubernetes resources into a Kubernetes cluster.
 type Chart struct {
@@ -84,7 +62,7 @@ type Chart struct {
 	Version string `json:"version"`
 
 	// Authentication information for private repositories.
-	Auth *Auth `json:"auth,omitempty"`
+	Auth *cloud.Auth `json:"auth,omitempty"`
 }
 
 // ChartReconciler reads Helm Packages with their desired state
@@ -111,6 +89,14 @@ type ChartReconciler struct {
 
 	// Root directory where the charts are stored/cached.
 	ChartCacheRoot string
+
+	// Endpoint to the microsoft azure login server.
+	// Default is usually: https://login.microsoftonline.com/.
+	AzureLoginURL string
+
+	// Endpoint to the google metadata server, which provides access tokens.
+	// Default is: http://metadata.google.internal.
+	GCPMetadataServerURL string
 }
 
 type logKey struct{}
@@ -263,7 +249,7 @@ func (c *ChartReconciler) installOrUpgrade(
 	log.V(1).Info("Loading chart")
 
 	helmConfig := ctx.Value(configKey{}).(*action.Configuration)
-	chrt, err := c.load(ctx, desiredRelease.Chart)
+	chrt, err := c.load(ctx, desiredRelease.Chart, desiredRelease.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -659,6 +645,7 @@ func reset(
 func (c *ChartReconciler) load(
 	ctx context.Context,
 	chartRequest *Chart,
+	namespace string,
 ) (*chart.Chart, error) {
 	log := ctx.Value(logKey{}).(*logr.Logger)
 
@@ -669,7 +656,7 @@ func (c *ChartReconciler) load(
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
 			log.V(1).Info("Pulling chart")
-			if err := c.pull(ctx, chartRequest, archivePath.dir); err != nil {
+			if err := c.pull(ctx, chartRequest, namespace, archivePath.dir); err != nil {
 				return nil, err
 			}
 			chart, err := loader.Load(archivePath.fullPath)
@@ -686,6 +673,7 @@ func (c *ChartReconciler) load(
 func (c *ChartReconciler) pull(
 	ctx context.Context,
 	chartRequest *Chart,
+	namespace string,
 	chartDestPath string,
 ) error {
 	helmConfig := ctx.Value(configKey{}).(*action.Configuration)
@@ -703,57 +691,29 @@ func (c *ChartReconciler) pull(
 
 	var chartRef string
 	if registry.IsOCI(chartRequest.RepoURL) {
-		opts := []registry.ClientOption{
-			registry.ClientOptDebug(false),
-			registry.ClientOptEnableCache(true),
-			registry.ClientOptWriter(os.Stderr),
-			registry.ClientOptHTTPClient(httpClient),
-		}
-		if c.PlainHTTP {
-			opts = append(opts, registry.ClientOptPlainHTTP())
-		}
-		registryClient, err := registry.NewClient(opts...)
+		registryClient, err := c.loginToRegistry(ctx, chartRequest, namespace, httpClient)
 		if err != nil {
 			return err
 		}
+
 		pull.SetRegistryClient(registryClient)
-
-		if chartRequest.Auth != nil {
-			host, _ := strings.CutPrefix(chartRequest.RepoURL, "oci://")
-
-			var creds *cloud.Credentials
-			if chartRequest.Auth.WorkloadIdentity != nil {
-				provider := cloud.GetProvider(
-					cloud.ProviderID(chartRequest.Auth.WorkloadIdentity.Provider),
-					host,
-					httpClient,
-				)
-				creds, err = provider.FetchCredentials(ctx)
-				if err != nil {
-					return err
-				}
-			} else {
-				creds, err = c.readCredentialsFromSecret(ctx, chartRequest)
-				if err != nil {
-					return err
-				}
-			}
-
-			if err := registryClient.Login(
-				host,
-				registry.LoginOptBasicAuth(creds.Username, creds.Password),
-			); err != nil {
-				return err
-			}
-		}
-
 		chartRef = fmt.Sprintf("%s/%s", chartRequest.RepoURL, chartRequest.Name)
 	} else {
 		if chartRequest.Auth != nil {
-			creds, err := c.readCredentialsFromSecret(ctx, chartRequest)
+			creds, err := cloud.ReadCredentials(
+				ctx,
+				chartRequest.RepoURL,
+				*chartRequest.Auth,
+				c.Client.DynamicClient(),
+				cloud.WithHttpClient(httpClient),
+				cloud.WithNamespace(namespace),
+				cloud.WithCustomAzureLoginURL(c.AzureLoginURL),
+				cloud.WithCustomGCPMetadataServerURL(c.GCPMetadataServerURL),
+			)
 			if err != nil {
 				return err
 			}
+
 			pull.Username = creds.Username
 			pull.Password = creds.Password
 		}
@@ -776,63 +736,51 @@ func (c *ChartReconciler) pull(
 	return nil
 }
 
-func (c *ChartReconciler) readCredentialsFromSecret(
+func (c *ChartReconciler) loginToRegistry(
 	ctx context.Context,
 	chartRequest *Chart,
-) (*cloud.Credentials, error) {
-	if chartRequest.Auth.SecretRef == nil {
-		return nil, fmt.Errorf("%w: secretRef not set", ErrAuthSecretValueNotFound)
+	namespace string,
+	httpClient *http.Client,
+) (*registry.Client, error) {
+	opts := []registry.ClientOption{
+		registry.ClientOptDebug(false),
+		registry.ClientOptEnableCache(true),
+		registry.ClientOptWriter(os.Stderr),
+		registry.ClientOptHTTPClient(httpClient),
 	}
-
-	secretReq := &unstructured.Unstructured{}
-	secretReq.SetKind("Secret")
-	secretReq.SetAPIVersion("v1")
-	secretReq.SetName(chartRequest.Auth.SecretRef.Name)
-	secretReq.SetNamespace(chartRequest.Auth.SecretRef.Namespace)
-	secret, err := c.Client.DynamicClient().Get(ctx, secretReq)
+	if c.PlainHTTP {
+		opts = append(opts, registry.ClientOptPlainHTTP())
+	}
+	registryClient, err := registry.NewClient(opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	data, found := secret.Object["data"].(map[string]interface{})
-	var username, password string
-	if found {
-		username, err = getSecretValue(data, "username", false)
+	if chartRequest.Auth != nil {
+		host, _ := strings.CutPrefix(chartRequest.RepoURL, "oci://")
+
+		creds, err := cloud.ReadCredentials(
+			ctx,
+			host,
+			*chartRequest.Auth,
+			c.Client.DynamicClient(),
+			cloud.WithHttpClient(httpClient),
+			cloud.WithNamespace(namespace),
+			cloud.WithCustomAzureLoginURL(c.AzureLoginURL),
+			cloud.WithCustomGCPMetadataServerURL(c.GCPMetadataServerURL),
+		)
 		if err != nil {
 			return nil, err
 		}
-		password, err = getSecretValue(data, "password", false)
-		if err != nil {
+
+		if err := registryClient.Login(
+			host,
+			registry.LoginOptBasicAuth(creds.Username, creds.Password),
+		); err != nil {
 			return nil, err
 		}
-	} else {
-		stringData, found := secret.Object["stringData"].(map[string]string)
-		if !found {
-			return nil, err
-		}
-		username = stringData["username"]
-		password = stringData["password"]
 	}
-
-	return &cloud.Credentials{
-		Username: username,
-		Password: password,
-	}, nil
-}
-
-func getSecretValue(data map[string]interface{}, key string, isOptional bool) (string, error) {
-	value := data[key]
-	if value == nil {
-		if isOptional {
-			return "", nil
-		}
-		return "", fmt.Errorf("%w: %s is empty", ErrAuthSecretValueNotFound, key)
-	}
-	bytes, err := base64.StdEncoding.DecodeString(value.(string))
-	if err != nil {
-		return "", err
-	}
-	return string(bytes), nil
+	return registryClient, nil
 }
 
 type archivePath struct {

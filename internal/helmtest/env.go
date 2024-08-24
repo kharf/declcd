@@ -838,7 +838,7 @@ apiVersion: v2
 name: test
 description: A Helm chart for Kubernetes
 type: application
-version: 2.0.0
+version: 3.0.0
 appVersion: "1.16.0"
 
 -- test/crds/crontab.yaml --
@@ -1335,22 +1335,22 @@ type Server interface {
 	Close()
 }
 
-type ociRegistry struct {
-	server *ocitest.Registry
+type OciRegistry struct {
+	Server *ocitest.Registry
 }
 
-var _ Server = (*ociRegistry)(nil)
+var _ Server = (*OciRegistry)(nil)
 
-func (r *ociRegistry) Close() {
-	r.server.Close()
+func (r *OciRegistry) Close() {
+	r.Server.Close()
 }
 
-func (r *ociRegistry) URL() string {
-	return r.server.URL()
+func (r *OciRegistry) URL() string {
+	return r.Server.URL()
 }
 
-func (r *ociRegistry) Addr() string {
-	return r.server.Addr()
+func (r *OciRegistry) Addr() string {
+	return r.Server.Addr()
 }
 
 type yamlBasedRepository struct {
@@ -1417,7 +1417,7 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 		var err error
 		ociServer, err := ocitest.NewTLSRegistry(
 			options.private,
-			string(options.cloudProviderID),
+			options.cloudProviderID,
 		)
 		if err != nil {
 			return nil, err
@@ -1435,7 +1435,37 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 			return nil, err
 		}
 
+		var username, pw string
+		switch options.cloudProviderID {
+		case cloud.GCP:
+			username = "oauth2accesstoken"
+			pw = "aaaa"
+		case cloud.Azure:
+			username = "00000000-0000-0000-0000-000000000000"
+			pw = "aaaa"
+		default:
+			username = "declcd"
+			pw = "abcd"
+		}
+		err = helmRegistryClient.Login(
+			ociServer.Addr(),
+			helmRegistry.LoginOptBasicAuth(username, pw),
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		v1Bytes, err := os.ReadFile(v1Archive.Name())
+		if err != nil {
+			return nil, err
+		}
+
+		v2Bytes, err := os.ReadFile(v2Archive.Name())
+		if err != nil {
+			return nil, err
+		}
+
+		v3Bytes, err := os.ReadFile(v3Archive.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -1448,8 +1478,24 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 			return nil, err
 		}
 
-		chartServer = &ociRegistry{
-			server: ociServer,
+		_, err = helmRegistryClient.Push(
+			v2Bytes,
+			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", "2.0.0"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = helmRegistryClient.Push(
+			v3Bytes,
+			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", "3.0.0"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		chartServer = &OciRegistry{
+			Server: ociServer,
 		}
 	} else {
 		httpsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1469,7 +1515,6 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 				if auth[0] != "Basic ZGVjbGNkOmFiY2Q=" {
 					w.WriteHeader(500)
 					return
-
 				}
 			}
 
@@ -1560,7 +1605,7 @@ func createChartV1Archive(t *testing.T) (*os.File, error) {
 		return nil, err
 	}
 	chartDir := t.TempDir()
-	err = txtar.Create(chartDir, strings.NewReader(chartV1Template))
+	_, err = txtar.Create(chartDir, strings.NewReader(chartV1Template))
 	if err != nil {
 		return nil, err
 	}
@@ -1574,7 +1619,7 @@ func createChartV2Archive(t *testing.T) (*os.File, error) {
 		return nil, err
 	}
 	chartDir := t.TempDir()
-	err = txtar.Create(chartDir, strings.NewReader(chartV2Template))
+	_, err = txtar.Create(chartDir, strings.NewReader(chartV2Template))
 	if err != nil {
 		return nil, err
 	}
@@ -1588,7 +1633,7 @@ func createChartV3Archive(t *testing.T) (*os.File, error) {
 		return nil, err
 	}
 	chartDir := t.TempDir()
-	err = txtar.Create(chartDir, strings.NewReader(chartV3Template))
+	_, err = txtar.Create(chartDir, strings.NewReader(chartV3Template))
 	if err != nil {
 		return nil, err
 	}

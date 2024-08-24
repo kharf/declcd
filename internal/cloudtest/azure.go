@@ -55,10 +55,6 @@ type azureAccessToken struct {
 	TokenType   string `json:"token_type"`
 }
 
-type azureInstanceDiscoveryMetadata struct {
-	TenantDiscoveryEndpoint string `json:"tenant_discovery_endpoint"`
-}
-
 func NewAzureEnvironment() (*AzureEnvironment, error) {
 	tokenMux := http.NewServeMux()
 	tokenMux.HandleFunc(

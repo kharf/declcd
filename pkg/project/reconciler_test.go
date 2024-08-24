@@ -856,8 +856,9 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 }
 
 type workloadIdentityTemplateData struct {
-	Name        string
-	HelmRepoURL string
+	Name              string
+	HelmRepoURL       string
+	ContainerRegistry string
 }
 
 func useWorkloadIdentityTemplate(
@@ -892,6 +893,41 @@ ns: component.#Manifest & {
 	content: #namespace
 }
 
+deployment: component.#Manifest & {
+	content: {
+		apiVersion: "apps/v1"
+		kind:       "Deployment"
+		metadata: {
+			name:      "deployment"
+			namespace: #namespace.metadata.name
+		}
+		spec: {
+			selector: matchLabels: app: "deployment"
+			replicas: 1 @ignore(conflict)
+			template: {
+				metadata: labels: app: "deployment"
+				spec: {
+					securityContext: {
+						runAsNonRoot:        true  @ignore(conflict)
+						fsGroup:             65532 @ignore(conflict)
+						fsGroupChangePolicy: "OnRootMismatch"
+					}
+					containers: [
+						{
+							name:  "subcomponent"
+							image: "{{.ContainerRegistry}}/subcomponent:1.14.2" @update(constraint="*", wi=aws)
+							ports: [{
+								name:          "http"
+								containerPort: 80
+							}]
+						},
+					]
+				}
+			}
+		}
+	}
+}
+
 release: component.#HelmRelease & {
 	dependencies: [
 		ns.id,
@@ -902,8 +938,8 @@ release: component.#HelmRelease & {
 		name:    "test"
 		repoURL: "{{.HelmRepoURL}}"
 		version: "1.0.0"
-		auth:    workloadidentity.#Azure
-	}
+		auth:    workloadidentity.#AWS
+	} @update(constraint="*")
 
 	crds: {
 		allowUpgrade: true
@@ -946,34 +982,36 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	azureHelmEnvironment, err := helmtest.NewHelmEnvironment(
+	helmEnv, err := helmtest.NewHelmEnvironment(
 		t,
 		helmtest.WithOCI(true),
 		helmtest.WithPrivate(true),
-		helmtest.WithProvider(cloud.Azure),
+		helmtest.WithProvider(cloud.AWS),
 	)
 	assert.NilError(t, err)
-	defer azureHelmEnvironment.Close()
-	azureCloudEnvironment, err := cloudtest.NewAzureEnvironment()
-	assert.NilError(t, err)
-	defer azureCloudEnvironment.Close()
+	defer helmEnv.Close()
 
-	cloudEnvironment, err := cloudtest.NewMetaServer(
-		azureCloudEnvironment.OIDCIssuerServer.URL,
-	)
+	aws, err := cloudtest.NewAWSEnvironment(helmEnv.ChartServer.Addr())
 	assert.NilError(t, err)
-	defer cloudEnvironment.Close()
-
-	tlsRegistry, err := ocitest.NewTLSRegistry(false, "")
-	assert.NilError(t, err)
-	defer tlsRegistry.Close()
+	defer aws.Close()
 
 	workloadIdentityTemplate := useWorkloadIdentityTemplate(
 		workloadIdentityTemplateData{
-			Name:        "test",
-			HelmRepoURL: azureHelmEnvironment.ChartServer.URL(),
+			Name:              "test",
+			HelmRepoURL:       fmt.Sprintf("oci://%s", aws.ECRServer.URL),
+			ContainerRegistry: aws.ECRServer.URL,
 		},
 	)
+
+	registry := helmEnv.ChartServer.(*helmtest.OciRegistry)
+	_, err = registry.Server.PushManifest(
+		ctx,
+		"subcomponent",
+		"1.15.0",
+		[]byte{},
+		"application/vnd.docker.distribution.manifest.v2+json",
+	)
+	assert.NilError(t, err)
 
 	parsedTemplate, err := testtemplates.Parse(workloadIdentityTemplate)
 	assert.NilError(t, err)
@@ -1026,27 +1064,46 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, result.Suspended, false)
 
-	ns := "toola"
+	toolaNs := "toola"
+
+	var testDep appsv1.Deployment
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "test", Namespace: toolaNs},
+		&testDep,
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, testDep.Name, "test")
+	assert.Equal(t, testDep.Namespace, toolaNs)
 
 	var dep appsv1.Deployment
 	err = kubernetes.TestKubeClient.Get(
 		ctx,
-		types.NamespacedName{Name: "test", Namespace: ns},
+		types.NamespacedName{Name: "deployment", Namespace: toolaNs},
 		&dep,
 	)
 	assert.NilError(t, err)
-	assert.Equal(t, dep.Name, "test")
-	assert.Equal(t, dep.Namespace, ns)
+	assert.Equal(t, dep.Name, "deployment")
+	assert.Equal(t, dep.Namespace, toolaNs)
+
+	// does not exist in chart v3 and therefore would mean that updates worked.
+	var svcAcc corev1.ServiceAccount
+	err = kubernetes.TestKubeClient.Get(
+		ctx,
+		types.NamespacedName{Name: "test", Namespace: toolaNs},
+		&svcAcc,
+	)
+	assert.Error(t, err, "serviceaccounts \"test\" not found")
 
 	inventoryStorage, err := inventoryInstance.Load()
 	assert.NilError(t, err)
 
 	invComponents := inventoryStorage.Items()
-	assert.Assert(t, len(invComponents) == 2)
+	assert.Assert(t, len(invComponents) == 3, fmt.Sprintf("got %d", len(invComponents)))
 	testHR := &inventory.HelmReleaseItem{
-		Name:      dep.Name,
-		Namespace: dep.Namespace,
-		ID:        fmt.Sprintf("%s_%s_HelmRelease", dep.Name, dep.Namespace),
+		Name:      testDep.Name,
+		Namespace: testDep.Namespace,
+		ID:        fmt.Sprintf("%s_%s_HelmRelease", testDep.Name, testDep.Namespace),
 	}
 	assert.Assert(t, inventoryStorage.HasItem(testHR))
 }

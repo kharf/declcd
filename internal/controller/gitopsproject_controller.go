@@ -354,6 +354,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 			InsecureSkipTLSverify: opts.InsecureSkipTLSverify,
 			PlainHTTP:             opts.PlainHTTP,
 			CacheDir:              os.TempDir(),
+			Namespace:             namespace,
 		},
 	}).SetupWithManager(mgr, controllerName); err != nil {
 		log.Error(err, "Unable to create controller")

@@ -27,6 +27,7 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/kharf/declcd/pkg/version"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/rest"
 )
@@ -63,6 +64,9 @@ type Reconciler struct {
 
 	// Directory used to cache vcs repositories or helm charts.
 	CacheDir string
+
+	// Namespace the controller runs in.
+	Namespace string
 }
 
 // ReconcileResult reports the outcome and metadata of a reconciliation.
@@ -186,15 +190,30 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	updater := component.Updater{
-		Log:        log,
-		Repository: repository,
+	scanner := version.Scanner{
+		Log:       log,
+		Client:    kubeDynamicClient.DynamicClient(),
+		Namespace: reconciler.Namespace,
 	}
-	updates, err := updater.Update(projectInstance.UpdateInstructions)
+
+	scanResult, err := scanner.Scan(ctx, projectInstance.UpdateInstructions)
 	if err != nil {
 		log.Error(
 			err,
-			"Unable to update images",
+			"Unable to scan for version updates",
+		)
+		return nil, err
+	}
+
+	updater := version.Updater{
+		Log:        log,
+		Repository: repository,
+	}
+	updates, err := updater.Update(ctx, scanResult)
+	if err != nil {
+		log.Error(
+			err,
+			"Unable to update versions",
 		)
 		return nil, err
 	}

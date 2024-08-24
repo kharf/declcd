@@ -23,8 +23,10 @@ import (
 
 	"cuelang.org/go/cue"
 	internalCue "github.com/kharf/declcd/internal/cue"
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/version"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -56,24 +58,24 @@ func NewBuilder() Builder {
 	return Builder{}
 }
 
-// BuildOptions defining which package is compiled and how it is done.
-type BuildOptions struct {
+// buildOptions defining which package is compiled and how it is done.
+type buildOptions struct {
 	packagePath string
 	projectRoot string
 }
 
-type buildOptions = func(opts *BuildOptions)
+type buildOption = func(opts *buildOptions)
 
 // WithPackagePath provides package path configuration.
-func WithPackagePath(packagePath string) buildOptions {
-	return func(opts *BuildOptions) {
+func WithPackagePath(packagePath string) buildOption {
+	return func(opts *buildOptions) {
 		opts.packagePath = packagePath
 	}
 }
 
 // WithProjectRoot provides the path to the project root.
-func WithProjectRoot(projectRootPath string) buildOptions {
-	return func(opts *BuildOptions) {
+func WithProjectRoot(projectRootPath string) buildOption {
+	return func(opts *buildOptions) {
 		opts.projectRoot = projectRootPath
 	}
 }
@@ -84,13 +86,13 @@ const (
 
 type BuildResult struct {
 	Instances          []Instance
-	UpdateInstructions []UpdateInstruction
+	UpdateInstructions []version.UpdateInstruction
 }
 
 // Build accepts options defining which cue package to compile
 // and compiles it to a slice of component Instances.
-func (b Builder) Build(opts ...buildOptions) (*BuildResult, error) {
-	options := &BuildOptions{
+func (b Builder) Build(opts ...buildOption) (*BuildResult, error) {
+	options := &buildOptions{
 		packagePath: "",
 		projectRoot: ProjectRootPath,
 	}
@@ -112,7 +114,7 @@ func (b Builder) Build(opts ...buildOptions) (*BuildResult, error) {
 	}
 
 	var instances []Instance
-	var updateInstructions []UpdateInstruction
+	var updateInstructions []version.UpdateInstruction
 
 	for iter.Next() {
 		componentValue := iter.Value()
@@ -139,7 +141,7 @@ func (b Builder) Build(opts ...buildOptions) (*BuildResult, error) {
 				return nil, buildError(err)
 			}
 
-			content, metadata, updateInstr, err := decodeValue(*contentValue, nil)
+			content, metadata, updateInstr, err := decodeValue(*contentValue, nil, nil)
 			if err != nil {
 				return nil, buildError(err)
 			}
@@ -207,7 +209,7 @@ func (b Builder) Build(opts ...buildOptions) (*BuildResult, error) {
 			patches := helm.NewPatches()
 			for patchesValueIter.Next() {
 				value := patchesValueIter.Value()
-				content, metadata, updateInstr, err := decodeValue(value, nil)
+				content, metadata, updateInstr, err := decodeValue(value, nil, nil)
 				if err != nil {
 					return nil, buildError(err)
 				}
@@ -282,7 +284,7 @@ func decodeValues(componentValue cue.Value) (helm.Values, error) {
 	return values, nil
 }
 
-func decodeChart(componentValue cue.Value) (*helm.Chart, *UpdateInstruction, error) {
+func decodeChart(componentValue cue.Value) (*helm.Chart, *version.UpdateInstruction, error) {
 	chartValue, err := getValue(componentValue, "chart")
 	if err != nil {
 		return nil, nil, err
@@ -302,7 +304,7 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, *UpdateInstruction, err
 	if versionValue.Err() != nil {
 		return nil, nil, versionValue.Err()
 	}
-	version, err := versionValue.String()
+	versionStr, err := versionValue.String()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -312,9 +314,9 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, *UpdateInstruction, err
 		return nil, nil, err
 	}
 
-	var optionalAuth *helm.Auth
+	var optionalAuth *cloud.Auth
 	if authValue != nil {
-		auth := &helm.Auth{}
+		auth := &cloud.Auth{}
 		if err := authValue.Decode(auth); err != nil {
 			return nil, nil, err
 		}
@@ -324,11 +326,11 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, *UpdateInstruction, err
 	chart := &helm.Chart{
 		Name:    chartName,
 		RepoURL: repoURL,
-		Version: version,
+		Version: versionStr,
 		Auth:    optionalAuth,
 	}
 
-	var updateInstr *UpdateInstruction
+	var updateInstr *version.UpdateInstruction
 	for _, attr := range chartValue.Attributes(cue.ValueAttr) {
 		updateInstr, err = decodeUpdateAttribute(attr)
 		if err != nil {
@@ -338,7 +340,7 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, *UpdateInstruction, err
 		if updateInstr != nil {
 			updateInstr.File = versionValue.Pos().Filename()
 			updateInstr.Line = versionValue.Pos().Line()
-			updateInstr.Target = &ChartUpdateTarget{
+			updateInstr.Target = &version.ChartUpdateTarget{
 				Chart: chart,
 			}
 		}
@@ -349,8 +351,9 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, *UpdateInstruction, err
 
 func decodeValue(
 	value cue.Value,
+	defaultValue *cue.Value,
 	parentNode map[string]any,
-) (any, *kube.ManifestMetadata, []UpdateInstruction, error) {
+) (any, *kube.ManifestMetadata, []version.UpdateInstruction, error) {
 	if value.Err() != nil {
 		return nil, nil, nil, value.Err()
 	}
@@ -359,24 +362,16 @@ func decodeValue(
 	var content any
 	var metadata *kube.ManifestMetadata
 	var fieldMeta *kube.ManifestFieldMetadata
-	var updateInstructions []UpdateInstruction
+	var updateInstructions []version.UpdateInstruction
 
-	switch value.Kind() {
-	case cue.StructKind:
-		fieldMeta, err = decodeBuildAttributes(value)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		content, metadata, updateInstructions, err = decodeStruct(value)
+	// If there is a default value, it does not hold build attributes, but concrete values.
+	// Only the bottom value has build attributes, but not concrete values.
+	finalValue := value
+	if defaultValue != nil {
+		finalValue = *defaultValue
+	}
 
-	case cue.ListKind:
-		fieldMeta, err = decodeBuildAttributes(value)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		content, metadata, updateInstructions, err = decodeList(value)
-
-	case cue.BottomKind:
+	if finalValue.Kind() == cue.BottomKind {
 		defaultValue, exists := value.Default()
 		if !exists {
 			return nil, nil, nil, fmt.Errorf(
@@ -386,11 +381,27 @@ func decodeValue(
 			)
 		}
 
-		return decodeValue(defaultValue, parentNode)
+		return decodeValue(value, &defaultValue, parentNode)
+	}
+
+	switch value.Kind() {
+	case cue.StructKind:
+		fieldMeta, err = decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		content, metadata, updateInstructions, err = decodeStruct(finalValue)
+
+	case cue.ListKind:
+		fieldMeta, err = decodeBuildAttributes(value)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		content, metadata, updateInstructions, err = decodeList(finalValue)
 
 	default:
-		var updateInstr *UpdateInstruction
-		content, fieldMeta, updateInstr, err = decodeField(value, parentNode)
+		var updateInstr *version.UpdateInstruction
+		content, fieldMeta, updateInstr, err = decodeField(value, finalValue, parentNode)
 		if updateInstr != nil {
 			updateInstructions = append(updateInstructions, *updateInstr)
 		}
@@ -415,7 +426,7 @@ func decodeValue(
 
 func decodeList(
 	value cue.Value,
-) ([]any, *kube.ManifestMetadata, []UpdateInstruction, error) {
+) ([]any, *kube.ManifestMetadata, []version.UpdateInstruction, error) {
 	iter, err := value.List()
 	if err != nil {
 		return nil, nil, nil, err
@@ -423,11 +434,15 @@ func decodeList(
 
 	var content []any
 	var metadata []kube.ManifestMetadata
-	var updateInstructions []UpdateInstruction
+	var updateInstructions []version.UpdateInstruction
 
 	for iter.Next() {
 		childValue := iter.Value()
-		childContent, childMetadata, childUpdateInstructions, err := decodeValue(childValue, nil)
+		childContent, childMetadata, childUpdateInstructions, err := decodeValue(
+			childValue,
+			nil,
+			nil,
+		)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -450,25 +465,27 @@ func decodeList(
 
 func decodeField(
 	value cue.Value,
+	finalValue cue.Value,
 	parentNode map[string]any,
-) (any, *kube.ManifestFieldMetadata, *UpdateInstruction, error) {
-	switch value.Kind() {
+) (any, *kube.ManifestFieldMetadata, *version.UpdateInstruction, error) {
+
+	switch finalValue.Kind() {
 	case cue.StringKind:
 		fieldMeta, updateInstr, err := decodeStringBuildAttributes(value)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		concreteValue, err := value.String()
+		concreteValue, err := finalValue.String()
 		if err != nil {
 			return nil, nil, nil, err
 		}
 
 		if updateInstr != nil {
-			updateInstr.File = value.Pos().Filename()
-			updateInstr.Line = value.Pos().Line()
-			updateInstr.Target = &ContainerUpdateTarget{
+			updateInstr.File = finalValue.Pos().Filename()
+			updateInstr.Line = finalValue.Pos().Line()
+			updateInstr.Target = &version.ContainerUpdateTarget{
 				Image:            concreteValue,
-				UnstructuredKey:  getLabel(value),
+				UnstructuredKey:  getLabel(finalValue),
 				UnstructuredNode: parentNode,
 			}
 		}
@@ -480,7 +497,7 @@ func decodeField(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		concreteValue, err := value.Bytes()
+		concreteValue, err := finalValue.Bytes()
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -491,7 +508,7 @@ func decodeField(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		concreteValue, err := value.Bool()
+		concreteValue, err := finalValue.Bool()
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -502,7 +519,7 @@ func decodeField(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		concreteValue, err := value.Float64()
+		concreteValue, err := finalValue.Float64()
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -513,7 +530,7 @@ func decodeField(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		concreteValue, err := value.Int64()
+		concreteValue, err := finalValue.Int64()
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -525,7 +542,7 @@ func decodeField(
 
 func decodeStruct(
 	value cue.Value,
-) (map[string]any, *kube.ManifestMetadata, []UpdateInstruction, error) {
+) (map[string]any, *kube.ManifestMetadata, []version.UpdateInstruction, error) {
 	iter, err := value.Fields()
 	if err != nil {
 		return nil, nil, nil, err
@@ -533,7 +550,7 @@ func decodeStruct(
 
 	content := map[string]any{}
 	nodeMetadata := map[string]kube.ManifestMetadata{}
-	var updateInstructions []UpdateInstruction
+	var updateInstructions []version.UpdateInstruction
 
 	for iter.Next() {
 		childValue := iter.Value()
@@ -542,7 +559,7 @@ func decodeStruct(
 			return nil, nil, nil, ErrEmptyFieldLabel
 		}
 
-		childContent, childMetadata, childUpdateInstr, err := decodeValue(childValue, content)
+		childContent, childMetadata, childUpdateInstr, err := decodeValue(childValue, nil, content)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -582,11 +599,11 @@ func decodeBuildAttributes(value cue.Value) (*FieldMetadata, error) {
 
 func decodeStringBuildAttributes(
 	value cue.Value,
-) (*FieldMetadata, *UpdateInstruction, error) {
+) (*FieldMetadata, *version.UpdateInstruction, error) {
 	attributes := value.Attributes(cue.ValueAttr)
 
 	var meta *FieldMetadata
-	var updateInstr *UpdateInstruction
+	var updateInstr *version.UpdateInstruction
 	for _, attr := range attributes {
 		switch attr.Name() {
 		case ignoreAttr:
@@ -609,7 +626,7 @@ func decodeStringBuildAttributes(
 
 func decodeUpdateAttribute(
 	attr cue.Attribute,
-) (*UpdateInstruction, error) {
+) (*version.UpdateInstruction, error) {
 	stratDef, _, err := attr.Lookup(0, "strategy")
 	if err != nil {
 		return nil, err
@@ -625,16 +642,38 @@ func decodeUpdateAttribute(
 		return nil, err
 	}
 
-	strat := SemVer
-	switch stratDef {
-	case "semver":
-		strat = SemVer
+	workloadIdentity, _, err := attr.Lookup(0, "wi")
+	if err != nil {
+		return nil, err
 	}
 
-	updateInstr := &UpdateInstruction{
+	var auth *cloud.Auth
+	if workloadIdentity != "" {
+		auth = &cloud.Auth{
+			WorkloadIdentity: &cloud.WorkloadIdentity{
+				Provider: cloud.ProviderID(workloadIdentity),
+			},
+		}
+	}
+
+	if secretRef != "" {
+		auth = &cloud.Auth{
+			SecretRef: &cloud.SecretRef{
+				Name: secretRef,
+			},
+		}
+	}
+
+	strat := version.SemVer
+	switch stratDef {
+	case "semver":
+		strat = version.SemVer
+	}
+
+	updateInstr := &version.UpdateInstruction{
 		Strategy:   strat,
 		Constraint: constraint,
-		SecretRef:  secretRef,
+		Auth:       auth,
 	}
 
 	return updateInstr, nil

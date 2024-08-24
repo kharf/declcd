@@ -21,12 +21,6 @@ import (
 	"net/http"
 )
 
-const (
-	// Endpoint to the google metadata server, which provides access tokens.
-	// See: https://cloud.google.com/compute/docs/access/authenticate-workloads
-	GoogleMetadataServerTokenEndpoint = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
-)
-
 // Access token for accessing google services like artifact registry.
 type GoogleToken struct {
 	AccessToken string `json:"access_token"`
@@ -36,13 +30,29 @@ type GoogleToken struct {
 
 // GCPProvider is the dedicated provider for accessing Google Cloud services.
 type GCPProvider struct {
-	HttpClient *http.Client
+	HttpClient        *http.Client
+	MetadataServerURL string
 }
 
 var _ Provider = (*GCPProvider)(nil)
 
 func (provider *GCPProvider) FetchCredentials(ctx context.Context) (*Credentials, error) {
-	req, err := http.NewRequest(http.MethodGet, GoogleMetadataServerTokenEndpoint, nil)
+	// Endpoint to the google metadata server, which provides access tokens.
+	// See: https://cloud.google.com/compute/docs/access/authenticate-workloads
+	metadataServerURL := "http://metadata.google.internal"
+	if provider.MetadataServerURL != "" {
+		metadataServerURL = provider.MetadataServerURL
+	}
+
+	req, err := http.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf(
+			"%s/%s",
+			metadataServerURL,
+			"computeMetadata/v1/instance/service-accounts/default/token",
+		),
+		nil,
+	)
 	if err != nil {
 		return nil, err
 	}
