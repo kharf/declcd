@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"strings"
 
-	gogithub "github.com/google/go-github/v63/github"
+	gogithub "github.com/google/go-github/v64/github"
 )
 
 type githubClient struct {
