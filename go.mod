@@ -3,7 +3,7 @@ module github.com/kharf/declcd
 go 1.22.0
 
 require (
-	cuelabs.dev/go/oci/ociregistry v0.0.0-20240807094312-a32ad29eed79
+	cuelabs.dev/go/oci/ociregistry v0.0.0-20240906074133-82eb438dd565
 	cuelang.org/go v0.10.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.7.0
