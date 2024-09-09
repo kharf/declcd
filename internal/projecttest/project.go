@@ -73,7 +73,7 @@ func InitTestEnvironment(t testing.TB, txtarData []byte) Environment {
 	localProject, err := os.MkdirTemp(testRoot, "")
 	assert.NilError(t, err)
 
-	err = txtar.Create(localProject, bytes.NewReader(txtarData))
+	_, err = txtar.Create(localProject, bytes.NewReader(txtarData))
 	assert.NilError(t, err)
 
 	remoteProject, err := os.MkdirTemp(testRoot, "")

@@ -20,9 +20,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -31,7 +33,7 @@ import (
 // AWSProvider is the dedicated provider for accessing AWS services.
 type AWSProvider struct {
 	HttpClient *http.Client
-	Host       string
+	URL        url.URL
 }
 
 var _ Provider = (*AWSProvider)(nil)
@@ -41,14 +43,13 @@ var (
 )
 
 func (provider *AWSProvider) FetchCredentials(ctx context.Context) (*Credentials, error) {
-	hostParts := strings.Split(provider.Host, ".")
-	if len(hostParts) != 6 {
+	hostParts := strings.Split(provider.URL.Host, ".")
+	if len(hostParts) < 6 {
 		return nil, fmt.Errorf(
 			"%w: expected AWS ecr host to be of format aws_account_id.dkr.ecr.region.amazonaws.com, got %s",
 			ErrUnexpectedHost,
-			provider.Host,
+			provider.URL.Host,
 		)
-
 	}
 
 	config, err := config.LoadDefaultConfig(
@@ -63,7 +64,9 @@ func (provider *AWSProvider) FetchCredentials(ctx context.Context) (*Credentials
 		return nil, err
 	}
 
-	client := ecr.NewFromConfig(config)
+	client := ecr.NewFromConfig(config, func(o *ecr.Options) {
+		o.BaseEndpoint = aws.String(provider.URL.String())
+	})
 	tokenOutput, err := client.GetAuthorizationToken(ctx, nil)
 	if err != nil {
 		return nil, err

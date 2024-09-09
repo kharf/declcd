@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	azureCloud "github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -31,7 +32,8 @@ import (
 // AzureProvider is the dedicated provider for accessing Azure cloud services.
 type AzureProvider struct {
 	HttpClient *http.Client
-	Host       string
+	URL        url.URL
+	LoginURL   string
 }
 
 var _ Provider = (*AzureProvider)(nil)
@@ -41,9 +43,18 @@ type acrRefreshToken struct {
 }
 
 func (provider *AzureProvider) FetchCredentials(ctx context.Context) (*Credentials, error) {
+	azureLoginConfig := cloud.AzurePublic
+	disableDiscovery := false
+	if provider.LoginURL != cloud.AzurePublic.ActiveDirectoryAuthorityHost {
+		azureLoginConfig.ActiveDirectoryAuthorityHost = provider.LoginURL
+		disableDiscovery = true
+	}
+
 	cred, err := azidentity.NewWorkloadIdentityCredential(
 		&azidentity.WorkloadIdentityCredentialOptions{
+			DisableInstanceDiscovery: disableDiscovery,
 			ClientOptions: policy.ClientOptions{
+				Cloud:     azureLoginConfig,
 				Transport: provider.HttpClient,
 			},
 		},
@@ -57,7 +68,7 @@ func (provider *AzureProvider) FetchCredentials(ctx context.Context) (*Credentia
 		Scopes: []string{
 			fmt.Sprintf(
 				"%s/.default",
-				azureCloud.AzurePublic.Services[azureCloud.ResourceManager].Endpoint,
+				azureLoginConfig.Services[azureCloud.ResourceManager].Endpoint,
 			),
 		},
 	})
@@ -65,18 +76,13 @@ func (provider *AzureProvider) FetchCredentials(ctx context.Context) (*Credentia
 		return nil, err
 	}
 
-	hostUrl, err := url.Parse(fmt.Sprintf("https://%s", provider.Host))
-	if err != nil {
-		return nil, err
-	}
-
 	data := url.Values{}
 	data.Add("grant_type", "access_token")
-	data.Add("service", hostUrl.Host)
+	data.Add("service", provider.URL.Host)
 	data.Add("tenant", os.Getenv("AZURE_TENANT_ID"))
 	data.Add("access_token", azureADToken.Token)
 
-	exchangeEndpoint := fmt.Sprintf("%s/oauth2/exchange", hostUrl.String())
+	exchangeEndpoint := fmt.Sprintf("%s/oauth2/exchange", provider.URL.String())
 	response, err := http.PostForm(exchangeEndpoint, data)
 	if err != nil {
 		return nil, err

@@ -54,7 +54,7 @@ func NewGCPEnvironment() (*GCPEnvironment, error) {
 	)
 
 	httpServer, err := newUnstartedServerFromEndpoint(
-		"80",
+		"0",
 		mux,
 	)
 	if err != nil {

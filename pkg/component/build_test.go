@@ -23,8 +23,10 @@ import (
 	"github.com/kharf/declcd/internal/ocitest"
 	"github.com/kharf/declcd/internal/testtemplates"
 	"github.com/kharf/declcd/internal/txtar"
+	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/version"
 	"go.uber.org/goleak"
 	"gotest.tools/v3/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -120,7 +122,7 @@ _deployment: {
 					},
 					{
 						name:  "sidecar2"
-						image: "sidecar2:1.14.2" @ignore(conflict) @update()
+						image: "sidecar2:1.14.2" @ignore(conflict) @update(constraint="*", wi=aws)
 						ports: [{
 							containerPort: 80
 						}]
@@ -264,7 +266,7 @@ releaseWorkloadIdentity: component.#HelmRelease & {
 		repoURL: "oci://test"
 		version: "test"
 		auth:    workloadidentity.#GCP
-	}
+	} @update(constraint="*")
 	values: {
 		autoscaling: enabled: true
 	}
@@ -981,8 +983,7 @@ func TestBuilder_Build(t *testing.T) {
 									"apiVersion": "v1",
 									"kind":       "Namespace",
 									"metadata": map[string]any{
-										"name":      "prometheus",
-										"namespace": "",
+										"name": "prometheus",
 									},
 								},
 							},
@@ -1199,7 +1200,7 @@ func TestBuilder_Build(t *testing.T) {
 							Chart: &helm.Chart{
 								Name:    "test",
 								RepoURL: "oci://test",
-								Version: "test",
+								Version: "4.9.9",
 							},
 							Values: helm.Values{
 								"autoscaling": map[string]interface{}{
@@ -1222,7 +1223,6 @@ func TestBuilder_Build(t *testing.T) {
 												},
 												"spec": map[string]any{
 													"replicas": int64(1),
-													"template": map[string]any{},
 												},
 											},
 										},
@@ -1334,10 +1334,9 @@ func TestBuilder_Build(t *testing.T) {
 								Name:    "test",
 								RepoURL: "oci://test",
 								Version: "test",
-								Auth: &helm.Auth{
-									SecretRef: &helm.SecretRef{
-										Name:      "secret",
-										Namespace: "namespace",
+								Auth: &cloud.Auth{
+									SecretRef: &cloud.SecretRef{
+										Name: "secret",
 									},
 								},
 							},
@@ -1354,8 +1353,8 @@ func TestBuilder_Build(t *testing.T) {
 								Name:    "test",
 								RepoURL: "oci://test",
 								Version: "test",
-								Auth: &helm.Auth{
-									WorkloadIdentity: &helm.WorkloadIdentity{
+								Auth: &cloud.Auth{
+									WorkloadIdentity: &cloud.WorkloadIdentity{
 										Provider: "gcp",
 									},
 								},
@@ -1379,8 +1378,7 @@ func TestBuilder_Build(t *testing.T) {
 										"annotations": map[string]any{
 											"controller-gen.kubebuilder.io/version": "v0.15.0",
 										},
-										"name":      "gitopsprojects.gitops.declcd.io",
-										"namespace": "",
+										"name": "gitopsprojects.gitops.declcd.io",
 									},
 									"spec": map[string]any{
 										"group": "gitops.declcd.io",
@@ -1557,14 +1555,18 @@ This field may not be empty.`,
 						Dependencies: []string{},
 					},
 				},
-				UpdateInstructions: []UpdateInstruction{
+				UpdateInstructions: []version.UpdateInstruction{
 					{
-						Strategy:   SemVer,
+						Strategy:   version.SemVer,
 						Constraint: "<= 1.15.3, >= 1.4",
-						SecretRef:  "promreg",
-						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line:       65,
-						Target: &ContainerUpdateTarget{
+						Auth: &cloud.Auth{
+							SecretRef: &cloud.SecretRef{
+								Name: "promreg",
+							},
+						},
+						File: fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line: 65,
+						Target: &version.ContainerUpdateTarget{
 							Image: "prometheus:1.14.2",
 							UnstructuredNode: map[string]any{
 								"image": "prometheus:1.14.2",
@@ -1579,10 +1581,16 @@ This field may not be empty.`,
 						},
 					},
 					{
-						Strategy: SemVer,
-						File:     fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line:     79,
-						Target: &ContainerUpdateTarget{
+						Strategy:   version.SemVer,
+						Constraint: "*",
+						Auth: &cloud.Auth{
+							WorkloadIdentity: &cloud.WorkloadIdentity{
+								Provider: cloud.AWS,
+							},
+						},
+						File: fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line: 79,
+						Target: &version.ContainerUpdateTarget{
 							Image: "sidecar2:1.14.2",
 							UnstructuredNode: map[string]any{
 								"image": "sidecar2:1.14.2",
@@ -1597,11 +1605,11 @@ This field may not be empty.`,
 						},
 					},
 					{
-						Strategy:   SemVer,
+						Strategy:   version.SemVer,
 						Constraint: "<5.0.0",
 						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
 						Line:       137,
-						Target: &ChartUpdateTarget{
+						Target: &version.ChartUpdateTarget{
 							Chart: &helm.Chart{
 								Name:    "test",
 								RepoURL: "oci://test",
@@ -1610,11 +1618,15 @@ This field may not be empty.`,
 						},
 					},
 					{
-						Strategy:  SemVer,
-						SecretRef: "sidecarreg",
-						File:      fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line:      178,
-						Target: &ContainerUpdateTarget{
+						Strategy: version.SemVer,
+						Auth: &cloud.Auth{
+							SecretRef: &cloud.SecretRef{
+								Name: "sidecarreg",
+							},
+						},
+						File: fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line: 178,
+						Target: &version.ContainerUpdateTarget{
 							Image: "sidecar:1.14.2",
 							UnstructuredNode: map[string]any{
 								"image": "sidecar:1.14.2",
@@ -1626,6 +1638,22 @@ This field may not be empty.`,
 								},
 							},
 							UnstructuredKey: "image",
+						},
+					},
+					{
+						Strategy:   version.SemVer,
+						Constraint: "*",
+						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:       221,
+						Target: &version.ChartUpdateTarget{
+							Chart: &helm.Chart{
+								Name:    "test",
+								RepoURL: "oci://test",
+								Version: "test",
+								Auth: &cloud.Auth{
+									WorkloadIdentity: &cloud.WorkloadIdentity{Provider: cloud.GCP},
+								},
+							},
 						},
 					},
 				},
@@ -1748,7 +1776,7 @@ This field may not be empty.`,
 			expectedBuildResult: &BuildResult{
 				Instances: []Instance{
 					&Manifest{
-						ID: "__test_apps_Deployment",
+						ID: "test__apps_Deployment",
 						Content: ExtendedUnstructured{
 							Unstructured: &unstructured.Unstructured{
 								Object: map[string]any{
@@ -1763,15 +1791,17 @@ This field may not be empty.`,
 								},
 							},
 						},
+						Dependencies: []string{},
 					},
 				},
 			},
 			expectedErr: "",
 		},
 	}
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := txtar.Create(rootDir, strings.NewReader(tc.template))
+			_, err := txtar.Create(rootDir, strings.NewReader(tc.template))
 			assert.NilError(t, err)
 
 			buildResult, err := builder.Build(
@@ -1784,28 +1814,8 @@ This field may not be empty.`,
 			} else {
 				assert.NilError(t, err)
 				assert.Assert(t, buildResult != nil)
-				assert.Assert(t, len(buildResult.Instances) == len(tc.expectedBuildResult.Instances))
 
-				for i, expected := range tc.expectedBuildResult.Instances {
-					current := tc.expectedBuildResult.Instances[i]
-
-					switch expected := expected.(type) {
-					case *Manifest:
-						current, ok := current.(*Manifest)
-						assert.Assert(t, ok)
-						assert.Equal(t, current.ID, expected.ID)
-						assert.DeepEqual(t, current.Dependencies, expected.Dependencies)
-						assert.DeepEqual(t, current.Content, expected.Content)
-
-					case *helm.ReleaseComponent:
-						current, ok := current.(*helm.ReleaseComponent)
-						assert.Assert(t, ok)
-						assert.Equal(t, current.ID, expected.ID)
-						assert.DeepEqual(t, current, expected)
-					}
-				}
-
-				assert.Assert(t, len(buildResult.UpdateInstructions) == len(tc.expectedBuildResult.UpdateInstructions))
+				assert.DeepEqual(t, buildResult.Instances, tc.expectedBuildResult.Instances)
 				assert.DeepEqual(t, buildResult.UpdateInstructions, tc.expectedBuildResult.UpdateInstructions)
 			}
 		})

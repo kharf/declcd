@@ -34,7 +34,7 @@ const (
 // A test Cloud Environment imitating AWS Pod Identity Agents and ECR auth.
 // In order to test AWS OCI, we have to bind some hosts to localhost.
 // We use a mock dns server to create an A record which binds api.ecr.eu-north-1.amazonaws.com and account-id.dkr.ecr.eu-north-1.amazonaws.com to 127.0.0.1.
-// All AWS OCI tests have to use account-id.dkr.ecr.eu-north-1.amazonaws.com (ECRServer.URL) as host.
+// All AWS OCI tests have to use account-id.dkr.ecr.eu-north-1.amazonaws.com (AWSRegistryHost) as host.
 type AWSEnvironment struct {
 	PodIdentityAgent *httptest.Server
 	ECRServer        *httptest.Server
@@ -101,10 +101,31 @@ func NewAWSEnvironment(
 	if err != nil {
 		return nil, err
 	}
+	registryRProxy := httputil.NewSingleHostReverseProxy(url)
 
 	ecrMux.HandleFunc(
 		"/",
-		httputil.NewSingleHostReverseProxy(url).ServeHTTP,
+		func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v2") {
+				registryRProxy.ServeHTTP(w, r)
+				return
+			}
+
+			w.WriteHeader(200)
+			token := awsToken{
+				AuthorizationData: []authorizationData{
+					{
+						AuthorizationToken: "ZGVjbGNkOmFiY2Q=",
+						ExpiresAt:          time.Now().Add(10 * time.Minute).Unix(),
+					},
+				},
+			}
+			err := json.NewEncoder(w).Encode(&token)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+		},
 	)
 	ecrServer, err := newUnstartedServerFromEndpoint(
 		"0",
@@ -118,7 +139,7 @@ func NewAWSEnvironment(
 	ecrServer.URL = strings.Replace(
 		ecrServer.URL,
 		"https://127.0.0.1",
-		fmt.Sprintf("oci://%s", AWSRegistryHost),
+		AWSRegistryHost,
 		1,
 	)
 	fmt.Println("ECR Server listening on", ecrServer.URL)

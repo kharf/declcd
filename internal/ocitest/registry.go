@@ -74,13 +74,13 @@ func (r *Registry) Close() {
 
 // Creates an OCI registry to test tls/https.
 //
-// Note: Helm uses Docker under the hood to handle OCI
+// Note: Container libs use Docker under the hood to handle OCI
 // and Docker defaults to HTTP when it detects that the registry host
 // is localhost or 127.0.0.1.
 // In order to test OCI with a HTTPS server, we have to supply a "fake" host.
 // We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
 // All OCI tests have to use declcd.io as host.
-func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
+func NewTLSRegistry(private bool, cloudProviderID cloud.ProviderID) (*Registry, error) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
 	if err != nil {
 		return nil, err
@@ -103,12 +103,22 @@ func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
 				return
 			}
 
+			expectedBody := "access_token=nottheacrtoken&grant_type=access_token&service=declcd.io%3A" + strconv.Itoa(
+				port,
+			) + "&tenant=tenant"
 			if string(
 				body,
-			) != "access_token=nottheacrtoken&grant_type=access_token&service=declcd.io%3A"+strconv.Itoa(
-				port,
-			)+"&tenant=tenant" {
+			) != expectedBody {
 				w.WriteHeader(500)
+				_, _ = w.Write(
+					[]byte(
+						fmt.Sprintf(
+							"got wrong request: %s, expected: %s",
+							string(body),
+							expectedBody,
+						),
+					),
+				)
 				return
 			}
 
@@ -124,50 +134,54 @@ func NewTLSRegistry(private bool, cloudProviderID string) (*Registry, error) {
 		"/v2/",
 		func(w http.ResponseWriter, r *http.Request) {
 			if private {
-				if r.URL.Path == "/v2/" {
-					auth, found := r.Header["Authorization"]
-					if !found {
-						w.Header().Set("WWW-Authenticate", "Basic realm=\"test\"")
-						w.WriteHeader(401)
-						return
-					}
-
-					if len(auth) != 1 {
-						w.WriteHeader(500)
-						return
-					}
-
-					credsBase64, found := strings.CutPrefix(auth[0], "Basic ")
-					if !found {
-						w.WriteHeader(500)
-						return
-					}
-
-					credsBytes, err := base64.StdEncoding.DecodeString(credsBase64)
-					if err != nil {
-						w.WriteHeader(500)
-						return
-					}
-					creds := string(credsBytes)
-
-					var expectedCreds string
-					switch cloudProviderID {
-					case string(cloud.GCP):
-						expectedCreds = "oauth2accesstoken:aaaa"
-					case string(cloud.Azure):
-						expectedCreds = "00000000-0000-0000-0000-000000000000:aaaa"
-					default:
-						expectedCreds = "declcd:abcd"
-					}
-
-					if creds != expectedCreds {
-						w.WriteHeader(500)
-						return
-					}
+				auth, found := r.Header["Authorization"]
+				if !found {
+					w.Header().Set("WWW-Authenticate", "Basic realm=\"test\"")
+					w.WriteHeader(401)
+					return
 				}
-			}
 
-			ociHandler.ServeHTTP(w, r)
+				if len(auth) != 1 {
+					w.WriteHeader(401)
+					return
+				}
+
+				credsBase64, found := strings.CutPrefix(auth[0], "Basic ")
+				if !found {
+					w.WriteHeader(400)
+					return
+				}
+
+				credsBytes, err := base64.StdEncoding.DecodeString(credsBase64)
+				if err != nil {
+					w.WriteHeader(500)
+					return
+				}
+				creds := string(credsBytes)
+
+				var expectedCreds string
+				switch cloudProviderID {
+				case cloud.GCP:
+					expectedCreds = "oauth2accesstoken:aaaa"
+				case cloud.Azure:
+					expectedCreds = "00000000-0000-0000-0000-000000000000:aaaa"
+				default:
+					expectedCreds = "declcd:abcd"
+				}
+
+				if creds != expectedCreds {
+					w.WriteHeader(401)
+					_, _ = w.Write(
+						[]byte(fmt.Sprintf("wrong credentials, expected %s", expectedCreds)),
+					)
+					return
+				}
+
+				ociHandler.ServeHTTP(w, r)
+				return
+			} else {
+				ociHandler.ServeHTTP(w, r)
+			}
 		},
 	)
 	httpsServer := httptest.NewUnstartedServer(mux)

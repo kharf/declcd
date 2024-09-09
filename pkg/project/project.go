@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/declcd/pkg/version"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -46,7 +47,7 @@ func NewManager(componentBuilder component.Builder, workerPoolSize int) Manager 
 // Instance represents the loaded project.
 type Instance struct {
 	Dag                *component.DependencyGraph
-	UpdateInstructions []component.UpdateInstruction
+	UpdateInstructions []version.UpdateInstruction
 }
 
 // Load uses a given path to a project and returns the components as a directed acyclic dependency graph.
@@ -67,7 +68,7 @@ func (manager *Manager) Load(
 	consumerEg := &errgroup.Group{}
 	consumerEg.Go(func() error {
 		dag := component.NewDependencyGraph()
-		var updateInstructions []component.UpdateInstruction
+		var updateInstructions []version.UpdateInstruction
 		for packagePath := range packageChan {
 			buildResult, err := manager.componentBuilder.Build(
 				component.WithProjectRoot(projectPath),

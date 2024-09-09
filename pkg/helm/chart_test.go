@@ -98,7 +98,7 @@ func createReleaseDeclaration(
 	namespace string,
 	url string,
 	version string,
-	auth *Auth,
+	auth *cloud.Auth,
 	allowUpgrade bool,
 	values Values,
 	patches *Patches,
@@ -652,10 +652,9 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretNotFound(t *testing.T) {
 		"default",
 		publicHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
-			SecretRef: &SecretRef{
-				Name:      "repauth",
-				Namespace: "default",
+		&cloud.Auth{
+			SecretRef: &cloud.SecretRef{
+				Name: "repauth",
 			},
 		},
 		false,
@@ -730,7 +729,7 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretRefNotFound(t *testing.T) {
 		"default",
 		publicHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
+		&cloud.Auth{
 			SecretRef: nil,
 		},
 		false,
@@ -786,7 +785,7 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretRefNotFound(t *testing.T) {
 			Content: releaseDeclaration,
 		},
 	)
-	assert.ErrorIs(t, err, helm.ErrAuthSecretValueNotFound)
+	assert.ErrorIs(t, err, cloud.ErrSecretRefNotSet)
 }
 
 func TestChartReconciler_Reconcile_HTTPAuth(t *testing.T) {
@@ -805,10 +804,9 @@ func TestChartReconciler_Reconcile_HTTPAuth(t *testing.T) {
 		"default",
 		privateHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
-			SecretRef: &SecretRef{
-				Name:      "auth",
-				Namespace: "default",
+		&cloud.Auth{
+			SecretRef: &cloud.SecretRef{
+				Name: "auth",
 			},
 		},
 		false,
@@ -856,7 +854,7 @@ func TestChartReconciler_Reconcile_HTTPAuth(t *testing.T) {
 		t,
 		ctx,
 		releaseDeclaration.Chart.Auth.SecretRef.Name,
-		releaseDeclaration.Chart.Auth.SecretRef.Namespace,
+		releaseDeclaration.Namespace,
 		kubernetes.DynamicTestKubeClient.DynamicClient(),
 	)
 
@@ -1004,10 +1002,9 @@ func TestChartReconciler_Reconcile_OCIAuthSecretNotFound(t *testing.T) {
 		"default",
 		privateOciHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
-			SecretRef: &SecretRef{
-				Name:      "regauth",
-				Namespace: "default",
+		&cloud.Auth{
+			SecretRef: &cloud.SecretRef{
+				Name: "regauth",
 			},
 		},
 		false,
@@ -1082,7 +1079,7 @@ func TestChartReconciler_Reconcile_OCIAuthSecretRefNotFound(t *testing.T) {
 		"default",
 		privateOciHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
+		&cloud.Auth{
 			SecretRef: nil,
 		},
 		false,
@@ -1138,7 +1135,7 @@ func TestChartReconciler_Reconcile_OCIAuthSecretRefNotFound(t *testing.T) {
 			Content: releaseDeclaration,
 		},
 	)
-	assert.ErrorIs(t, err, helm.ErrAuthSecretValueNotFound)
+	assert.ErrorIs(t, err, cloud.ErrSecretRefNotSet)
 }
 
 func TestChartReconciler_Reconcile_OCIAuth(t *testing.T) {
@@ -1157,10 +1154,9 @@ func TestChartReconciler_Reconcile_OCIAuth(t *testing.T) {
 		"default",
 		privateOciHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
-			SecretRef: &SecretRef{
-				Name:      "auth",
-				Namespace: "default",
+		&cloud.Auth{
+			SecretRef: &cloud.SecretRef{
+				Name: "auth",
 			},
 		},
 		false,
@@ -1208,7 +1204,7 @@ func TestChartReconciler_Reconcile_OCIAuth(t *testing.T) {
 		t,
 		ctx,
 		releaseDeclaration.Chart.Auth.SecretRef.Name,
-		releaseDeclaration.Chart.Auth.SecretRef.Namespace,
+		releaseDeclaration.Namespace,
 		kubernetes.DynamicTestKubeClient.DynamicClient(),
 	)
 
@@ -1266,9 +1262,9 @@ func TestChartReconciler_Reconcile_OCIGCPWorkloadIdentity(t *testing.T) {
 		"default",
 		gcpHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
-			WorkloadIdentity: &WorkloadIdentity{
-				Provider: string(cloud.GCP),
+		&cloud.Auth{
+			WorkloadIdentity: &cloud.WorkloadIdentity{
+				Provider: cloud.GCP,
 			},
 		},
 		false,
@@ -1298,6 +1294,7 @@ func TestChartReconciler_Reconcile_OCIGCPWorkloadIdentity(t *testing.T) {
 		InventoryInstance:     &inventoryInstance,
 		InsecureSkipTLSverify: true,
 		ChartCacheRoot:        t.TempDir(),
+		GCPMetadataServerURL:  gcpCloudEnvironment.HttpsServer.URL,
 	}
 
 	ns := &unstructured.Unstructured{}
@@ -1364,19 +1361,13 @@ func TestChartReconciler_Reconcile_OCIAWSWorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	defer awsEnvironment.Close()
 
-	cloudEnvironment, err := cloudtest.NewMetaServer(
-		"",
-	)
-	assert.NilError(t, err)
-	defer cloudEnvironment.Close()
-
 	releaseDeclaration := createReleaseDeclaration(
 		"default",
-		awsEnvironment.ECRServer.URL,
+		fmt.Sprintf("oci://%s", awsEnvironment.ECRServer.URL),
 		"1.0.0",
-		&Auth{
-			WorkloadIdentity: &WorkloadIdentity{
-				Provider: string(cloud.AWS),
+		&cloud.Auth{
+			WorkloadIdentity: &cloud.WorkloadIdentity{
+				Provider: cloud.AWS,
 			},
 		},
 		false,
@@ -1470,19 +1461,13 @@ func TestChartReconciler_Reconcile_OCIAzureWorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	defer azureEnvironment.Close()
 
-	cloudEnvironment, err := cloudtest.NewMetaServer(
-		azureEnvironment.OIDCIssuerServer.URL,
-	)
-	assert.NilError(t, err)
-	defer cloudEnvironment.Close()
-
 	releaseDeclaration := createReleaseDeclaration(
 		"default",
 		azureHelmEnvironment.ChartServer.URL(),
 		"1.0.0",
-		&Auth{
-			WorkloadIdentity: &WorkloadIdentity{
-				Provider: string(cloud.Azure),
+		&cloud.Auth{
+			WorkloadIdentity: &cloud.WorkloadIdentity{
+				Provider: cloud.Azure,
 			},
 		},
 		false,
@@ -1512,6 +1497,7 @@ func TestChartReconciler_Reconcile_OCIAzureWorkloadIdentity(t *testing.T) {
 		InventoryInstance:     &inventoryInstance,
 		InsecureSkipTLSverify: true,
 		ChartCacheRoot:        t.TempDir(),
+		AzureLoginURL:         azureEnvironment.OIDCIssuerServer.URL,
 	}
 
 	ns := &unstructured.Unstructured{}
