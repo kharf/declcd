@@ -53,12 +53,15 @@ type Scanner struct {
 }
 
 // ScanResult represents the result of a version scanning operation.
-// It holds details about the current and new versions, as well as the file and line at which these versions were found.
+// It holds details about the current and new versions, as well as the file and line at which these versions were found and the desired update integration method.
 type ScanResult struct {
 	// The current version that is being scanned for updates.
 	CurrentVersion string
 	// The new version that has been found.
 	NewVersion string
+
+	// Integration defines the method on how to push updates to the version control system.
+	Integration UpdateIntegration
 
 	// File where the versions were found.
 	File string
@@ -94,6 +97,7 @@ func (scanner *Scanner) Scan(
 		results = append(results, ScanResult{
 			CurrentVersion: currentVersion,
 			NewVersion:     newVersion,
+			Integration:    updateInstr.Integration,
 			File:           updateInstr.File,
 			Line:           updateInstr.Line,
 			Target:         updateInstr.Target,

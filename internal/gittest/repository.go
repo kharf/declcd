@@ -16,11 +16,14 @@ package gittest
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +32,9 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/google/go-github/v64/github"
 	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/xanzy/go-gitlab"
 	"gotest.tools/v3/assert"
 )
 
@@ -178,40 +183,43 @@ func (efrt *enforceHostRoundTripper) RoundTrip(r *http.Request) (*http.Response,
 	return efrt.UpstreamRoundTripper.RoundTrip(r)
 }
 
-type request struct {
+type deployKeyRequest struct {
 	Key   string `json:"key"`
 	Title string `json:"title"`
 }
 
 func MockGitProvider(
 	t *testing.T,
-	provider vcs.Provider,
-	expectedTitle string,
+	repoID string,
+	expectedDeployKeyTitle string,
+	expectedPrRequests []vcs.PullRequestRequest,
 ) (*httptest.Server, *http.Client) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(500)
-			w.Write([]byte(err.Error()))
-		}
-		switch provider {
-		case vcs.GitHub:
+	mux := http.NewServeMux()
+
+	// Github
+	mux.HandleFunc(
+		fmt.Sprintf("POST /repos/%s/keys", repoID),
+		func(w http.ResponseWriter, r *http.Request) {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(err.Error()))
+			}
+
 			authHeader := r.Header["Authorization"]
 			assert.Assert(t, len(authHeader) == 1)
 			assert.Assert(t, strings.HasPrefix(authHeader[0], "Bearer"))
 			assert.Assert(t, authHeader[0] != "Bearer ")
 			assert.Assert(t, authHeader[0] != "Bearer")
-		case vcs.GitLab:
-			authHeader := r.Header["Private-Token"]
-			assert.Assert(t, len(authHeader) == 1)
-			assert.Assert(t, authHeader[0] != "")
-		}
-		var req request
-		err = json.Unmarshal(bodyBytes, &req)
-		assert.NilError(t, err)
-		assert.Equal(t, req.Title, expectedTitle)
-		assert.Assert(t, strings.HasPrefix(req.Key, "ssh-ed25519 AAAA"))
-		w.Write([]byte(`{
+
+			var req deployKeyRequest
+			err = json.Unmarshal(bodyBytes, &req)
+			assert.NilError(t, err)
+
+			assert.Equal(t, req.Title, expectedDeployKeyTitle)
+			assert.Assert(t, strings.HasPrefix(req.Key, "ssh-ed25519 AAAA"))
+
+			w.Write([]byte(`{
 				"key" : "ssh-rsa AAAA...",
 				"id" : 12,
 				"title" : "My deploy key",
@@ -220,7 +228,103 @@ func MockGitProvider(
 				"expires_at": null
 				}
 			}`))
-	}))
+		},
+	)
+
+	mux.HandleFunc(
+		fmt.Sprintf("POST /repos/%s/pulls", repoID),
+		func(w http.ResponseWriter, r *http.Request) {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(err.Error()))
+			}
+
+			var req github.NewPullRequest
+			err = json.Unmarshal(bodyBytes, &req)
+			assert.NilError(t, err)
+
+			assert.Assert(
+				t,
+				slices.ContainsFunc(expectedPrRequests, func(pr vcs.PullRequestRequest) bool {
+					return pr.BaseBranch == *req.Base &&
+						pr.Branch == *req.Head &&
+						pr.Title == *req.Title
+				}),
+				fmt.Sprintf("got [base=%s, branch=%s, title=%s]", *req.Base, *req.Head, *req.Title),
+			)
+
+			w.Write([]byte(`{}`))
+		},
+	)
+
+	// Gitlab
+	mux.HandleFunc(
+		fmt.Sprintf("POST /api/v4/projects/%s/deploy_keys", url.PathEscape(repoID)),
+		func(w http.ResponseWriter, r *http.Request) {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(err.Error()))
+			}
+
+			authHeader := r.Header["Private-Token"]
+			assert.Assert(t, len(authHeader) == 1)
+			assert.Assert(t, authHeader[0] != "")
+
+			var req deployKeyRequest
+			err = json.Unmarshal(bodyBytes, &req)
+			assert.NilError(t, err)
+
+			assert.Equal(t, req.Title, expectedDeployKeyTitle)
+			assert.Assert(t, strings.HasPrefix(req.Key, "ssh-ed25519 AAAA"))
+
+			w.Write([]byte(`{
+				"key" : "ssh-rsa AAAA...",
+				"id" : 12,
+				"title" : "My deploy key",
+				"can_push": true,
+				"created_at" : "2015-08-29T12:44:31.550Z",
+				"expires_at": null
+				}
+			}`))
+		},
+	)
+
+	mux.HandleFunc(
+		fmt.Sprintf("POST /api/v4/projects/%s/merge_requests", url.PathEscape(repoID)),
+		func(w http.ResponseWriter, r *http.Request) {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte(err.Error()))
+			}
+
+			var req gitlab.MergeRequest
+			err = json.Unmarshal(bodyBytes, &req)
+			assert.NilError(t, err)
+
+			assert.Assert(
+				t,
+				slices.ContainsFunc(expectedPrRequests, func(pr vcs.PullRequestRequest) bool {
+					return pr.BaseBranch == req.TargetBranch &&
+						pr.Branch == req.SourceBranch &&
+						pr.Title == req.Title
+				}),
+				fmt.Sprintf(
+					"got [base=%s, branch=%s, title=%s]",
+					req.TargetBranch,
+					req.SourceBranch,
+					req.Title,
+				),
+			)
+
+			w.Write([]byte(`{}`))
+		},
+	)
+
+	server := httptest.NewTLSServer(mux)
+
 	client := server.Client()
 	client.Transport = &enforceHostRoundTripper{
 		Host:                 server.URL,
