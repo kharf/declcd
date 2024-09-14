@@ -193,7 +193,7 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	_, err = gittest.InitGitRepository(t, t.TempDir(), projectDir, "main")
 	assert.NilError(t, err)
 
-	vcsRepository, err := vcs.Open("main", projectDir, vcs.WithAuth(vcs.Auth{
+	vcsRepository, err := vcs.Open(projectDir, vcs.WithAuth(vcs.Auth{
 		Method: nil,
 		Token:  "",
 	}), vcs.WithProvider(vcs.GitHub), vcs.WithHTTPClient(client))

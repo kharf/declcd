@@ -185,25 +185,7 @@ func (updater *Updater) Update(
 
 		switch result.Integration {
 		case PR:
-			src := fmt.Sprintf("declcd/update-%s", targetName)
-			if err := updater.Repository.NewBranch(src); err != nil {
-				return nil, err
-			}
-
-			_, err := updater.update(commitMessage, result)
-			if err != nil {
-				return nil, err
-			}
-
-			if err := updater.Repository.Push(src, branch); err != nil {
-				return nil, err
-			}
-
-			if err := updater.Repository.CreatePullRequest(commitMessage, src, branch); err != nil {
-				return nil, err
-			}
-
-			if err := updater.Repository.SwitchBranch(branch); err != nil {
+			if err := updater.createPR(targetName, commitMessage, result, branch); err != nil {
 				return nil, err
 			}
 
@@ -226,6 +208,37 @@ func (updater *Updater) Update(
 	return &Updates{
 		DirectUpdates: directUpdates,
 	}, nil
+}
+
+func (updater *Updater) createPR(
+	targetName string,
+	commitMessage string,
+	result ScanResult,
+	branch string,
+) error {
+	src := fmt.Sprintf("declcd/update-%s", targetName)
+	if err := updater.Repository.NewBranch(src); err != nil {
+		return err
+	}
+
+	_, err := updater.update(commitMessage, result)
+	if err != nil {
+		return err
+	}
+
+	if err := updater.Repository.Push(src, branch); err != nil {
+		return err
+	}
+
+	if err := updater.Repository.CreatePullRequest(commitMessage, src, branch); err != nil {
+		return err
+	}
+
+	if err := updater.Repository.SwitchBranch(branch); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (updater *Updater) update(commitMessage string, result ScanResult) (*Update, error) {

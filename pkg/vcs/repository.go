@@ -41,6 +41,7 @@ type Repository interface {
 	Commit(file, message string) (string, error)
 	NewBranch(branch string) error
 	SwitchBranch(branch string) error
+	CurrentBranch() (string, error)
 	Push(src, dst string) error
 	CreatePullRequest(title, src, dst string) error
 }
@@ -248,10 +249,18 @@ func (g *GenericRepository) Push(src, dst string) error {
 	})
 }
 
+func (g *GenericRepository) CurrentBranch() (string, error) {
+	head, err := g.gitRepository.Head()
+	if err != nil {
+		return "", err
+	}
+
+	return head.Name().Short(), nil
+}
+
 var _ Repository = (*GenericRepository)(nil)
 
 func Open(
-	branch string,
 	path string,
 	opts ...repositoryOption,
 ) (Repository, error) {
@@ -307,7 +316,7 @@ func (manager RepositoryManager) Load(
 
 	log.V(1).Info("Opening repository")
 
-	repository, err := Open(branch, targetPath, WithAuth(*auth))
+	repository, err := Open(targetPath, WithAuth(*auth))
 	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
@@ -334,6 +343,10 @@ func (manager RepositoryManager) Load(
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if err := repository.SwitchBranch(branch); err != nil {
+		return nil, err
 	}
 
 	return repository, nil

@@ -65,6 +65,39 @@ func TestRepositoryManager_Load(t *testing.T) {
 			},
 		},
 		{
+			name:       "Switch-Branch",
+			branch:     "main",
+			withSecret: true,
+			post: func(kubernetes *kubetest.Environment, localRepository string, remoteRepository string) {
+				repository, err := vcs.Open(localRepository)
+				assert.NilError(t, err)
+
+				currentBranch, err := repository.CurrentBranch()
+				assert.NilError(t, err)
+				assert.Equal(t, currentBranch, "main")
+
+				err = repository.NewBranch("dev")
+				assert.NilError(t, err)
+
+				currentBranch, err = repository.CurrentBranch()
+				assert.NilError(t, err)
+				assert.Equal(t, currentBranch, "dev")
+
+				_, err = kubernetes.RepositoryManager.Load(
+					context.Background(),
+					remoteRepository,
+					"main",
+					localRepository,
+					"open",
+				)
+				assert.NilError(t, err)
+
+				currentBranch, err = repository.CurrentBranch()
+				assert.NilError(t, err)
+				assert.Equal(t, currentBranch, "main")
+			},
+		},
+		{
 			name:         "Branch-Not-Found",
 			branch:       "feature",
 			remoteBranch: "main",
