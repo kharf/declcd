@@ -226,7 +226,7 @@ func (updater *Updater) createPR(
 		return err
 	}
 
-	if err := updater.Repository.Push(src, branch); err != nil {
+	if err := updater.Repository.Push(src, src); err != nil {
 		return err
 	}
 

@@ -25,6 +25,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
 	inttxtar "github.com/kharf/declcd/internal/txtar"
@@ -54,7 +56,7 @@ image: "myimage:1.15.0"
 image2: "myimage:1.16.5"
 version: "1.15.0"
 version2: "1.15.0"
-image3: "myimage:1.16.5"
+image3: "myimage3:1.16.5"
 `,
 		haveScanResults: []version.ScanResult{
 			{
@@ -105,7 +107,7 @@ image3: "myimage:1.16.5"
 				Line:           4,
 				Target: &version.ChartUpdateTarget{
 					Chart: &helm.Chart{
-						Name:    "mychart",
+						Name:    "mychart2",
 						RepoURL: "oci://",
 						Version: "1.15.0",
 						Auth:    nil,
@@ -119,9 +121,9 @@ image3: "myimage:1.16.5"
 				File:           "apps/myapp.cue",
 				Line:           5,
 				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.16.5",
+					Image: "myimage3:1.16.5",
 					UnstructuredNode: map[string]any{
-						"image": "myimage:1.16.5",
+						"image": "myimage3:1.16.5",
 					},
 					UnstructuredKey: "image",
 				},
@@ -140,14 +142,14 @@ image3: "myimage:1.16.5"
 		wantPullRequests: []vcs.PullRequestRequest{
 			{
 				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump mychart to 1.17.0",
-				Branch:     "declcd/update-mychart",
+				Title:      "chore(update): bump mychart2 to 1.17.0",
+				Branch:     "declcd/update-mychart2",
 				BaseBranch: "main",
 			},
 			{
 				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump myimage to 1.17.0",
-				Branch:     "declcd/update-myimage",
+				Title:      "chore(update): bump myimage3 to 1.17.0",
+				Branch:     "declcd/update-myimage3",
 				BaseBranch: "main",
 			},
 		},
@@ -157,7 +159,7 @@ image: "myimage:1.16.5"
 image2: "myimage:1.16.5"
 version: "1.17.0"
 version2: "1.15.0"
-image3: "myimage:1.16.5"
+image3: "myimage3:1.16.5"
 `,
 	}
 )
@@ -190,7 +192,8 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	)
 	defer server.Close()
 
-	_, err = gittest.InitGitRepository(t, t.TempDir(), projectDir, "main")
+	remoteDir := t.TempDir()
+	_, err = gittest.InitGitRepository(t, remoteDir, projectDir, "main")
 	assert.NilError(t, err)
 
 	vcsRepository, err := vcs.Open(projectDir, vcs.WithAuth(vcs.Auth{
@@ -265,6 +268,27 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 			}
 		}
 	}
+
+	gitRepository, err := git.PlainClone(t.TempDir(), false,
+		&git.CloneOptions{
+			URL:           remoteDir,
+			Progress:      nil,
+			ReferenceName: plumbing.ReferenceName("main"),
+		},
+	)
+	assert.NilError(t, err)
+
+	remote, err := gitRepository.Remote(git.DefaultRemoteName)
+	assert.NilError(t, err)
+	remoteRefs, err := remote.List(&git.ListOptions{})
+	assert.NilError(t, err)
+
+	// check if prs are pushed to remote
+	assert.Assert(t, slices.ContainsFunc(remoteRefs, func(ref *plumbing.Reference) bool {
+		return slices.ContainsFunc(tc.wantPullRequests, func(pr vcs.PullRequestRequest) bool {
+			return pr.Branch == ref.Name().Short()
+		}) && ref.Name().IsBranch()
+	}))
 }
 
 func patchFile(result version.ScanResult, dir string) version.ScanResult {
