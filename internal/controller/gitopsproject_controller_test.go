@@ -27,7 +27,6 @@ import (
 	"github.com/kharf/declcd/internal/projecttest"
 	"github.com/kharf/declcd/internal/testtemplates"
 	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/vcs"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -146,8 +145,9 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 				gitServer, httpClient := gittest.MockGitProvider(
 					test,
-					vcs.GitHub,
+					"owner/repo",
 					fmt.Sprintf("declcd-%s", gitOpsProjectName),
+					nil,
 				)
 				defer gitServer.Close()
 
@@ -197,8 +197,9 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 					gitServer, httpClient := gittest.MockGitProvider(
 						test,
-						vcs.GitHub,
+						"owner/repo",
 						fmt.Sprintf("declcd-%s", gitOpsProjectName),
+						nil,
 					)
 					defer gitServer.Close()
 
@@ -294,8 +295,9 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 			gitServer, httpClient := gittest.MockGitProvider(
 				test,
-				vcs.GitHub,
+				"owner/repo",
 				fmt.Sprintf("declcd-%s", "test"),
+				nil,
 			)
 			defer gitServer.Close()
 

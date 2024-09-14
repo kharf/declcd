@@ -23,6 +23,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/kharf/declcd/internal/gittest"
 	"github.com/kharf/declcd/internal/kubetest"
 	"github.com/kharf/declcd/internal/projecttest"
@@ -103,10 +105,10 @@ func TestRepositoryManager_Load(t *testing.T) {
 
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)
-				dirInfo, err := os.Stat(repository.Path)
+				dirInfo, err := os.Stat(repository.Path())
 				assert.NilError(t, err)
 				assert.Assert(t, dirInfo.IsDir())
-				assert.Assert(t, repository.Path == localRepository)
+				assert.Assert(t, repository.Path() == localRepository)
 				newFile := "test2"
 				commitHash, err := remoteRepository.CommitNewFile(newFile, "second commit")
 				assert.NilError(t, err)
@@ -210,11 +212,19 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 	testCases := []struct {
 		name         string
 		projectNames []string
+		persistToken bool
 		post         func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client)
 	}{
 		{
-			name:         "NonExisting",
+			name:         "Non-Existing",
 			projectNames: []string{"non-existing"},
+			persistToken: true,
+			post:         func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client) {},
+		},
+		{
+			name:         "Non-Existing-And-Disallow-Token-Persistence",
+			projectNames: []string{"non-existing-and-disallow-token-persistence"},
+			persistToken: false,
 			post:         func(kubernetes *kubetest.Environment, sec corev1.Secret, client *http.Client) {},
 		},
 		{
@@ -230,7 +240,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					ns,
 					kubernetes.DynamicTestKubeClient.DynamicClient(),
 					client,
-					"git@github.com:kharf/declcd.git",
+					"git@github.com:owner/repo.git",
 					"abcd",
 				)
 				assert.NilError(t, err)
@@ -238,6 +248,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					context.Background(),
 					"manager",
 					"existing",
+					true,
 				)
 				assert.NilError(t, err)
 				var sec2 corev1.Secret
@@ -267,23 +278,27 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 			for _, projectName := range projectNames {
 				server, client := gittest.MockGitProvider(
 					t,
-					vcs.GitHub,
+					"owner/repo",
 					fmt.Sprintf("declcd-%s", projectName),
+					nil,
 				)
 				defer server.Close()
+
+				token := "abcd"
 
 				configurator, err := vcs.NewRepositoryConfigurator(
 					ns,
 					kubernetes.DynamicTestKubeClient.DynamicClient(),
 					client,
-					"git@github.com:kharf/declcd.git",
-					"abcd",
+					"git@github.com:owner/repo.git",
+					token,
 				)
 				assert.NilError(t, err)
 				err = configurator.CreateDeployKeyIfNotExists(
 					context.Background(),
 					"manager",
 					projectName,
+					tc.persistToken,
 				)
 				assert.NilError(t, err)
 
@@ -311,7 +326,91 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 				authType, _ := sec.Data[vcs.K8sSecretDataAuthType]
 				assert.Equal(t, string(authType), vcs.K8sSecretDataAuthTypeSSH)
 
+				if tc.persistToken {
+					persistedToken, _ := sec.Data[vcs.Token]
+					assert.Equal(t, string(persistedToken), token)
+				} else {
+					persistedToken, found := sec.Data[vcs.Token]
+					assert.Assert(t, !found)
+					assert.Equal(t, string(persistedToken), "")
+				}
+
 				tc.post(kubernetes, sec, client)
+			}
+		})
+	}
+}
+
+func TestNewRepository(t *testing.T) {
+	testCases := []struct {
+		name         string
+		url          string
+		wantRepoID   string
+		wantProvider vcs.Provider
+		wantErr      string
+	}{
+		{
+			name:         "GitHub",
+			url:          "git@github.com:kharf/declcd.git",
+			wantRepoID:   "kharf/declcd",
+			wantProvider: vcs.GitHub,
+		},
+		{
+			name:         "GitLab",
+			url:          "git@gitlab.com:kharf/declcd.git",
+			wantRepoID:   "kharf/declcd",
+			wantProvider: vcs.GitLab,
+		},
+		{
+			name:         "Generic",
+			url:          "git@myscm.com:kharf/declcd.git",
+			wantRepoID:   "kharf/declcd",
+			wantProvider: vcs.Generic,
+		},
+		{
+			name:         "Local",
+			url:          "/tmp/repo/declcd",
+			wantRepoID:   "none/none",
+			wantProvider: vcs.Generic,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			err := os.WriteFile(filepath.Join(dir, "README.md"), []byte{}, 0666)
+			assert.NilError(t, err)
+			_, err = gittest.InitGitRepository(t, t.TempDir(), dir, "main")
+			assert.NilError(t, err)
+			gitRepository, err := git.PlainOpen(dir)
+			assert.NilError(t, err)
+			err = gitRepository.DeleteRemote(git.DefaultRemoteName)
+			assert.NilError(t, err)
+			_, err = gitRepository.CreateRemote(
+				&config.RemoteConfig{Name: git.DefaultRemoteName, URLs: []string{tc.url}},
+			)
+			assert.NilError(t, err)
+
+			repository, err := vcs.NewRepository("any", gitRepository)
+			assert.NilError(t, err)
+
+			if tc.wantErr == "" {
+				assert.NilError(t, err)
+				switch tc.wantProvider {
+				case vcs.GitHub:
+					_, ok := repository.(*vcs.GithubRepository)
+					assert.Assert(t, ok)
+				case vcs.GitLab:
+					_, ok := repository.(*vcs.GitlabRepository)
+					assert.Assert(t, ok)
+				default:
+					_, ok := repository.(*vcs.GenericRepository)
+					assert.Assert(t, ok)
+				}
+
+				assert.Equal(t, repository.RepoID(), tc.wantRepoID)
+			} else {
+				assert.ErrorContains(t, err, tc.wantErr)
 			}
 		})
 	}

@@ -134,7 +134,7 @@ func defaultAssertion(
 
 const (
 	intervalInSeconds = 5
-	url               = "git@github.com:kharf/declcd.git"
+	url               = "git@github.com:owner/repo.git"
 	branch            = "main"
 )
 
@@ -160,11 +160,15 @@ func TestInstallAction_Install(t *testing.T) {
 			test: fresh,
 		},
 		{
-			name: "MultiTenancy",
+			name: "Persist-Token",
+			test: fresh,
+		},
+		{
+			name: "Multi-Tenancy",
 			test: multiTenancy,
 		},
 		{
-			name: "RunTwice",
+			name: "Run-Twice",
 			test: runTwice,
 		},
 	}
@@ -187,14 +191,15 @@ func fresh(t *testing.T, testContext testContext) {
 	var server *httptest.Server
 	server, client := gittest.MockGitProvider(
 		t,
-		vcs.GitHub,
+		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
+		nil,
 	)
 	defer server.Close()
 
 	testProject := t.TempDir()
 	err := project.Init(
-		"github.com/kharf/declcd/installation",
+		"github.com/owner/repo/installation",
 		projectName,
 		false,
 		testProject,
@@ -222,60 +227,55 @@ func fresh(t *testing.T, testContext testContext) {
 	)
 	assert.NilError(t, err)
 
-	var ns v1.Namespace
-	err = kubernetes.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: project.ControllerNamespace},
-		&ns,
+	defaultAssertion(t, kubernetes, projectName, testProject)
+}
+
+func persistToken(t *testing.T, testContext testContext) {
+	projectName := "token"
+	kubernetes := testContext.kubernetes
+
+	var server *httptest.Server
+	server, client := gittest.MockGitProvider(
+		t,
+		"owner/repo",
+		fmt.Sprintf("declcd-%s", projectName),
+		nil,
+	)
+	defer server.Close()
+
+	testProject := t.TempDir()
+	err := project.Init(
+		"github.com/owner/repo/installation",
+		projectName,
+		false,
+		testProject,
+		"0.0.99",
 	)
 	assert.NilError(t, err)
 
-	var deployment appsv1.Deployment
-	controllerName := fmt.Sprintf("%s-%s", "project-controller", projectName)
-	err = kubernetes.TestKubeClient.Get(
+	action := project.NewInstallAction(
+		kubernetes.DynamicTestKubeClient.DynamicClient(),
+		client,
+		testProject,
+	)
+
+	ctx := context.Background()
+	token := "aaaa"
+	err = action.Install(
 		ctx,
-		types.NamespacedName{
-			Name:      controllerName,
-			Namespace: project.ControllerNamespace,
+		project.InstallOptions{
+			Name:         projectName,
+			Shard:        projectName,
+			Branch:       branch,
+			Interval:     intervalInSeconds,
+			Url:          url,
+			Token:        token,
+			PersistToken: true,
 		},
-		&deployment,
 	)
 	assert.NilError(t, err)
 
-	var gitOpsProject gitops.GitOpsProject
-	err = kubernetes.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: projectName, Namespace: project.ControllerNamespace},
-		&gitOpsProject,
-	)
-	assert.NilError(t, err)
-
-	projectFile, err := os.Open(
-		filepath.Join(
-			testProject,
-			fmt.Sprintf("declcd/%s_project.cue", projectName),
-		),
-	)
-	assert.NilError(t, err)
-
-	projectContent, err := io.ReadAll(projectFile)
-	assert.NilError(t, err)
-
-	var projectBuf bytes.Buffer
-	projectTmpl, err := template.New("").Parse(manifest.Project)
-
-	assert.NilError(t, err)
-	err = projectTmpl.Execute(&projectBuf, map[string]interface{}{
-		"Name":                projectName,
-		"Namespace":           project.ControllerNamespace,
-		"Branch":              branch,
-		"PullIntervalSeconds": intervalInSeconds,
-		"Url":                 url,
-		"Shard":               projectName,
-	})
-	assert.NilError(t, err)
-
-	assert.Equal(t, string(projectContent), projectBuf.String())
+	defaultAssertion(t, kubernetes, projectName, testProject)
 
 	var vcsKey v1.Secret
 	err = kubernetes.TestKubeClient.Get(
@@ -287,22 +287,8 @@ func fresh(t *testing.T, testContext testContext) {
 		&vcsKey,
 	)
 	assert.NilError(t, err)
-
-	var knownHostsCm v1.ConfigMap
-	err = kubernetes.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: "known-hosts", Namespace: project.ControllerNamespace},
-		&knownHostsCm,
-	)
-	assert.NilError(t, err)
-
-	var service v1.Service
-	err = kubernetes.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: controllerName, Namespace: project.ControllerNamespace},
-		&service,
-	)
-	assert.NilError(t, err)
+	persistedToken, _ := vcsKey.Data[vcs.Token]
+	assert.Equal(t, string(persistedToken), token)
 }
 
 func multiTenancy(t *testing.T, testContext testContext) {
@@ -311,14 +297,15 @@ func multiTenancy(t *testing.T, testContext testContext) {
 
 	server, client := gittest.MockGitProvider(
 		t,
-		vcs.GitHub,
+		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
+		nil,
 	)
 	defer server.Close()
 
 	testProject := t.TempDir()
 	err := project.Init(
-		"github.com/kharf/declcd/installation",
+		"github.com/owner/repo/installation",
 		projectName,
 		false,
 		testProject,
@@ -351,8 +338,9 @@ func multiTenancy(t *testing.T, testContext testContext) {
 	secondaryProjectName := "secondary"
 	server, client = gittest.MockGitProvider(
 		t,
-		vcs.GitHub,
+		"owner/repo",
 		fmt.Sprintf("declcd-%s", secondaryProjectName),
+		nil,
 	)
 	defer server.Close()
 	action = project.NewInstallAction(
@@ -362,7 +350,7 @@ func multiTenancy(t *testing.T, testContext testContext) {
 	)
 
 	err = project.Init(
-		"github.com/kharf/declcd/installation",
+		"github.com/owner/repo/installation",
 		secondaryProjectName,
 		true,
 		testProject,
@@ -392,14 +380,15 @@ func runTwice(t *testing.T, testContext testContext) {
 
 	server, client := gittest.MockGitProvider(
 		t,
-		vcs.GitHub,
+		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
+		nil,
 	)
 	defer server.Close()
 
 	testProject := t.TempDir()
 	err := project.Init(
-		"github.com/kharf/declcd/installation",
+		"github.com/owner/repo/installation",
 		projectName,
 		false,
 		testProject,

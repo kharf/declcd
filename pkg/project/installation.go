@@ -38,12 +38,13 @@ var (
 )
 
 type InstallOptions struct {
-	Branch   string
-	Url      string
-	Name     string
-	Token    string
-	Interval int
-	Shard    string
+	Branch       string
+	Url          string
+	Name         string
+	Token        string
+	Interval     int
+	Shard        string
+	PersistToken bool
 }
 
 type InstallAction struct {
@@ -147,7 +148,7 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 		return err
 	}
 
-	if err := repoConfigurator.CreateDeployKeyIfNotExists(ctx, controllerName, opts.Name); err != nil {
+	if err := repoConfigurator.CreateDeployKeyIfNotExists(ctx, controllerName, opts.Name, opts.PersistToken); err != nil {
 		return err
 	}
 

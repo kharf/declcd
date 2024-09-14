@@ -36,12 +36,13 @@ import (
 )
 
 type updateTestCase struct {
-	name            string
-	haveFiles       string
-	haveScanResults []version.ScanResult
-	wantUpdates     []version.Update
-	wantFiles       string
-	wantErr         string
+	name             string
+	haveFiles        string
+	haveScanResults  []version.ScanResult
+	wantUpdates      []version.Update
+	wantPullRequests []vcs.PullRequestRequest
+	wantFiles        string
+	wantErr          string
 }
 
 var (
@@ -52,6 +53,8 @@ var (
 image: "myimage:1.15.0"
 image2: "myimage:1.16.5"
 version: "1.15.0"
+version2: "1.15.0"
+image3: "myimage:1.16.5"
 `,
 		haveScanResults: []version.ScanResult{
 			{
@@ -94,6 +97,35 @@ version: "1.15.0"
 					},
 				},
 			},
+			{
+				CurrentVersion: "1.15.0",
+				NewVersion:     "1.17.0",
+				Integration:    version.PR,
+				File:           "apps/myapp.cue",
+				Line:           4,
+				Target: &version.ChartUpdateTarget{
+					Chart: &helm.Chart{
+						Name:    "mychart",
+						RepoURL: "oci://",
+						Version: "1.15.0",
+						Auth:    nil,
+					},
+				},
+			},
+			{
+				CurrentVersion: "1.16.5",
+				NewVersion:     "1.17.0",
+				Integration:    version.PR,
+				File:           "apps/myapp.cue",
+				Line:           5,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.16.5",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.16.5",
+					},
+					UnstructuredKey: "image",
+				},
+			},
 		},
 		wantUpdates: []version.Update{
 			{
@@ -105,11 +137,27 @@ version: "1.15.0"
 				NewVersion: "1.17.0",
 			},
 		},
+		wantPullRequests: []vcs.PullRequestRequest{
+			{
+				RepoID:     vcs.DefaultRepoID,
+				Title:      "chore(update): bump mychart to 1.17.0",
+				Branch:     "declcd/update-mychart",
+				BaseBranch: "main",
+			},
+			{
+				RepoID:     vcs.DefaultRepoID,
+				Title:      "chore(update): bump myimage to 1.17.0",
+				Branch:     "declcd/update-myimage",
+				BaseBranch: "main",
+			},
+		},
 		wantFiles: `
 -- apps/myapp.cue --
 image: "myimage:1.16.5"
 image2: "myimage:1.16.5"
 version: "1.17.0"
+version2: "1.15.0"
+image3: "myimage:1.16.5"
 `,
 	}
 )
@@ -134,10 +182,21 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	haveArch, err := inttxtar.Create(projectDir, bytes.NewReader([]byte(tc.haveFiles)))
 	assert.NilError(t, err)
 
+	server, client := gittest.MockGitProvider(
+		t,
+		vcs.DefaultRepoID,
+		fmt.Sprintf("declcd-%s", `dev`),
+		tc.wantPullRequests,
+	)
+	defer server.Close()
+
 	_, err = gittest.InitGitRepository(t, t.TempDir(), projectDir, "main")
 	assert.NilError(t, err)
 
-	vcsRepository, err := vcs.Open("main", projectDir, nil)
+	vcsRepository, err := vcs.Open("main", projectDir, vcs.WithAuth(vcs.Auth{
+		Method: nil,
+		Token:  "",
+	}), vcs.WithProvider(vcs.GitHub), vcs.WithHTTPClient(client))
 	assert.NilError(t, err)
 
 	updater := &version.Updater{
@@ -150,16 +209,16 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 		patchedResults = append(patchedResults, patchFile(result, projectDir))
 	}
 
-	updates, err := updater.Update(ctx, patchedResults)
+	updates, err := updater.Update(ctx, patchedResults, "main")
 	if tc.wantErr != "" {
 		assert.ErrorContains(t, err, tc.wantErr)
 		return
 	}
 	assert.NilError(t, err)
 
-	assert.Equal(t, len(updates), len(tc.wantUpdates))
+	assert.Equal(t, len(updates.DirectUpdates), len(tc.wantUpdates))
 	assert.Assert(t, slices.CompareFunc(
-		updates,
+		updates.DirectUpdates,
 		tc.wantUpdates,
 		func(current version.Update, expected version.Update) int {
 			if current.NewVersion == expected.NewVersion {

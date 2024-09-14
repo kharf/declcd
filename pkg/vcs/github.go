@@ -20,21 +20,55 @@ import (
 	"net/http"
 	"strings"
 
-	gogithub "github.com/google/go-github/v64/github"
+	"github.com/google/go-github/v64/github"
 )
 
+type GithubRepository struct {
+	GenericRepository
+	client githubClient
+}
+
+func (g *GithubRepository) CreatePullRequest(title, branch, targetBranch string) error {
+	return g.client.CreatePullRequest(
+		context.Background(),
+		PullRequestRequest{
+			RepoID:     g.RepoID(),
+			Title:      title,
+			Branch:     branch,
+			BaseBranch: targetBranch,
+		},
+	)
+}
+
+var _ Repository = (*GithubRepository)(nil)
+
 type githubClient struct {
-	client *gogithub.Client
+	client *github.Client
 }
 
-func NewGithubClient(httpClient *http.Client, token string) *githubClient {
-	client := gogithub.NewClient(httpClient).WithAuthToken(token)
-	return &githubClient{
-		client: client,
+func (g *githubClient) CreatePullRequest(
+	ctx context.Context,
+	req PullRequestRequest,
+) error {
+	newPR := &github.NewPullRequest{
+		Title:               &req.Title,
+		Head:                &req.Branch,
+		Base:                &req.BaseBranch,
+		MaintainerCanModify: github.Bool(true),
 	}
-}
 
-var _ providerClient = (*githubClient)(nil)
+	owner, repo, err := parseGithubRepoID(req.RepoID)
+	if err != nil {
+		return err
+	}
+
+	_, _, err = g.client.PullRequests.Create(ctx, owner, repo, newPR)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func (g *githubClient) CreateDeployKey(
 	ctx context.Context,
@@ -45,21 +79,47 @@ func (g *githubClient) CreateDeployKey(
 	if err != nil {
 		return nil, err
 	}
+
+	owner, repo, err := parseGithubRepoID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	keyReqBody := github.Key{
+		Title: &deployKey.title,
+		Key:   &deployKey.publicKeyOpenSSH,
+	}
+
+	_, _, err = g.client.Repositories.CreateKey(ctx, owner, repo, &keyReqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	return deployKey, nil
+}
+
+func parseGithubRepoID(id string) (owner string, repo string, err error) {
 	idSplit := strings.Split(id, "/")
 	if len(idSplit) != 2 {
-		return nil, fmt.Errorf(
+		return "", "", fmt.Errorf(
 			"%w: %s doesn't correspond to the owner/repo format",
 			ErrRepositoryID,
 			id,
 		)
 	}
-	keyReqBody := gogithub.Key{
-		Title: &deployKey.title,
-		Key:   &deployKey.publicKeyOpenSSH,
-	}
-	_, _, err = g.client.Repositories.CreateKey(ctx, idSplit[0], idSplit[1], &keyReqBody)
-	if err != nil {
-		return nil, err
-	}
-	return deployKey, nil
+
+	owner = idSplit[0]
+	repo = idSplit[1]
+	err = nil
+
+	return
 }
+
+func NewGithubClient(httpClient *http.Client, token string) *githubClient {
+	client := github.NewClient(httpClient).WithAuthToken(token)
+	return &githubClient{
+		client: client,
+	}
+}
+
+var _ providerClient = (*githubClient)(nil)

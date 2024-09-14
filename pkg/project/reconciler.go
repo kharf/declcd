@@ -209,7 +209,7 @@ func (reconciler *Reconciler) Reconcile(
 		Log:        log,
 		Repository: repository,
 	}
-	updates, err := updater.Update(ctx, scanResult)
+	updates, err := updater.Update(ctx, scanResult, gProject.Spec.Branch)
 	if err != nil {
 		log.Error(
 			err,
@@ -239,10 +239,10 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	// updates produce commits before core reconciliation,
+	// direct updates produce commits before core reconciliation,
 	// so the latest update commit becomes the reconciled commit.
-	if len(updates) > 0 {
-		reconciledCommitHash = updates[len(updates)-1].CommitHash
+	if len(updates.DirectUpdates) > 0 {
+		reconciledCommitHash = updates.DirectUpdates[len(updates.DirectUpdates)-1].CommitHash
 	}
 
 	return &ReconcileResult{

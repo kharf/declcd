@@ -46,8 +46,19 @@ func (s WithKeySuffix) apply(opts *deployKeyOptions) {
 	opts.keySuffix = string(s)
 }
 
+type PullRequestRequest struct {
+	RepoID     string
+	Title      string
+	Branch     string
+	BaseBranch string
+}
+
 type providerClient interface {
 	CreateDeployKey(ctx context.Context, repoID string, opts ...deployKeyOption) (*deployKey, error)
+	CreatePullRequest(
+		ctx context.Context,
+		req PullRequestRequest,
+	) error
 }
 
 type Provider string
@@ -60,7 +71,7 @@ const (
 
 func getProviderClient(
 	httpClient *http.Client,
-	provider string,
+	provider Provider,
 	token string,
 ) (providerClient, error) {
 	switch provider {
@@ -80,7 +91,12 @@ func getProviderClient(
 
 type GenericProviderClient struct{}
 
-var _ providerClient = (*GenericProviderClient)(nil)
+func (g *GenericProviderClient) CreatePullRequest(
+	ctx context.Context,
+	req PullRequestRequest,
+) error {
+	panic("unimplemented")
+}
 
 func (*GenericProviderClient) CreateDeployKey(
 	ctx context.Context,
@@ -93,6 +109,8 @@ func (*GenericProviderClient) CreateDeployKey(
 func (*GenericProviderClient) GetHostPublicSSHKey() string {
 	return ""
 }
+
+var _ providerClient = (*GenericProviderClient)(nil)
 
 type deployKey struct {
 	title             string
@@ -107,32 +125,39 @@ func genDeployKey(opts ...deployKeyOption) (*deployKey, error) {
 	for _, o := range opts {
 		o.apply(deployKeyOpts)
 	}
+
 	publicKey, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return nil, err
 	}
+
 	privKeyPemBlock, err := cryptoSSH.MarshalPrivateKey(privKey, "")
 	if err != nil {
 		return nil, err
 	}
+
 	var buf strings.Builder
 	if err := pem.Encode(&buf, privKeyPemBlock); err != nil {
 		return nil, err
 	}
+
 	privKeyString := buf.String()
 	sshPublicKey, err := ssh.NewPublicKey(publicKey)
 	if err != nil {
 		return nil, err
 	}
+
 	publicKeyString := fmt.Sprintf(
 		"%s %s",
 		sshPublicKey.Type(),
 		base64.StdEncoding.EncodeToString(sshPublicKey.Marshal()),
 	)
+
 	title := "declcd"
 	if deployKeyOpts.keySuffix != "" {
 		title = fmt.Sprintf("%s-%s", title, deployKeyOpts.keySuffix)
 	}
+
 	return &deployKey{
 		title:             title,
 		publicKeyOpenSSH:  publicKeyString,

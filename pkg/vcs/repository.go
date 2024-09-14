@@ -24,135 +24,244 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/pkg/kube"
-	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
-const (
-	K8sSecretDataAuthType    = "auth"
-	K8sSecretDataAuthTypeSSH = "ssh"
-	SSHKey                   = "identity"
-	SSHPubKey                = "identity.pub"
-)
+type Repository interface {
+	Path() string
+	RepoID() string
+	Pull() (string, error)
+	Commit(file, message string) (string, error)
+	NewBranch(branch string) error
+	SwitchBranch(branch string) error
+	Push(src, dst string) error
+	CreatePullRequest(title, src, dst string) error
+}
 
-// A vcs Repository.
-type Repository struct {
-	Path   string
-	pull   PullFunc
-	commit CommitFunc
-	push   PushFunc
+type repositoryOption func(*repositoryOptions)
+
+type repositoryOptions struct {
+	provider   *Provider
+	auth       Auth
+	httpClient *http.Client
+}
+
+func WithProvider(provider Provider) repositoryOption {
+	return func(o *repositoryOptions) {
+		o.provider = &provider
+	}
+}
+
+func WithAuth(auth Auth) repositoryOption {
+	return func(o *repositoryOptions) {
+		o.auth = auth
+	}
+}
+
+func WithHTTPClient(client *http.Client) repositoryOption {
+	return func(o *repositoryOptions) {
+		o.httpClient = client
+	}
 }
 
 func NewRepository(
-	path string,
+	localTargetPath string,
 	gitRepository *git.Repository,
-	refName plumbing.ReferenceName,
-	authMethod transport.AuthMethod,
-) (*Repository, error) {
-	worktree, err := gitRepository.Worktree()
+	opts ...repositoryOption,
+) (Repository, error) {
+	options := &repositoryOptions{
+		httpClient: http.DefaultClient,
+	}
+
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	remote, err := gitRepository.Remote(git.DefaultRemoteName)
 	if err != nil {
 		return nil, err
 	}
 
-	pullFunc := func() (string, error) {
-		err := worktree.Pull(&git.PullOptions{
-			Auth:          authMethod,
-			ReferenceName: refName,
-		})
-		if err != nil && err != git.NoErrAlreadyUpToDate {
-			return "", err
-		}
-
-		ref, err := gitRepository.Head()
-		if err != nil {
-			return "", err
-		}
-
-		return ref.Hash().String(), nil
+	provider, repoID, err := ParseURL(remote.Config().URLs[0])
+	if err != nil {
+		return nil, err
 	}
 
-	commitFunc := func(file string, message string) (string, error) {
-		relPath, err := filepath.Rel(
-			worktree.Filesystem.Root(),
-			file,
-		)
+	if options.provider != nil {
+		provider = *options.provider
+	}
+
+	auth := options.auth
+
+	genericRepo := GenericRepository{
+		path:          localTargetPath,
+		gitRepository: gitRepository,
+		auth:          options.auth,
+		repoID:        repoID,
+	}
+
+	switch provider {
+	case GitHub:
+		client := NewGithubClient(options.httpClient, auth.Token)
+		return &GithubRepository{
+			GenericRepository: genericRepo,
+			client:            *client,
+		}, nil
+
+	case GitLab:
+		client, err := NewGitlabClient(options.httpClient, auth.Token)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
-		_, err = worktree.Add(relPath)
-		if err != nil {
-			return "", err
-		}
+		return &GitlabRepository{
+			GenericRepository: genericRepo,
+			client:            *client,
+		}, nil
+	}
 
-		hash, err := worktree.Commit(
-			message,
-			&git.CommitOptions{
-				Author: &object.Signature{
-					Name: "declcd-bot",
-					When: time.Now(),
-				},
+	return &genericRepo, nil
+}
+
+type GenericRepository struct {
+	path          string
+	gitRepository *git.Repository
+	auth          Auth
+	repoID        string
+}
+
+func (g *GenericRepository) Path() string {
+	return g.path
+}
+
+func (g *GenericRepository) RepoID() string {
+	return g.repoID
+}
+
+func (g *GenericRepository) Commit(file string, message string) (string, error) {
+	worktree, err := g.gitRepository.Worktree()
+	if err != nil {
+		return "", err
+	}
+
+	relPath, err := filepath.Rel(
+		worktree.Filesystem.Root(),
+		file,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = worktree.Add(relPath)
+	if err != nil {
+		return "", err
+	}
+
+	hash, err := worktree.Commit(
+		message,
+		&git.CommitOptions{
+			Author: &object.Signature{
+				Name: "declcd-bot",
+				When: time.Now(),
 			},
-		)
-		if err != nil {
-			return "", err
-		}
-
-		return hash.String(), nil
+		},
+	)
+	if err != nil {
+		return "", err
 	}
 
-	pushFunc := func() error {
-		return gitRepository.Push(&git.PushOptions{
-			Auth: authMethod,
-		})
+	return hash.String(), nil
+}
+
+var ErrPullRequestNotSupported = errors.New("Pull-Request not supported")
+
+func (g *GenericRepository) CreatePullRequest(title string, src string, dst string) error {
+	return ErrPullRequestNotSupported
+}
+
+func (g *GenericRepository) NewBranch(branch string) error {
+	worktree, err := g.gitRepository.Worktree()
+	if err != nil {
+		return err
 	}
 
-	return &Repository{
-		Path:   path,
-		pull:   pullFunc,
-		commit: commitFunc,
-		push:   pushFunc,
-	}, nil
+	err = worktree.Checkout(&git.CheckoutOptions{
+		Create: true,
+		Branch: plumbing.NewBranchReferenceName(branch),
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-type PullFunc = func() (string, error)
-type CommitFunc = func(file string, message string) (string, error)
-type PushFunc = func() error
+func (g *GenericRepository) SwitchBranch(branch string) error {
+	worktree, err := g.gitRepository.Worktree()
+	if err != nil {
+		return err
+	}
 
-func (repository *Repository) Pull() (string, error) {
-	return repository.pull()
+	err = worktree.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName(branch),
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (repository *Repository) Commit(file string, message string) (string, error) {
-	return repository.commit(file, message)
+func (g *GenericRepository) Pull() (string, error) {
+	worktree, err := g.gitRepository.Worktree()
+	if err != nil {
+		return "", err
+	}
+
+	err = worktree.Pull(&git.PullOptions{
+		Auth: g.auth.Method,
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return "", err
+	}
+
+	head, err := g.gitRepository.Head()
+	if err != nil {
+		return "", err
+	}
+
+	return head.Hash().String(), nil
 }
 
-func (repository *Repository) Push() error {
-	return repository.push()
+func (g *GenericRepository) Push(src, dst string) error {
+	refSpec := config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", src, dst))
+	return g.gitRepository.Push(&git.PushOptions{
+		Auth:     g.auth.Method,
+		RefSpecs: []config.RefSpec{refSpec},
+	})
 }
+
+var _ Repository = (*GenericRepository)(nil)
 
 func Open(
 	branch string,
 	path string,
-	authMethod transport.AuthMethod,
-) (*Repository, error) {
+	opts ...repositoryOption,
+) (Repository, error) {
 	gitRepository, err := git.PlainOpen(path)
 	if err != nil {
 		return nil, err
 	}
 
-	refName := plumbing.NewBranchReferenceName(branch)
 	return NewRepository(
-		path, gitRepository, refName, authMethod,
+		path, gitRepository, opts...,
 	)
 }
 
@@ -175,22 +284,6 @@ func NewRepositoryManager(
 	}
 }
 
-func (manager RepositoryManager) getAuthMethodFromSecret(
-	secret v1.Secret,
-) (transport.AuthMethod, error) {
-	var authMethod transport.AuthMethod
-	switch string(secret.Data[K8sSecretDataAuthType]) {
-	case "ssh":
-		priv := secret.Data[SSHKey]
-		public, err := ssh.NewPublicKeys("git", priv, "")
-		if err != nil {
-			return nil, err
-		}
-		authMethod = public
-	}
-	return authMethod, nil
-}
-
 // Load loads a remote vcs repository to a local path or opens it if it exists.
 func (manager RepositoryManager) Load(
 	ctx context.Context,
@@ -198,7 +291,7 @@ func (manager RepositoryManager) Load(
 	branch string,
 	targetPath string,
 	projectName string,
-) (*Repository, error) {
+) (Repository, error) {
 	log := manager.log.WithValues(
 		"remote url", remoteURL,
 		"branch", branch,
@@ -206,24 +299,15 @@ func (manager RepositoryManager) Load(
 	)
 
 	projectName = strings.ToLower(projectName)
-	secret, err := getAuthSecret(ctx, manager.kubeClient, manager.controllerNamespace, projectName)
-	if err != nil {
-		if k8sErrors.ReasonForError(err) != metav1.StatusReasonNotFound {
-			return nil, err
-		}
-	}
 
-	var authMethod transport.AuthMethod
-	if secret != nil {
-		authMethod, err = manager.getAuthMethodFromSecret(*secret)
-		if err != nil {
-			return nil, err
-		}
+	auth, err := GetAuth(ctx, manager.kubeClient, manager.controllerNamespace, projectName)
+	if err != nil {
+		return nil, err
 	}
 
 	log.V(1).Info("Opening repository")
 
-	repository, err := Open(branch, targetPath, authMethod)
+	repository, err := Open(branch, targetPath, WithAuth(*auth))
 	if err != nil && err != git.ErrRepositoryNotExists {
 		return nil, err
 	}
@@ -238,7 +322,7 @@ func (manager RepositoryManager) Load(
 			&git.CloneOptions{
 				URL:           remoteURL,
 				Progress:      nil,
-				Auth:          authMethod,
+				Auth:          auth.Method,
 				ReferenceName: refName,
 			},
 		)
@@ -246,38 +330,13 @@ func (manager RepositoryManager) Load(
 			return nil, err
 		}
 
-		repository, err = NewRepository(targetPath, gitRepository, refName, authMethod)
+		repository, err = NewRepository(targetPath, gitRepository, WithAuth(*auth))
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return repository, nil
-}
-
-func getAuthSecret(
-	ctx context.Context,
-	kubeClient kube.Client[unstructured.Unstructured, unstructured.Unstructured],
-	controllerNamespace string,
-	projectName string,
-) (*v1.Secret, error) {
-	unstr := &unstructured.Unstructured{}
-	unstr.SetName(SecretName(projectName))
-	unstr.SetNamespace(controllerNamespace)
-	unstr.SetKind("Secret")
-	unstr.SetAPIVersion("v1")
-
-	unstr, err := kubeClient.Get(ctx, unstr)
-	if err != nil {
-		return nil, err
-	}
-
-	var sec v1.Secret
-	if err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstr.Object, &sec); err != nil {
-		return nil, err
-	}
-
-	return &sec, nil
 }
 
 // RepositoryConfigurator is capable of setting up Declcd with a Git provider.
@@ -300,35 +359,9 @@ func NewRepositoryConfigurator(
 	url string,
 	token string,
 ) (*RepositoryConfigurator, error) {
-	var provider string
-	var repoID string
-	urlParts := strings.Split(url, "@")
-
-	if len(urlParts) != 2 {
-		provider = Generic
-		repoID = url
-	} else {
-		providerIdParts := strings.Split(urlParts[1], ":")
-		if len(providerIdParts) != 2 {
-			return nil, fmt.Errorf("%s: expected one ':' in url '%s'", ErrUnknownURLFormat, url)
-		}
-
-		providerParts := strings.Split(providerIdParts[0], ".")
-		if len(providerParts) != 2 {
-			return nil, fmt.Errorf(
-				"%s: expected one '.' in host '%s'",
-				ErrUnknownURLFormat,
-				providerIdParts[0],
-			)
-		}
-
-		provider = providerParts[0]
-		idSuffixParts := strings.Split(providerIdParts[1], ".")
-		if len(idSuffixParts) != 2 {
-			return nil, fmt.Errorf("%s: expected one '.' at end of url '%s'", ErrUnknownURLFormat, url)
-		}
-
-		repoID = idSuffixParts[0]
+	provider, repoID, err := ParseURL(url)
+	if err != nil {
+		return nil, err
 	}
 
 	providerClient, err := getProviderClient(httpClient, provider, token)
@@ -345,10 +378,54 @@ func NewRepositoryConfigurator(
 	}, nil
 }
 
+const DefaultRepoID = "none/none"
+
+func ParseURL(url string) (Provider, string, error) {
+	urlParts := strings.Split(url, "@")
+
+	if len(urlParts) != 2 {
+		return Generic, DefaultRepoID, nil
+	}
+
+	var provider, repoID string
+	providerIdParts := strings.Split(urlParts[1], ":")
+	if len(providerIdParts) != 2 {
+		return "", "", fmt.Errorf("%s: expected one ':' in url '%s'", ErrUnknownURLFormat, url)
+	}
+
+	providerParts := strings.Split(providerIdParts[0], ".")
+	if len(providerParts) != 2 {
+		return "", "", fmt.Errorf(
+			"%s: expected one '.' in host '%s'",
+			ErrUnknownURLFormat,
+			providerIdParts[0],
+		)
+	}
+
+	provider = providerParts[0]
+	idSuffixParts := strings.Split(providerIdParts[1], ".")
+	if len(idSuffixParts) != 2 {
+		return "", "", fmt.Errorf(
+			"%s: expected one '.' at end of url '%s'",
+			ErrUnknownURLFormat,
+			url,
+		)
+	}
+
+	repoID = idSuffixParts[0]
+
+	if provider != GitHub && provider != GitLab {
+		provider = Generic
+	}
+
+	return Provider(provider), repoID, nil
+}
+
 func (config RepositoryConfigurator) CreateDeployKeyIfNotExists(
 	ctx context.Context,
 	fieldManager string,
 	projectName string,
+	persistToken bool,
 ) error {
 	projectName = strings.ToLower(projectName)
 
@@ -369,21 +446,13 @@ func (config RepositoryConfigurator) CreateDeployKeyIfNotExists(
 	}
 
 	if depKey != nil {
-		unstr := &unstructured.Unstructured{}
-		unstr.SetName(SecretName(projectName))
-		unstr.SetNamespace(config.controllerNamespace)
-		unstr.SetKind("Secret")
-		unstr.SetAPIVersion("v1")
-		unstr.Object["data"] = map[string][]byte{
-			SSHKey:                []byte(depKey.privateKeyOpenSSH),
-			SSHPubKey:             []byte(depKey.publicKeyOpenSSH),
-			K8sSecretDataAuthType: []byte(K8sSecretDataAuthTypeSSH),
-		}
-
-		err = config.kubeClient.Apply(ctx, unstr, fieldManager)
-		if err != nil {
-			return err
-		}
+		return config.createAuthSecret(
+			ctx,
+			projectName,
+			fieldManager,
+			*depKey,
+			persistToken,
+		)
 	}
 
 	return nil

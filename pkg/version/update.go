@@ -30,6 +30,16 @@ import (
 	"github.com/kharf/declcd/pkg/vcs"
 )
 
+// UpdateIntegration defines the method on how to push updates to the version control system.
+type UpdateIntegration int
+
+const (
+	// Direct indicates to push updates directly to the base branch and reconcile them in the same run.
+	Direct UpdateIntegration = iota
+	// PR indicates to push updates to a separate update branch and create a pull request. Updates are not applied immediately, only after the PR has been merged and the changes were pulled.
+	PR
+)
+
 var (
 	// ErrUnexpectedResponse is returned when an unexpected response is received from a repository.
 	ErrUnexpectedResponse = errors.New("Unexpected response")
@@ -51,7 +61,8 @@ type ContainerUpdateTarget struct {
 }
 
 func (c *ContainerUpdateTarget) Name() string {
-	return c.Image
+	imageParts := strings.Split(c.Image, ":")
+	return imageParts[0]
 }
 
 func (c *ContainerUpdateTarget) GetStructValue() string {
@@ -106,6 +117,9 @@ type UpdateInstruction struct {
 	// Only relevant for manifest components. For Helm Charts, auth is taken from the component def.
 	Auth *cloud.Auth
 
+	// Integration defines the method on how to push updates to the version control system.
+	Integration UpdateIntegration
+
 	// File path where the version value is located.
 	File string
 	// Line number in the file where the version value resides.
@@ -126,62 +140,101 @@ type Update struct {
 	NewVersion string
 }
 
+type Updates struct {
+	DirectUpdates []Update
+}
+
 // Updater accepts update instructions that tell which images to update.
 // For every instruction it contacts image registries to fetch remote tags and calculates the latest tag based on the provided update strategy.
 // If the latest tag is greater than the current tag, it updates the image and commits the changes.
 // It pushes its changes to remote before returning.
 type Updater struct {
 	Log        logr.Logger
-	Repository *vcs.Repository
+	Repository vcs.Repository
 }
 
 // Update accepts version scan results that tell which images or chart to update and returns update results.
 func (updater *Updater) Update(
 	ctx context.Context,
 	scanResults []ScanResult,
-) ([]Update, error) {
-	var updates []Update
+	branch string,
+) (*Updates, error) {
+	var directUpdates []Update
 	for _, result := range scanResults {
 		if result.CurrentVersion == result.NewVersion {
 			continue
 		}
 
+		targetName := result.Target.Name()
+
 		updater.Log.Info(
 			"Updating",
 			"target",
-			result.Target.Name(),
+			targetName,
 			"newVersion",
 			result.NewVersion,
 			"file",
 			result.File,
 		)
-		update, err := updater.update(result)
-		if err != nil {
-			return nil, err
+
+		commitMessage := fmt.Sprintf(
+			"chore(update): bump %s to %s",
+			targetName,
+			result.NewVersion,
+		)
+
+		switch result.Integration {
+		case PR:
+			src := fmt.Sprintf("declcd/update-%s", targetName)
+			if err := updater.Repository.NewBranch(src); err != nil {
+				return nil, err
+			}
+
+			_, err := updater.update(commitMessage, result)
+			if err != nil {
+				return nil, err
+			}
+
+			if err := updater.Repository.Push(src, branch); err != nil {
+				return nil, err
+			}
+
+			if err := updater.Repository.CreatePullRequest(commitMessage, src, branch); err != nil {
+				return nil, err
+			}
+
+			if err := updater.Repository.SwitchBranch(branch); err != nil {
+				return nil, err
+			}
+
+		case Direct:
+			update, err := updater.update(commitMessage, result)
+			if err != nil {
+				return nil, err
+			}
+
+			directUpdates = append(directUpdates, *update)
 		}
-		updates = append(updates, *update)
 	}
 
-	if len(updates) > 0 {
-		if err := updater.Repository.Push(); err != nil {
+	if len(directUpdates) > 0 {
+		if err := updater.Repository.Push(branch, branch); err != nil {
 			return nil, err
 		}
 	}
 
-	return updates, nil
+	return &Updates{
+		DirectUpdates: directUpdates,
+	}, nil
 }
 
-func (updater *Updater) update(result ScanResult) (*Update, error) {
+func (updater *Updater) update(commitMessage string, result ScanResult) (*Update, error) {
 	if err := updater.updateVersion(result); err != nil {
 		return nil, err
 	}
 
 	hash, err := updater.Repository.Commit(result.File,
-		fmt.Sprintf(
-			"chore(update): bump %s to %s",
-			result.Target.Name(),
-			result.NewVersion,
-		),
+		commitMessage,
 	)
 	if err != nil {
 		return nil, err

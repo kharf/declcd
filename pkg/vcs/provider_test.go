@@ -25,7 +25,12 @@ import (
 )
 
 func TestGithubClient_CreateDeployKey(t *testing.T) {
-	server, client := gittest.MockGitProvider(t, vcs.GitHub, fmt.Sprintf("declcd-%s", `dev`))
+	server, client := gittest.MockGitProvider(
+		t,
+		"owner/repo",
+		fmt.Sprintf("declcd-%s", `dev`),
+		nil,
+	)
 	defer server.Close()
 	githubClient := vcs.NewGithubClient(client, "abcd")
 	ctx := context.Background()
@@ -34,8 +39,33 @@ func TestGithubClient_CreateDeployKey(t *testing.T) {
 	assert.Assert(t, depKey != nil)
 }
 
+func TestGithubClient_CreatePullRequest(t *testing.T) {
+	req := vcs.PullRequestRequest{
+		RepoID:     "owner/repo",
+		Title:      "update",
+		Branch:     "new-update",
+		BaseBranch: "main",
+	}
+	server, client := gittest.MockGitProvider(
+		t,
+		"owner/repo",
+		fmt.Sprintf("declcd-%s", `dev`),
+		[]vcs.PullRequestRequest{req},
+	)
+	defer server.Close()
+	githubClient := vcs.NewGithubClient(client, "abcd")
+	ctx := context.Background()
+	err := githubClient.CreatePullRequest(ctx, req)
+	assert.NilError(t, err)
+}
+
 func TestGitlabClient_CreateDeployKey(t *testing.T) {
-	server, client := gittest.MockGitProvider(t, vcs.GitLab, fmt.Sprintf("declcd-%s", `dev`))
+	server, client := gittest.MockGitProvider(
+		t,
+		"owner/repo",
+		fmt.Sprintf("declcd-%s", `dev`),
+		nil,
+	)
 	defer server.Close()
 	gitlabClient, err := vcs.NewGitlabClient(client, "abcd")
 	assert.NilError(t, err)
@@ -43,4 +73,25 @@ func TestGitlabClient_CreateDeployKey(t *testing.T) {
 	depKey, err := gitlabClient.CreateDeployKey(ctx, "owner/repo", vcs.WithKeySuffix("dev"))
 	assert.NilError(t, err)
 	assert.Assert(t, depKey != nil)
+}
+
+func TestGitlabClient_CreatePullRequest(t *testing.T) {
+	req := vcs.PullRequestRequest{
+		RepoID:     "owner/repo",
+		Title:      "update",
+		Branch:     "new-update",
+		BaseBranch: "main",
+	}
+	server, client := gittest.MockGitProvider(
+		t,
+		"owner/repo",
+		fmt.Sprintf("declcd-%s", `dev`),
+		[]vcs.PullRequestRequest{req},
+	)
+	defer server.Close()
+	gitlabClient, err := vcs.NewGitlabClient(client, "abcd")
+	assert.NilError(t, err)
+	ctx := context.Background()
+	err = gitlabClient.CreatePullRequest(ctx, req)
+	assert.NilError(t, err)
 }

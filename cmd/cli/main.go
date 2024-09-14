@@ -137,6 +137,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	var token string
 	var interval int
 	var shard string
+	var persistToken bool
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install Declcd on a Kubernetes Cluster",
@@ -158,12 +159,13 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 			action := project.NewInstallAction(client, httpClient, wd)
 			if err := action.Install(ctx,
 				project.InstallOptions{
-					Url:      url,
-					Branch:   branch,
-					Name:     name,
-					Interval: interval,
-					Token:    token,
-					Shard:    shard,
+					Url:          url,
+					Branch:       branch,
+					Name:         name,
+					Interval:     interval,
+					Token:        token,
+					Shard:        shard,
+					PersistToken: persistToken,
 				},
 			); err != nil {
 				return err
@@ -181,6 +183,8 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		IntVarP(&interval, "interval", "i", 30, "Definition of how often Declcd will reconcile its cluster state. Value is defined in seconds")
 	cmd.Flags().
 		StringVar(&shard, "shard", "primary", "Instance associated with the Declcd Project")
+	cmd.Flags().
+		BoolVar(&persistToken, "persist-token", false, "When true, the access token is stored as a kubernetes secret, which is needed for pull request creation")
 
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("url")

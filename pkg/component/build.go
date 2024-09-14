@@ -647,6 +647,11 @@ func decodeUpdateAttribute(
 		return nil, err
 	}
 
+	integrationDef, _, err := attr.Lookup(0, "integration")
+	if err != nil {
+		return nil, err
+	}
+
 	var auth *cloud.Auth
 	if workloadIdentity != "" {
 		auth = &cloud.Auth{
@@ -670,10 +675,17 @@ func decodeUpdateAttribute(
 		strat = version.SemVer
 	}
 
+	integration := version.Direct
+	switch integrationDef {
+	case "pr":
+		integration = version.PR
+	}
+
 	updateInstr := &version.UpdateInstruction{
-		Strategy:   strat,
-		Constraint: constraint,
-		Auth:       auth,
+		Strategy:    strat,
+		Constraint:  constraint,
+		Auth:        auth,
+		Integration: integration,
 	}
 
 	return updateInstr, nil

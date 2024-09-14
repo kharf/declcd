@@ -122,7 +122,7 @@ _deployment: {
 					},
 					{
 						name:  "sidecar2"
-						image: "sidecar2:1.14.2" @ignore(conflict) @update(constraint="*", wi=aws)
+						image: "sidecar2:1.14.2" @ignore(conflict) @update(constraint="*", wi=aws, integration=pr)
 						ports: [{
 							containerPort: 80
 						}]
@@ -1564,8 +1564,9 @@ This field may not be empty.`,
 								Name: "promreg",
 							},
 						},
-						File: fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line: 65,
+						Integration: version.Direct,
+						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:        65,
 						Target: &version.ContainerUpdateTarget{
 							Image: "prometheus:1.14.2",
 							UnstructuredNode: map[string]any{
@@ -1588,8 +1589,9 @@ This field may not be empty.`,
 								Provider: cloud.AWS,
 							},
 						},
-						File: fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line: 79,
+						Integration: version.PR,
+						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:        79,
 						Target: &version.ContainerUpdateTarget{
 							Image: "sidecar2:1.14.2",
 							UnstructuredNode: map[string]any{
@@ -1605,10 +1607,11 @@ This field may not be empty.`,
 						},
 					},
 					{
-						Strategy:   version.SemVer,
-						Constraint: "<5.0.0",
-						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line:       137,
+						Strategy:    version.SemVer,
+						Constraint:  "<5.0.0",
+						Integration: version.PR,
+						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:        137,
 						Target: &version.ChartUpdateTarget{
 							Chart: &helm.Chart{
 								Name:    "test",
@@ -1624,8 +1627,9 @@ This field may not be empty.`,
 								Name: "sidecarreg",
 							},
 						},
-						File: fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line: 178,
+						Integration: version.Direct,
+						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:        178,
 						Target: &version.ContainerUpdateTarget{
 							Image: "sidecar:1.14.2",
 							UnstructuredNode: map[string]any{
@@ -1641,10 +1645,11 @@ This field may not be empty.`,
 						},
 					},
 					{
-						Strategy:   version.SemVer,
-						Constraint: "*",
-						File:       fmt.Sprintf("%s/infra/success/component.cue", rootDir),
-						Line:       221,
+						Strategy:    version.SemVer,
+						Constraint:  "*",
+						Integration: version.Direct,
+						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						Line:        221,
 						Target: &version.ChartUpdateTarget{
 							Chart: &helm.Chart{
 								Name:    "test",

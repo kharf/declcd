@@ -21,21 +21,46 @@ import (
 	gogitlab "github.com/xanzy/go-gitlab"
 )
 
+type GitlabRepository struct {
+	GenericRepository
+	client gitlabClient
+}
+
+func (g *GitlabRepository) CreatePullRequest(title, branch, targetBranch string) error {
+	return g.client.CreatePullRequest(context.Background(),
+		PullRequestRequest{
+			RepoID:     g.RepoID(),
+			Title:      title,
+			Branch:     branch,
+			BaseBranch: targetBranch,
+		},
+	)
+}
+
+var _ Repository = (*GithubRepository)(nil)
+
 type gitlabClient struct {
 	client *gogitlab.Client
 }
 
-func NewGitlabClient(httpClient *http.Client, token string) (*gitlabClient, error) {
-	client, err := gogitlab.NewClient(token, gogitlab.WithHTTPClient(httpClient))
+func (g *gitlabClient) CreatePullRequest(
+	ctx context.Context,
+	req PullRequestRequest,
+) error {
+	_, _, err := g.client.MergeRequests.CreateMergeRequest(
+		req.RepoID,
+		&gogitlab.CreateMergeRequestOptions{
+			Title:        &req.Title,
+			SourceBranch: &req.Branch,
+			TargetBranch: &req.BaseBranch,
+		},
+	)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &gitlabClient{
-		client: client,
-	}, nil
-}
 
-var _ providerClient = (*gitlabClient)(nil)
+	return nil
+}
 
 func (g *gitlabClient) CreateDeployKey(
 	ctx context.Context,
@@ -55,3 +80,15 @@ func (g *gitlabClient) CreateDeployKey(
 	}
 	return deployKey, nil
 }
+
+func NewGitlabClient(httpClient *http.Client, token string) (*gitlabClient, error) {
+	client, err := gogitlab.NewClient(token, gogitlab.WithHTTPClient(httpClient))
+	if err != nil {
+		return nil, err
+	}
+	return &gitlabClient{
+		client: client,
+	}, nil
+}
+
+var _ providerClient = (*gitlabClient)(nil)
