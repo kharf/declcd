@@ -16,7 +16,9 @@ package vcs
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 
 	gogitlab "github.com/xanzy/go-gitlab"
 )
@@ -56,6 +58,10 @@ func (g *gitlabClient) CreatePullRequest(
 		},
 	)
 	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("%w: %s", ErrPRAlreadyExists, err.Error())
+		}
+
 		return err
 	}
 

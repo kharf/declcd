@@ -23,6 +23,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-logr/logr"
 
 	"github.com/kharf/declcd/pkg/cloud"
@@ -167,8 +168,13 @@ func (updater *Updater) Update(
 
 		targetName := result.Target.Name()
 
-		updater.Log.Info(
-			"Updating",
+		commitMessage := fmt.Sprintf(
+			"chore(update): bump %s to %s",
+			targetName,
+			result.NewVersion,
+		)
+
+		log := updater.Log.WithValues(
 			"target",
 			targetName,
 			"newVersion",
@@ -177,31 +183,41 @@ func (updater *Updater) Update(
 			result.File,
 		)
 
-		commitMessage := fmt.Sprintf(
-			"chore(update): bump %s to %s",
-			targetName,
-			result.NewVersion,
-		)
-
 		switch result.Integration {
 		case PR:
-			if err := updater.createPR(targetName, commitMessage, result, branch); err != nil {
-				return nil, err
+			log.Info(
+				"Creating Update-PullRequest",
+			)
+
+			if err := updater.createPR(targetName, commitMessage, result, branch); err != nil &&
+				!errors.Is(err, vcs.ErrPRAlreadyExists) {
+				log.Error(err, "Error creating Update-PullRequest")
 			}
 
 		case Direct:
+			log.Info(
+				"Updating",
+			)
+
 			update, err := updater.update(commitMessage, result)
-			if err != nil {
-				return nil, err
+			if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
+				log.Error(err, "Error updating")
 			}
 
-			directUpdates = append(directUpdates, *update)
+			if update != nil {
+				directUpdates = append(directUpdates, *update)
+			}
+		}
+
+		if err := updater.Repository.SwitchBranch(branch, false); err != nil {
+			// return error, because we can't proceed with updates and reconciliation on the wrong branch.
+			return nil, err
 		}
 	}
 
 	if len(directUpdates) > 0 {
 		if err := updater.Repository.Push(branch, branch); err != nil {
-			return nil, err
+			updater.Log.Error(err, "Error pushing updates")
 		}
 	}
 
@@ -217,24 +233,21 @@ func (updater *Updater) createPR(
 	branch string,
 ) error {
 	src := fmt.Sprintf("declcd/update-%s", targetName)
-	if err := updater.Repository.NewBranch(src); err != nil {
+	if err := updater.Repository.SwitchBranch(src, true); err != nil {
 		return err
 	}
 
 	_, err := updater.update(commitMessage, result)
-	if err != nil {
+	if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
 		return err
 	}
 
-	if err := updater.Repository.Push(src, src); err != nil {
+	if err := updater.Repository.Push(src, src); err != nil &&
+		!errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return err
 	}
 
 	if err := updater.Repository.CreatePullRequest(commitMessage, src, branch); err != nil {
-		return err
-	}
-
-	if err := updater.Repository.SwitchBranch(branch); err != nil {
 		return err
 	}
 
