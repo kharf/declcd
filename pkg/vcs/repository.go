@@ -34,13 +34,16 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+var (
+	ErrPRAlreadyExists = errors.New("Pull-Request already exists")
+)
+
 type Repository interface {
 	Path() string
 	RepoID() string
 	Pull() (string, error)
 	Commit(file, message string) (string, error)
-	NewBranch(branch string) error
-	SwitchBranch(branch string) error
+	SwitchBranch(branch string, create bool) error
 	CurrentBranch() (string, error)
 	Push(src, dst string) error
 	CreatePullRequest(title, src, dst string) error
@@ -152,6 +155,15 @@ func (g *GenericRepository) Commit(file string, message string) (string, error) 
 		return "", err
 	}
 
+	status, err := worktree.Status()
+	if err != nil {
+		return "", err
+	}
+
+	if status.IsClean() {
+		return "", git.ErrEmptyCommit
+	}
+
 	relPath, err := filepath.Rel(
 		worktree.Filesystem.Root(),
 		file,
@@ -187,34 +199,25 @@ func (g *GenericRepository) CreatePullRequest(title string, src string, dst stri
 	return ErrPullRequestNotSupported
 }
 
-func (g *GenericRepository) NewBranch(branch string) error {
+func (g *GenericRepository) SwitchBranch(branch string, create bool) error {
 	worktree, err := g.gitRepository.Worktree()
 	if err != nil {
 		return err
 	}
 
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Create: true,
-		Branch: plumbing.NewBranchReferenceName(branch),
-	})
-	if err != nil {
-		return err
-	}
+	branchRef := plumbing.NewBranchReferenceName(branch)
 
-	return nil
-}
+	if err := worktree.Checkout(&git.CheckoutOptions{
+		Branch: branchRef,
+	}); err != nil {
+		if !create {
+			return err
+		}
 
-func (g *GenericRepository) SwitchBranch(branch string) error {
-	worktree, err := g.gitRepository.Worktree()
-	if err != nil {
-		return err
-	}
-
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.NewBranchReferenceName(branch),
-	})
-	if err != nil {
-		return err
+		return worktree.Checkout(&git.CheckoutOptions{
+			Create: true,
+			Branch: branchRef,
+		})
 	}
 
 	return nil
@@ -345,7 +348,7 @@ func (manager RepositoryManager) Load(
 		}
 	}
 
-	if err := repository.SwitchBranch(branch); err != nil {
+	if err := repository.SwitchBranch(branch, false); err != nil {
 		return nil, err
 	}
 

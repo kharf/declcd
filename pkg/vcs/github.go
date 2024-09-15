@@ -64,6 +64,10 @@ func (g *githubClient) CreatePullRequest(
 
 	_, _, err = g.client.PullRequests.Create(ctx, owner, repo, newPR)
 	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("%w: %s", ErrPRAlreadyExists, err.Error())
+		}
+
 		return err
 	}
 

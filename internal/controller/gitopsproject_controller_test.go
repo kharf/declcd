@@ -148,6 +148,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 					"owner/repo",
 					fmt.Sprintf("declcd-%s", gitOpsProjectName),
 					nil,
+					nil,
 				)
 				defer gitServer.Close()
 
@@ -199,6 +200,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 						test,
 						"owner/repo",
 						fmt.Sprintf("declcd-%s", gitOpsProjectName),
+						nil,
 						nil,
 					)
 					defer gitServer.Close()
@@ -297,6 +299,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				test,
 				"owner/repo",
 				fmt.Sprintf("declcd-%s", "test"),
+				nil,
 				nil,
 			)
 			defer gitServer.Close()

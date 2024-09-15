@@ -194,6 +194,7 @@ func fresh(t *testing.T, testContext testContext) {
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
 		nil,
+		nil,
 	)
 	defer server.Close()
 
@@ -239,6 +240,7 @@ func persistToken(t *testing.T, testContext testContext) {
 		t,
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
+		nil,
 		nil,
 	)
 	defer server.Close()
@@ -300,6 +302,7 @@ func multiTenancy(t *testing.T, testContext testContext) {
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
 		nil,
+		nil,
 	)
 	defer server.Close()
 
@@ -340,6 +343,7 @@ func multiTenancy(t *testing.T, testContext testContext) {
 		t,
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", secondaryProjectName),
+		nil,
 		nil,
 	)
 	defer server.Close()
@@ -382,6 +386,7 @@ func runTwice(t *testing.T, testContext testContext) {
 		t,
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", projectName),
+		nil,
 		nil,
 	)
 	defer server.Close()

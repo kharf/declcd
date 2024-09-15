@@ -38,13 +38,16 @@ import (
 )
 
 type updateTestCase struct {
-	name             string
-	haveFiles        string
-	haveScanResults  []version.ScanResult
-	wantUpdates      []version.Update
-	wantPullRequests []vcs.PullRequestRequest
-	wantFiles        string
-	wantErr          string
+	name                    string
+	haveFiles               string
+	haveScanResults         []version.ScanResult
+	haveBranches            []string
+	haveBranchesWithChanges map[string]string
+	havePullRequests        []vcs.PullRequestRequest
+	wantUpdates             []version.Update
+	wantPullRequests        []vcs.PullRequestRequest
+	wantFiles               string
+	wantErr                 string
 }
 
 var (
@@ -55,6 +58,14 @@ var (
 image: "myimage:1.15.0"
 image2: "myimage:1.16.5"
 version: "1.15.0"
+version2: "1.15.0"
+image3: "myimage3:1.16.5"
+`,
+		wantFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.16.5"
+image2: "myimage:1.16.5"
+version: "1.17.0"
 version2: "1.15.0"
 image3: "myimage3:1.16.5"
 `,
@@ -153,14 +164,149 @@ image3: "myimage3:1.16.5"
 				BaseBranch: "main",
 			},
 		},
+	}
+
+	existingBranch = updateTestCase{
+		name: "Existing-Branch",
+		haveFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.14.0"
+`,
 		wantFiles: `
 -- apps/myapp.cue --
-image: "myimage:1.16.5"
-image2: "myimage:1.16.5"
-version: "1.17.0"
-version2: "1.15.0"
-image3: "myimage3:1.16.5"
+image: "myimage:1.14.0"
 `,
+		haveScanResults: []version.ScanResult{
+			{
+				CurrentVersion: "1.14.0",
+				NewVersion:     "1.15.0",
+				Integration:    version.PR,
+				File:           "apps/myapp.cue",
+				Line:           1,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.14.0",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.14.0",
+					},
+					UnstructuredKey: "image",
+				},
+			},
+		},
+		haveBranches: []string{"declcd/update-myimage"},
+		wantPullRequests: []vcs.PullRequestRequest{
+			{
+				RepoID:     vcs.DefaultRepoID,
+				Title:      "chore(update): bump myimage to 1.15.0",
+				Branch:     "declcd/update-myimage",
+				BaseBranch: "main",
+			},
+		},
+	}
+
+	existingBranchWithChanges = updateTestCase{
+		name: "Existing-Branch-With-Changes",
+		haveFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.14.0"
+`,
+		wantFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.14.0"
+`,
+		haveBranchesWithChanges: map[string]string{
+			"declcd/update-myimage": `
+-- apps/myapp.cue --
+image: "myimage:1.15.0"
+`,
+		},
+		haveScanResults: []version.ScanResult{
+			{
+				CurrentVersion: "1.14.0",
+				NewVersion:     "1.15.0",
+				Integration:    version.PR,
+				File:           "apps/myapp.cue",
+				Line:           1,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.14.0",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.14.0",
+					},
+					UnstructuredKey: "image",
+				},
+			},
+		},
+		wantPullRequests: []vcs.PullRequestRequest{
+			{
+				RepoID:     vcs.DefaultRepoID,
+				Title:      "chore(update): bump myimage to 1.15.0",
+				Branch:     "declcd/update-myimage",
+				BaseBranch: "main",
+			},
+		},
+	}
+
+	existingPullRequest = updateTestCase{
+		name: "Existing-PullRequest",
+		haveFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.14.0"
+image: "myimage:1.14.0"
+`,
+		wantFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.14.0"
+image: "myimage:1.15.0"
+`,
+		havePullRequests: []vcs.PullRequestRequest{
+			{
+				Branch:     "declcd/update-myimage",
+				BaseBranch: "main",
+			},
+		},
+		wantPullRequests: []vcs.PullRequestRequest{
+			{
+				RepoID:     vcs.DefaultRepoID,
+				Title:      "chore(update): bump myimage to 1.15.0",
+				Branch:     "declcd/update-myimage",
+				BaseBranch: "main",
+			},
+		},
+		haveScanResults: []version.ScanResult{
+			{
+				CurrentVersion: "1.14.0",
+				NewVersion:     "1.15.0",
+				Integration:    version.PR,
+				File:           "apps/myapp.cue",
+				Line:           1,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.14.0",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.14.0",
+					},
+					UnstructuredKey: "image",
+				},
+			},
+			{
+				CurrentVersion: "1.14.0",
+				NewVersion:     "1.15.0",
+				Integration:    version.Direct,
+				File:           "apps/myapp.cue",
+				Line:           2,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.14.0",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.14.0",
+					},
+					UnstructuredKey: "image",
+				},
+			},
+		},
+		wantUpdates: []version.Update{
+			{
+				CommitHash: "",
+				NewVersion: "1.15.0",
+			},
+		},
 	}
 )
 
@@ -169,6 +315,9 @@ func TestUpdater_Update(t *testing.T) {
 
 	testCases := []updateTestCase{
 		updates,
+		existingBranch,
+		existingBranchWithChanges,
+		existingPullRequest,
 	}
 
 	for _, tc := range testCases {
@@ -189,17 +338,35 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 		vcs.DefaultRepoID,
 		fmt.Sprintf("declcd-%s", `dev`),
 		tc.wantPullRequests,
+		tc.havePullRequests,
 	)
 	defer server.Close()
 
 	remoteDir := t.TempDir()
-	_, err = gittest.InitGitRepository(t, remoteDir, projectDir, "main")
+	gitRepo, err := gittest.InitGitRepository(t, remoteDir, projectDir, "main")
 	assert.NilError(t, err)
 
 	vcsRepository, err := vcs.Open(projectDir, vcs.WithAuth(vcs.Auth{
 		Method: nil,
 		Token:  "",
 	}), vcs.WithProvider(vcs.GitHub), vcs.WithHTTPClient(client))
+	assert.NilError(t, err)
+
+	for _, branch := range tc.haveBranches {
+		err = vcsRepository.SwitchBranch(branch, true)
+		assert.NilError(t, err)
+	}
+
+	for branch, files := range tc.haveBranchesWithChanges {
+		err = vcsRepository.SwitchBranch(branch, true)
+		assert.NilError(t, err)
+		_, err := inttxtar.Create(projectDir, bytes.NewReader([]byte(files)))
+		assert.NilError(t, err)
+		_, err = gitRepo.CommitFile(".", "update")
+		assert.NilError(t, err)
+	}
+
+	err = vcsRepository.SwitchBranch("main", false)
 	assert.NilError(t, err)
 
 	updater := &version.Updater{
@@ -284,11 +451,14 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	assert.NilError(t, err)
 
 	// check if prs are pushed to remote
-	assert.Assert(t, slices.ContainsFunc(remoteRefs, func(ref *plumbing.Reference) bool {
-		return slices.ContainsFunc(tc.wantPullRequests, func(pr vcs.PullRequestRequest) bool {
-			return pr.Branch == ref.Name().Short()
-		}) && ref.Name().IsBranch()
-	}))
+	for _, pr := range tc.wantPullRequests {
+		assert.Assert(
+			t,
+			slices.ContainsFunc(remoteRefs, func(ref *plumbing.Reference) bool {
+				return pr.Branch == ref.Name().Short() && ref.Name().IsBranch()
+			}),
+		)
+	}
 }
 
 func patchFile(result version.ScanResult, dir string) version.ScanResult {

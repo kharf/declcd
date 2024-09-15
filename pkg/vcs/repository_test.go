@@ -76,7 +76,7 @@ func TestRepositoryManager_Load(t *testing.T) {
 				assert.NilError(t, err)
 				assert.Equal(t, currentBranch, "main")
 
-				err = repository.NewBranch("dev")
+				err = repository.SwitchBranch("dev", true)
 				assert.NilError(t, err)
 
 				currentBranch, err = repository.CurrentBranch()
@@ -313,6 +313,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 					t,
 					"owner/repo",
 					fmt.Sprintf("declcd-%s", projectName),
+					nil,
 					nil,
 				)
 				defer server.Close()

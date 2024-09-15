@@ -30,6 +30,7 @@ func TestGithubClient_CreateDeployKey(t *testing.T) {
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", `dev`),
 		nil,
+		nil,
 	)
 	defer server.Close()
 	githubClient := vcs.NewGithubClient(client, "abcd")
@@ -51,6 +52,7 @@ func TestGithubClient_CreatePullRequest(t *testing.T) {
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", `dev`),
 		[]vcs.PullRequestRequest{req},
+		nil,
 	)
 	defer server.Close()
 	githubClient := vcs.NewGithubClient(client, "abcd")
@@ -64,6 +66,7 @@ func TestGitlabClient_CreateDeployKey(t *testing.T) {
 		t,
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", `dev`),
+		nil,
 		nil,
 	)
 	defer server.Close()
@@ -87,6 +90,7 @@ func TestGitlabClient_CreatePullRequest(t *testing.T) {
 		"owner/repo",
 		fmt.Sprintf("declcd-%s", `dev`),
 		[]vcs.PullRequestRequest{req},
+		nil,
 	)
 	defer server.Close()
 	gitlabClient, err := vcs.NewGitlabClient(client, "abcd")

@@ -193,6 +193,7 @@ func MockGitProvider(
 	repoID string,
 	expectedDeployKeyTitle string,
 	expectedPrRequests []vcs.PullRequestRequest,
+	havePRs []vcs.PullRequestRequest,
 ) (*httptest.Server, *http.Client) {
 	mux := http.NewServeMux()
 
@@ -204,6 +205,7 @@ func MockGitProvider(
 			if err != nil {
 				w.WriteHeader(500)
 				w.Write([]byte(err.Error()))
+				return
 			}
 
 			authHeader := r.Header["Authorization"]
@@ -238,6 +240,7 @@ func MockGitProvider(
 			if err != nil {
 				w.WriteHeader(500)
 				w.Write([]byte(err.Error()))
+				return
 			}
 
 			var req github.NewPullRequest
@@ -254,6 +257,14 @@ func MockGitProvider(
 				fmt.Sprintf("got [base=%s, branch=%s, title=%s]", *req.Base, *req.Head, *req.Title),
 			)
 
+			if slices.ContainsFunc(havePRs, func(pr vcs.PullRequestRequest) bool {
+				return pr.Branch == *req.Head && pr.BaseBranch == *req.Base
+			}) {
+				w.WriteHeader(401)
+				w.Write([]byte("already exists"))
+				return
+			}
+
 			w.Write([]byte(`{}`))
 		},
 	)
@@ -266,6 +277,7 @@ func MockGitProvider(
 			if err != nil {
 				w.WriteHeader(500)
 				w.Write([]byte(err.Error()))
+				return
 			}
 
 			authHeader := r.Header["Private-Token"]
@@ -298,6 +310,7 @@ func MockGitProvider(
 			if err != nil {
 				w.WriteHeader(500)
 				w.Write([]byte(err.Error()))
+				return
 			}
 
 			var req gitlab.MergeRequest
@@ -318,6 +331,14 @@ func MockGitProvider(
 					req.Title,
 				),
 			)
+
+			if slices.ContainsFunc(havePRs, func(pr vcs.PullRequestRequest) bool {
+				return pr.Branch == req.SourceBranch && pr.BaseBranch == req.TargetBranch
+			}) {
+				w.WriteHeader(401)
+				w.Write([]byte("already exists"))
+				return
+			}
 
 			w.Write([]byte(`{}`))
 		},
