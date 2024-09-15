@@ -209,6 +209,7 @@ func (g *GenericRepository) SwitchBranch(branch string, create bool) error {
 
 	if err := worktree.Checkout(&git.CheckoutOptions{
 		Branch: branchRef,
+		Force:  true,
 	}); err != nil {
 		if !create {
 			return err
