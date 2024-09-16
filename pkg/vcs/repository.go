@@ -230,14 +230,23 @@ func (g *GenericRepository) Pull() (string, error) {
 		return "", err
 	}
 
+	head, err := g.gitRepository.Head()
+	if err != nil {
+		return "", err
+	}
+
 	err = worktree.Pull(&git.PullOptions{
 		Auth: g.auth.Method,
+		// for whatever reason, this has to be specified at least with github, even though the docs say HEAD is used when not specified,
+		// or the first run will result into "non-fast-forward update" and after that "already up-to-date".
+		// not reproducible in tests
+		ReferenceName: head.Name(),
 	})
 	if err != nil && err != git.NoErrAlreadyUpToDate {
 		return "", err
 	}
 
-	head, err := g.gitRepository.Head()
+	head, err = g.gitRepository.Head()
 	if err != nil {
 		return "", err
 	}
