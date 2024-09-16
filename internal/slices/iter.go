@@ -15,16 +15,11 @@
 package slices
 
 type Iter[T any] struct {
-	currIdx int
-	Slice   []T
+	Slice []T
 }
 
-func (iter *Iter[T]) HasNext() bool {
-	return iter.currIdx < len(iter.Slice)
-}
-
-func (iter *Iter[T]) Next() T {
-	value := iter.Slice[iter.currIdx]
-	iter.currIdx++
-	return value
+func (iter *Iter[T]) ForEach(do func(item T, idx int)) {
+	for idx, item := range iter.Slice {
+		do(item, idx)
+	}
 }

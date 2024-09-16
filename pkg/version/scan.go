@@ -52,9 +52,9 @@ type Scanner struct {
 	GCPMetadataServerURL string
 }
 
-// ScanResult represents the result of a version scanning operation.
-// It holds details about the current and new versions, as well as the file and line at which these versions were found and the desired update integration method.
-type ScanResult struct {
+// AvailableUpdate represents the result of a positive version scanning operation.
+// It holds details about the current and new version, as well as the file and line at which these versions were found and the desired update integration method.
+type AvailableUpdate struct {
 	// The current version that is being scanned for updates.
 	CurrentVersion string
 	// The new version that has been found.
@@ -68,24 +68,27 @@ type ScanResult struct {
 	// Line number within the file where the versions were found.
 	Line   int
 	Target UpdateTarget
+
+	// URL to find more information on the update/package.
+	URL string
 }
 
 func (scanner *Scanner) Scan(
 	ctx context.Context,
 	updateInstructions []UpdateInstruction,
-) ([]ScanResult, error) {
-	var results []ScanResult
+) ([]AvailableUpdate, error) {
+	var availableUpdates []AvailableUpdate
 	for _, updateInstr := range updateInstructions {
 		strategy := getStrategy(updateInstr.Strategy, updateInstr.Constraint)
 
-		versionIter, currentVersion, err := scanner.listVersions(ctx, updateInstr)
+		scanResult, err := scanner.scanTarget(ctx, updateInstr.Target, updateInstr.Auth)
 		if err != nil {
 			return nil, err
 		}
 
-		newVersion, hasNewVersion, err := strategy.HasNewerRemoteVersion(
-			currentVersion,
-			versionIter,
+		newVersion, hasNewVersion, idx, err := strategy.HasNewerRemoteVersion(
+			scanResult.currentVersion,
+			scanResult.pkg.versions,
 		)
 		if err != nil {
 			return nil, err
@@ -94,8 +97,14 @@ func (scanner *Scanner) Scan(
 			continue
 		}
 
-		results = append(results, ScanResult{
-			CurrentVersion: currentVersion,
+		url, err := scanResult.pkg.url(idx)
+		if err != nil {
+			scanner.Log.Error(err, "Unable to get update url for target")
+		}
+
+		availableUpdates = append(availableUpdates, AvailableUpdate{
+			URL:            url,
+			CurrentVersion: scanResult.currentVersion,
 			NewVersion:     newVersion,
 			Integration:    updateInstr.Integration,
 			File:           updateInstr.File,
@@ -104,47 +113,60 @@ func (scanner *Scanner) Scan(
 		})
 	}
 
-	return results, nil
+	return availableUpdates, nil
 }
 
-func (scanner *Scanner) listVersions(
+type pkg struct {
+	versions VersionIter[string]
+	url      func(versionsIdx int) (string, error)
+}
+
+func (scanner *Scanner) scanTarget(
 	ctx context.Context,
-	updateInstr UpdateInstruction,
-) (VersionIter, string, error) {
-	var versionIter VersionIter
+	target UpdateTarget,
+	auth *cloud.Auth,
+) (*scanResult, error) {
 	var currentVersion string
 	var err error
+	var pkg *pkg
 
-	switch target := updateInstr.Target.(type) {
-
+	switch target := target.(type) {
 	case *ContainerUpdateTarget:
 		var repo string
 		repo, currentVersion, _, err = parsers.ParseImageName(target.Image)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		idx := strings.LastIndex(repo, "/")
 		host := repo[:idx]
 
-		versionIter, err = scanner.listContainerVersions(
+		pkg, err = scanner.scanContainer(
 			ctx,
 			host,
 			repo,
-			updateInstr.Auth,
+			auth,
 		)
 
 	case *ChartUpdateTarget:
 		currentVersion = target.Chart.Version
-		versionIter, err = scanner.listHelmChartVersions(ctx, target)
+		pkg, err = scanner.scanHelmChart(ctx, target)
 	}
 
-	return versionIter, currentVersion, err
+	if err != nil {
+		return nil, err
+	}
+
+	return &scanResult{
+		currentVersion: currentVersion,
+		pkg:            *pkg,
+		url:            pkg.url,
+	}, nil
 }
 
-func (scanner *Scanner) listHelmChartVersions(
+func (scanner *Scanner) scanHelmChart(
 	ctx context.Context,
 	target *ChartUpdateTarget,
-) (VersionIter, error) {
+) (*pkg, error) {
 	if registry.IsOCI(target.Chart.RepoURL) {
 		host, _ := strings.CutPrefix(target.Chart.RepoURL, "oci://")
 		repo := fmt.Sprintf(
@@ -153,7 +175,7 @@ func (scanner *Scanner) listHelmChartVersions(
 			target.Chart.Name,
 		)
 
-		return scanner.listContainerVersions(
+		return scanner.scanContainer(
 			ctx,
 			host,
 			repo,
@@ -161,7 +183,7 @@ func (scanner *Scanner) listHelmChartVersions(
 		)
 	}
 
-	return scanner.listHTTPHelmChartVersions(
+	return scanner.scanHTTPHelmChart(
 		ctx,
 		target.Chart.RepoURL,
 		target.Chart.Name,
@@ -169,12 +191,12 @@ func (scanner *Scanner) listHelmChartVersions(
 	)
 }
 
-func (scanner *Scanner) listContainerVersions(
+func (scanner *Scanner) scanContainer(
 	ctx context.Context,
 	host string,
 	repoName string,
 	auth *cloud.Auth,
-) (VersionIter, error) {
+) (*pkg, error) {
 	repository, err := name.NewRepository(repoName)
 	if err != nil {
 		return nil, err
@@ -204,15 +226,35 @@ func (scanner *Scanner) listContainerVersions(
 	if err != nil {
 		return nil, err
 	}
-	return &slices.Iter[string]{Slice: remoteVersions}, nil
+
+	return &pkg{
+		versions: &slices.Iter[string]{Slice: remoteVersions},
+		url: func(versionsIdx int) (string, error) {
+			version := remoteVersions[versionsIdx]
+
+			tag := repository.Tag(version)
+			image, err := remote.Image(tag, authOptions...)
+			if err != nil {
+				return "", err
+			}
+
+			manifest, err := image.Manifest()
+			if err != nil {
+				return "", err
+			}
+
+			source := manifest.Annotations["org.opencontainers.image.url"]
+			return source, nil
+		},
+	}, nil
 }
 
-func (scanner *Scanner) listHTTPHelmChartVersions(
+func (scanner *Scanner) scanHTTPHelmChart(
 	ctx context.Context,
 	repoURL string,
 	name string,
 	auth *cloud.Auth,
-) (VersionIter, error) {
+) (*pkg, error) {
 	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/index.yaml", repoURL), nil)
 	if err != nil {
 		return nil, err
@@ -261,13 +303,24 @@ func (scanner *Scanner) listHTTPHelmChartVersions(
 		return nil, fmt.Errorf("%w: %s", ErrChartNotFound, name)
 	}
 
-	return &helm.ChartVersionIter{Versions: chartVersions}, nil
+	return &pkg{
+		versions: &helm.ChartVersionIter{Versions: chartVersions},
+		url: func(versionsIdx int) (string, error) {
+			version := chartVersions[versionsIdx]
+			return version.Home, nil
+		},
+	}, nil
 }
 
-type VersionIter interface {
-	HasNext() bool
-	Next() string
+type scanResult struct {
+	currentVersion string
+	pkg            pkg
+	url            func(versionsIdx int) (string, error)
 }
 
-var _ VersionIter = (*slices.Iter[string])(nil)
-var _ VersionIter = (*helm.ChartVersionIter)(nil)
+type VersionIter[T any] interface {
+	ForEach(do func(item T, idx int))
+}
+
+var _ VersionIter[string] = (*slices.Iter[string])(nil)
+var _ VersionIter[string] = (*helm.ChartVersionIter)(nil)

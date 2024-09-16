@@ -27,6 +27,7 @@ import (
 	"strings"
 	"testing"
 
+	"cuelabs.dev/go/oci/ociregistry"
 	"github.com/go-git/go-git/v5"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/cloudtest"
@@ -42,6 +43,7 @@ import (
 	"github.com/kharf/declcd/pkg/inventory"
 	"github.com/kharf/declcd/pkg/kube"
 	"github.com/kharf/declcd/pkg/project"
+	"github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -359,11 +361,24 @@ func TestReconciler_Reconcile(t *testing.T) {
 		},
 	)
 	for _, container := range broadTemplate.Containers() {
+		manifest := ociregistry.Manifest{
+			MediaType: "application/vnd.oci.image.manifest.v1+json",
+			Annotations: map[string]string{
+				"org.opencontainers.image.url": "test",
+			},
+			Config: ociregistry.Descriptor{
+				Digest: digest.FromString(""),
+			},
+		}
+
+		bytes, err := json.Marshal(&manifest)
+		assert.NilError(t, err)
+
 		desc, err := tlsRegistry.PushManifest(
 			ctx,
 			container,
 			"1.15.3",
-			[]byte{},
+			bytes,
 			"application/vnd.docker.distribution.manifest.v2+json",
 		)
 		assert.NilError(t, err)

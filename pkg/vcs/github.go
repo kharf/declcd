@@ -28,14 +28,15 @@ type GithubRepository struct {
 	client githubClient
 }
 
-func (g *GithubRepository) CreatePullRequest(title, branch, targetBranch string) error {
+func (g *GithubRepository) CreatePullRequest(title, desc, branch, targetBranch string) error {
 	return g.client.CreatePullRequest(
 		context.Background(),
 		PullRequestRequest{
-			RepoID:     g.RepoID(),
-			Title:      title,
-			Branch:     branch,
-			BaseBranch: targetBranch,
+			RepoID:      g.RepoID(),
+			Title:       title,
+			Description: desc,
+			Branch:      branch,
+			BaseBranch:  targetBranch,
 		},
 	)
 }
@@ -52,6 +53,7 @@ func (g *githubClient) CreatePullRequest(
 ) error {
 	newPR := &github.NewPullRequest{
 		Title:               &req.Title,
+		Body:                &req.Description,
 		Head:                &req.Branch,
 		Base:                &req.BaseBranch,
 		MaintainerCanModify: github.Bool(true),

@@ -29,8 +29,8 @@ const (
 type Strategy interface {
 	HasNewerRemoteVersion(
 		currentVersion string,
-		remoteVersions VersionIter,
-	) (string, bool, error)
+		remoteVersions VersionIter[string],
+	) (string, bool, int, error)
 }
 
 func getStrategy(strategy UpdateStrategy, constraint string) Strategy {
@@ -51,45 +51,48 @@ type SemVerStrategy struct {
 
 func (strat *SemVerStrategy) HasNewerRemoteVersion(
 	currentVersion string,
-	remoteVersions VersionIter,
-) (string, bool, error) {
+	remoteVersions VersionIter[string],
+) (string, bool, int, error) {
 	semverConstraint, err := semver.NewConstraint(strat.constraint)
 	if err != nil {
-		return "", false, err
+		return "", false, 0, err
 	}
 
 	var latestRemoteSemverVersion *semver.Version
-	for remoteVersions.HasNext() {
-		version := remoteVersions.Next()
+	var latestRemoteVersionIdx int
+
+	remoteVersions.ForEach(func(version string, idx int) {
 		remoteVersion, err := semver.NewVersion(version)
 		if err != nil || !semverConstraint.Check(remoteVersion) {
-			continue
+			return
 		}
 
 		if latestRemoteSemverVersion == nil {
 			latestRemoteSemverVersion = remoteVersion
-			continue
+			latestRemoteVersionIdx = idx
+			return
 		}
 
 		if remoteVersion.GreaterThan(latestRemoteSemverVersion) {
 			latestRemoteSemverVersion = remoteVersion
+			latestRemoteVersionIdx = idx
 		}
-	}
+	})
 
 	if latestRemoteSemverVersion == nil {
-		return "", false, nil
+		return "", false, 0, err
 	}
 
 	currentSemverVersion, err := semver.NewVersion(currentVersion)
 	if err != nil {
-		return "", false, err
+		return "", false, 0, err
 	}
 
 	if latestRemoteSemverVersion.GreaterThan(currentSemverVersion) {
-		return latestRemoteSemverVersion.Original(), true, nil
+		return latestRemoteSemverVersion.Original(), true, latestRemoteVersionIdx, nil
 	}
 
-	return latestRemoteSemverVersion.Original(), false, nil
+	return latestRemoteSemverVersion.Original(), false, latestRemoteVersionIdx, nil
 }
 
 var _ Strategy = (*SemVerStrategy)(nil)

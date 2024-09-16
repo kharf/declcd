@@ -42,10 +42,11 @@ func TestGithubClient_CreateDeployKey(t *testing.T) {
 
 func TestGithubClient_CreatePullRequest(t *testing.T) {
 	req := vcs.PullRequestRequest{
-		RepoID:     "owner/repo",
-		Title:      "update",
-		Branch:     "new-update",
-		BaseBranch: "main",
+		RepoID:      "owner/repo",
+		Title:       "update",
+		Description: "test",
+		Branch:      "new-update",
+		BaseBranch:  "main",
 	}
 	server, client := gittest.MockGitProvider(
 		t,
@@ -80,10 +81,11 @@ func TestGitlabClient_CreateDeployKey(t *testing.T) {
 
 func TestGitlabClient_CreatePullRequest(t *testing.T) {
 	req := vcs.PullRequestRequest{
-		RepoID:     "owner/repo",
-		Title:      "update",
-		Branch:     "new-update",
-		BaseBranch: "main",
+		RepoID:      "owner/repo",
+		Title:       "update",
+		Description: "test",
+		Branch:      "new-update",
+		BaseBranch:  "main",
 	}
 	server, client := gittest.MockGitProvider(
 		t,

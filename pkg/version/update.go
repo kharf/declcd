@@ -154,52 +154,52 @@ type Updater struct {
 	Repository vcs.Repository
 }
 
-// Update accepts version scan results that tell which images or chart to update and returns update results.
+// Update accepts available updates that tell which images or chart to update and returns update results.
 func (updater *Updater) Update(
 	ctx context.Context,
-	scanResults []ScanResult,
+	availableUpdates []AvailableUpdate,
 	branch string,
 ) (*Updates, error) {
 	var directUpdates []Update
-	for _, result := range scanResults {
-		if result.CurrentVersion == result.NewVersion {
+	for _, availableUpdate := range availableUpdates {
+		if availableUpdate.CurrentVersion == availableUpdate.NewVersion {
 			continue
 		}
 
-		targetName := result.Target.Name()
+		targetName := availableUpdate.Target.Name()
 
 		commitMessage := fmt.Sprintf(
 			"chore(update): bump %s to %s",
 			targetName,
-			result.NewVersion,
+			availableUpdate.NewVersion,
 		)
 
 		log := updater.Log.WithValues(
 			"target",
 			targetName,
 			"newVersion",
-			result.NewVersion,
+			availableUpdate.NewVersion,
 			"file",
-			result.File,
+			availableUpdate.File,
 		)
 
-		switch result.Integration {
+		switch availableUpdate.Integration {
 		case PR:
-			log.Info(
+			log.V(1).Info(
 				"Creating Update-PullRequest",
 			)
 
-			if err := updater.createPR(targetName, commitMessage, result, branch); err != nil &&
+			if err := updater.createPR(targetName, commitMessage, availableUpdate, branch); err != nil &&
 				!errors.Is(err, vcs.ErrPRAlreadyExists) {
 				log.Error(err, "Error creating Update-PullRequest")
 			}
 
 		case Direct:
-			log.Info(
+			log.V(1).Info(
 				"Updating",
 			)
 
-			update, err := updater.update(commitMessage, result)
+			update, err := updater.update(commitMessage, availableUpdate)
 			if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
 				log.Error(err, "Error updating")
 			}
@@ -229,7 +229,7 @@ func (updater *Updater) Update(
 func (updater *Updater) createPR(
 	targetName string,
 	commitMessage string,
-	result ScanResult,
+	availableUpdate AvailableUpdate,
 	branch string,
 ) error {
 	src := fmt.Sprintf("declcd/update-%s", targetName)
@@ -237,7 +237,7 @@ func (updater *Updater) createPR(
 		return err
 	}
 
-	_, err := updater.update(commitMessage, result)
+	_, err := updater.update(commitMessage, availableUpdate)
 	if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
 		return err
 	}
@@ -247,19 +247,22 @@ func (updater *Updater) createPR(
 		return err
 	}
 
-	if err := updater.Repository.CreatePullRequest(commitMessage, src, branch); err != nil {
+	if err := updater.Repository.CreatePullRequest(commitMessage, availableUpdate.URL, src, branch); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (updater *Updater) update(commitMessage string, result ScanResult) (*Update, error) {
-	if err := updater.updateVersion(result); err != nil {
+func (updater *Updater) update(
+	commitMessage string,
+	availableUpdate AvailableUpdate,
+) (*Update, error) {
+	if err := updater.updateVersion(availableUpdate); err != nil {
 		return nil, err
 	}
 
-	hash, err := updater.Repository.Commit(result.File,
+	hash, err := updater.Repository.Commit(availableUpdate.File,
 		commitMessage,
 	)
 	if err != nil {
@@ -268,14 +271,14 @@ func (updater *Updater) update(commitMessage string, result ScanResult) (*Update
 
 	return &Update{
 		CommitHash: hash,
-		NewVersion: result.NewVersion,
+		NewVersion: availableUpdate.NewVersion,
 	}, nil
 }
 
 func (updater *Updater) updateVersion(
-	result ScanResult,
+	availableUpdate AvailableUpdate,
 ) error {
-	file, err := os.Open(result.File)
+	file, err := os.Open(availableUpdate.File)
 	if err != nil {
 		return err
 	}
@@ -295,21 +298,21 @@ func (updater *Updater) updateVersion(
 	currLineNumber := 1
 	for scanner.Scan() {
 		var currLine string
-		if currLineNumber == result.Line {
+		if currLineNumber == availableUpdate.Line {
 			newValue := strings.Replace(
-				result.Target.GetStructValue(),
-				result.CurrentVersion,
-				result.NewVersion,
+				availableUpdate.Target.GetStructValue(),
+				availableUpdate.CurrentVersion,
+				availableUpdate.NewVersion,
 				1,
 			)
 			currLine = strings.Replace(
 				scanner.Text(),
-				result.Target.GetStructValue(),
+				availableUpdate.Target.GetStructValue(),
 				newValue,
 				1,
 			)
-			if result.Integration == Direct {
-				result.Target.SetStructValue(newValue)
+			if availableUpdate.Integration == Direct {
+				availableUpdate.Target.SetStructValue(newValue)
 			}
 		} else {
 			currLine = scanner.Text()
@@ -334,7 +337,7 @@ func (updater *Updater) updateVersion(
 		return err
 	}
 
-	if err := overwriteFile(newFile.Name(), result.File); err != nil {
+	if err := overwriteFile(newFile.Name(), availableUpdate.File); err != nil {
 		return err
 	}
 
