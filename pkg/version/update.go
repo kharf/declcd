@@ -35,10 +35,10 @@ import (
 type UpdateIntegration int
 
 const (
-	// Direct indicates to push updates directly to the base branch and reconcile them in the same run.
-	Direct UpdateIntegration = iota
 	// PR indicates to push updates to a separate update branch and create a pull request. Updates are not applied immediately, only after the PR has been merged and the changes were pulled.
-	PR
+	PR UpdateIntegration = iota
+	// Direct indicates to push updates directly to the base branch and reconcile them in the same run.
+	Direct
 )
 
 var (
@@ -308,7 +308,9 @@ func (updater *Updater) updateVersion(
 				newValue,
 				1,
 			)
-			result.Target.SetStructValue(newValue)
+			if result.Integration == Direct {
+				result.Target.SetStructValue(newValue)
+			}
 		} else {
 			currLine = scanner.Text()
 		}

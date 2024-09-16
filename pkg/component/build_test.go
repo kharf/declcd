@@ -108,7 +108,7 @@ _deployment: {
 				containers: [
 					{
 						name:  "prometheus"
-						image: "prometheus:1.14.2" @update(strategy=semver, constraint="<= 1.15.3, >= 1.4", secret=promreg)
+						image: "prometheus:1.14.2" @update(strategy=semver, constraint="<= 1.15.3, >= 1.4", secret=promreg, integration=direct)
 						ports: [{
 							containerPort: 80
 						}]
@@ -190,7 +190,7 @@ release: component.#HelmRelease & {
 	name:      "test"
 	namespace: #namespace.metadata.name
 
-	chart: _chart @update(strategy=semver, constraint="<5.0.0", integration=pr)
+	chart: _chart @update(strategy=semver, constraint="<5.0.0")
 
 	patches: [
 		#deployment & {
@@ -221,7 +221,7 @@ release: component.#HelmRelease & {
 							},
 							{
 								name:  "sidecar"
-								image: "sidecar:1.14.2" @update(strategy=semver, secret=sidecarreg) @ignore(conflict) // attributes in lists are not supported
+								image: "sidecar:1.14.2" @update(strategy=semver, secret=sidecarreg, integration=direct) @ignore(conflict) // attributes in lists are not supported
 								ports: [{
 									containerPort: 80
 								}]
@@ -266,7 +266,7 @@ releaseWorkloadIdentity: component.#HelmRelease & {
 		repoURL: "oci://test"
 		version: "test"
 		auth:    workloadidentity.#GCP
-	} @update(constraint="*")
+	} @update(constraint="*", integration=direct)
 	values: {
 		autoscaling: enabled: true
 	}

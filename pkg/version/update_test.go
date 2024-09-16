@@ -73,6 +73,7 @@ image3: "myimage3:1.16.5"
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
+				Integration:    version.Direct,
 				File:           "apps/myapp.cue",
 				Line:           1,
 				Target: &version.ContainerUpdateTarget{
@@ -86,6 +87,7 @@ image3: "myimage3:1.16.5"
 			{
 				CurrentVersion: "1.16.5",
 				NewVersion:     "1.16.5",
+				Integration:    version.Direct,
 				File:           "apps/myapp.cue",
 				Line:           2,
 				Target: &version.ContainerUpdateTarget{
@@ -99,6 +101,7 @@ image3: "myimage3:1.16.5"
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.17.0",
+				Integration:    version.Direct,
 				File:           "apps/myapp.cue",
 				Line:           3,
 				Target: &version.ChartUpdateTarget{
@@ -413,9 +416,17 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 		switch target := result.Target.(type) {
 		case *version.ContainerUpdateTarget:
 			split := strings.Split(target.Image, ":")
-			assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], result.NewVersion))
+			if result.Integration == version.PR {
+				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], result.CurrentVersion))
+			} else {
+				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], result.NewVersion))
+			}
 		case *version.ChartUpdateTarget:
-			assert.Equal(t, target.GetStructValue(), result.NewVersion)
+			if result.Integration == version.PR {
+				assert.Equal(t, target.GetStructValue(), result.CurrentVersion)
+			} else {
+				assert.Equal(t, target.GetStructValue(), result.NewVersion)
+			}
 		}
 
 		haveFile, err := os.Open(result.File)

@@ -675,9 +675,13 @@ func decodeUpdateAttribute(
 		strat = version.SemVer
 	}
 
-	integration := version.Direct
+	var integration version.UpdateIntegration
 	switch integrationDef {
+	case "direct":
+		integration = version.Direct
 	case "pr":
+		integration = version.PR
+	default:
 		integration = version.PR
 	}
 

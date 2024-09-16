@@ -149,7 +149,7 @@ release: component.#HelmRelease & {
 		name:    "test"
 		repoURL: "{{.HelmRepoURL}}"
 		version: "1.0.0"
-	} @update(constraint="<=2.0.0")
+	} @update(constraint="<=2.0.0", integration=direct)
 
 	crds: {
 		allowUpgrade: true
@@ -174,7 +174,7 @@ release: component.#HelmRelease & {
 						containers: [
 							{
 								name:  "toolb"
-								image: "{{.ContainerRegistry}}/toolb:1.14.2" @update(constraint="*")
+								image: "{{.ContainerRegistry}}/toolb:1.14.2" @update(constraint="*", integration=direct)
 								ports: [{
 									containerPort: 80
 								}]
@@ -262,7 +262,7 @@ _deployment: {
 				containers: [
 					{
 						name:  "containerone"
-						image: "{{.ContainerRegistry}}/containerone:1.14.2" @update(strategy=semver, constraint="1.2.x")
+						image: "{{.ContainerRegistry}}/containerone:1.14.2" @update(strategy=semver, constraint="1.2.x", integration=direct)
 						ports: [{
 							name:          "http"
 							containerPort: 80
@@ -270,7 +270,7 @@ _deployment: {
 					},
 					{
 						name:  "containertwo"
-						image: "{{.ContainerRegistry}}/containertwo:1.14.2" @update(strategy=semver, constraint="<=1.16")
+						image: "{{.ContainerRegistry}}/containertwo:1.14.2" @update(strategy=semver, constraint="<=1.16", integration=direct)
 						ports: [{
 							name:          "http"
 							containerPort: 80
@@ -915,7 +915,7 @@ deployment: component.#Manifest & {
 					containers: [
 						{
 							name:  "subcomponent"
-							image: "{{.ContainerRegistry}}/subcomponent:1.14.2" @update(constraint="*", wi=aws)
+							image: "{{.ContainerRegistry}}/subcomponent:1.14.2" @update(constraint="*", wi=aws, integration=direct)
 							ports: [{
 								name:          "http"
 								containerPort: 80
@@ -939,7 +939,7 @@ release: component.#HelmRelease & {
 		repoURL: "{{.HelmRepoURL}}"
 		version: "1.0.0"
 		auth:    workloadidentity.#AWS
-	} @update(constraint="*")
+	} @update(constraint="*", integration=direct)
 
 	crds: {
 		allowUpgrade: true
