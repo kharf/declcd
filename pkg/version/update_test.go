@@ -40,7 +40,7 @@ import (
 type updateTestCase struct {
 	name                    string
 	haveFiles               string
-	haveScanResults         []version.ScanResult
+	haveAvailableUpdates    []version.AvailableUpdate
 	haveBranches            []string
 	haveBranchesWithChanges map[string]string
 	havePullRequests        []vcs.PullRequestRequest
@@ -69,7 +69,7 @@ version: "1.17.0"
 version2: "1.15.0"
 image3: "myimage3:1.16.5"
 `,
-		haveScanResults: []version.ScanResult{
+		haveAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -112,6 +112,7 @@ image3: "myimage3:1.16.5"
 						Auth:    nil,
 					},
 				},
+				URL: "https://test",
 			},
 			{
 				CurrentVersion: "1.15.0",
@@ -127,6 +128,7 @@ image3: "myimage3:1.16.5"
 						Auth:    nil,
 					},
 				},
+				URL: "https://test",
 			},
 			{
 				CurrentVersion: "1.16.5",
@@ -141,6 +143,7 @@ image3: "myimage3:1.16.5"
 					},
 					UnstructuredKey: "image",
 				},
+				URL: "https://test",
 			},
 		},
 		wantUpdates: []version.Update{
@@ -155,16 +158,18 @@ image3: "myimage3:1.16.5"
 		},
 		wantPullRequests: []vcs.PullRequestRequest{
 			{
-				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump mychart2 to 1.17.0",
-				Branch:     "declcd/update-mychart2",
-				BaseBranch: "main",
+				RepoID:      vcs.DefaultRepoID,
+				Title:       "chore(update): bump mychart2 to 1.17.0",
+				Description: "https://test",
+				Branch:      "declcd/update-mychart2",
+				BaseBranch:  "main",
 			},
 			{
-				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump myimage3 to 1.17.0",
-				Branch:     "declcd/update-myimage3",
-				BaseBranch: "main",
+				RepoID:      vcs.DefaultRepoID,
+				Title:       "chore(update): bump myimage3 to 1.17.0",
+				Description: "https://test",
+				Branch:      "declcd/update-myimage3",
+				BaseBranch:  "main",
 			},
 		},
 	}
@@ -179,7 +184,7 @@ image: "myimage:1.14.0"
 -- apps/myapp.cue --
 image: "myimage:1.14.0"
 `,
-		haveScanResults: []version.ScanResult{
+		haveAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.14.0",
 				NewVersion:     "1.15.0",
@@ -222,7 +227,7 @@ image: "myimage:1.14.0"
 image: "myimage:1.15.0"
 `,
 		},
-		haveScanResults: []version.ScanResult{
+		haveAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.14.0",
 				NewVersion:     "1.15.0",
@@ -274,7 +279,7 @@ image: "myimage:1.15.0"
 				BaseBranch: "main",
 			},
 		},
-		haveScanResults: []version.ScanResult{
+		haveAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.14.0",
 				NewVersion:     "1.15.0",
@@ -377,12 +382,15 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 		Repository: vcsRepository,
 	}
 
-	patchedResults := make([]version.ScanResult, 0, len(tc.haveScanResults))
-	for _, result := range tc.haveScanResults {
-		patchedResults = append(patchedResults, patchFile(result, projectDir))
+	patchedAvailableUpdates := make([]version.AvailableUpdate, 0, len(tc.haveAvailableUpdates))
+	for _, availableUpdate := range tc.haveAvailableUpdates {
+		patchedAvailableUpdates = append(
+			patchedAvailableUpdates,
+			patchFile(availableUpdate, projectDir),
+		)
 	}
 
-	updates, err := updater.Update(ctx, patchedResults, "main")
+	updates, err := updater.Update(ctx, patchedAvailableUpdates, "main")
 	if tc.wantErr != "" {
 		assert.ErrorContains(t, err, tc.wantErr)
 		return
@@ -412,24 +420,24 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 		"wrong testcase: file count of haveFiles and wantFiles should not differ",
 	)
 
-	for _, result := range patchedResults {
-		switch target := result.Target.(type) {
+	for _, availableUpdate := range patchedAvailableUpdates {
+		switch target := availableUpdate.Target.(type) {
 		case *version.ContainerUpdateTarget:
 			split := strings.Split(target.Image, ":")
-			if result.Integration == version.PR {
-				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], result.CurrentVersion))
+			if availableUpdate.Integration == version.PR {
+				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], availableUpdate.CurrentVersion))
 			} else {
-				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], result.NewVersion))
+				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], availableUpdate.NewVersion))
 			}
 		case *version.ChartUpdateTarget:
-			if result.Integration == version.PR {
-				assert.Equal(t, target.GetStructValue(), result.CurrentVersion)
+			if availableUpdate.Integration == version.PR {
+				assert.Equal(t, target.GetStructValue(), availableUpdate.CurrentVersion)
 			} else {
-				assert.Equal(t, target.GetStructValue(), result.NewVersion)
+				assert.Equal(t, target.GetStructValue(), availableUpdate.NewVersion)
 			}
 		}
 
-		haveFile, err := os.Open(result.File)
+		haveFile, err := os.Open(availableUpdate.File)
 		assert.NilError(t, err)
 		haveData, err := io.ReadAll(haveFile)
 		assert.NilError(t, err)
@@ -472,7 +480,7 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	}
 }
 
-func patchFile(result version.ScanResult, dir string) version.ScanResult {
-	result.File = filepath.Join(dir, result.File)
-	return result
+func patchFile(availableUpdate version.AvailableUpdate, dir string) version.AvailableUpdate {
+	availableUpdate.File = filepath.Join(dir, availableUpdate.File)
+	return availableUpdate
 }

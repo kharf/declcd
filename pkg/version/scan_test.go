@@ -16,6 +16,7 @@ package version_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -25,6 +26,7 @@ import (
 	"strings"
 	"testing"
 
+	"cuelabs.dev/go/oci/ociregistry"
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/cloudtest"
 	"github.com/kharf/declcd/internal/dnstest"
@@ -33,6 +35,7 @@ import (
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/version"
+	"github.com/opencontainers/go-digest"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
 	"helm.sh/helm/v3/pkg/chart"
@@ -54,7 +57,9 @@ type scanTestCase struct {
 	haveCredentialsSecret   *corev1.Secret
 	haveRemoteVersions      map[string][]string
 	haveRemoteChartVersions map[string][]string
-	wantResults             []version.ScanResult
+	haveRemoteURLs          map[string]string
+	haveRemoteChartURLs     map[string]string
+	wantAvailableUpdates    []version.AvailableUpdate
 	wantErr                 string
 }
 
@@ -92,11 +97,12 @@ var (
 				},
 			},
 			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
+				Strategy:    version.SemVer,
+				Constraint:  "1.16.x",
+				Auth:        nil,
+				File:        "myfile",
+				Line:        5,
+				Integration: version.Direct,
 				Target: &version.ChartUpdateTarget{
 					Chart: &helm.Chart{
 						Name:    "mychart",
@@ -108,13 +114,19 @@ var (
 			},
 		},
 		haveRemoteVersions: map[string][]string{
-			"myimage": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
+			"myimage": {"1.14.0", "1.16.5", "1.15.1", "1.15.2", "other", "latest"},
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantResults: []version.ScanResult{
+		haveRemoteURLs: map[string]string{
+			"myimage": "https://test",
+		},
+		haveRemoteChartURLs: map[string]string{
+			"mychart": "https://test2",
+		},
+		wantAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -127,6 +139,7 @@ var (
 					},
 					UnstructuredKey: "image",
 				},
+				URL: "https://test",
 			},
 			{
 				CurrentVersion: "1.15.0",
@@ -141,12 +154,14 @@ var (
 						Auth:    nil,
 					},
 				},
+				URL: "",
 			},
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
 				File:           "myfile",
 				Line:           5,
+				Integration:    version.Direct,
 				Target: &version.ChartUpdateTarget{
 					Chart: &helm.Chart{
 						Name:    "mychart",
@@ -155,6 +170,7 @@ var (
 						Auth:    nil,
 					},
 				},
+				URL: "https://test2",
 			},
 		},
 	}
@@ -199,7 +215,7 @@ var (
 		haveRemoteVersions: map[string][]string{
 			"myimage": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantResults: []version.ScanResult{
+		wantAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -283,7 +299,7 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantResults: []version.ScanResult{
+		wantAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -385,7 +401,7 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantResults: []version.ScanResult{
+		wantAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -487,7 +503,7 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantResults: []version.ScanResult{
+		wantAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -580,7 +596,7 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantResults: []version.ScanResult{
+		wantAvailableUpdates: []version.AvailableUpdate{
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -980,11 +996,23 @@ func runScanTestCase(
 
 	for container, versions := range tc.haveRemoteVersions {
 		for _, version := range versions {
-			_, err := tlsRegistry.PushManifest(
+			manifest := ociregistry.Manifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Annotations: map[string]string{
+					"org.opencontainers.image.url": tc.haveRemoteURLs[container],
+				},
+				Config: ociregistry.Descriptor{
+					Digest: digest.FromString(""),
+				},
+			}
+
+			bytes, err := json.Marshal(&manifest)
+			assert.NilError(t, err)
+			_, err = tlsRegistry.PushManifest(
 				ctx,
 				container,
 				version,
-				[]byte{},
+				bytes,
 				"application/vnd.docker.distribution.manifest.v2+json",
 			)
 			assert.NilError(t, err)
@@ -1000,6 +1028,7 @@ func runScanTestCase(
 			chartVersions = append(chartVersions, &repo.ChartVersion{
 				Metadata: &chart.Metadata{
 					Version: version,
+					Home:    tc.haveRemoteChartURLs[chartName],
 				},
 			})
 		}
@@ -1097,17 +1126,17 @@ func runScanTestCase(
 		helmServer,
 		aws,
 	)
-	results, err := scanner.Scan(ctx, patchedInstructions)
+	availableUpdates, err := scanner.Scan(ctx, patchedInstructions)
 	if tc.wantErr != "" {
 		assert.ErrorContains(t, err, tc.wantErr)
 		return
 	}
 	assert.NilError(t, err)
 
-	assert.Equal(t, len(results), len(tc.wantResults))
+	assert.Equal(t, len(availableUpdates), len(tc.wantAvailableUpdates))
 
-	if len(results) > 0 {
-		assert.DeepEqual(t, unpatchResults(results), tc.wantResults)
+	if len(availableUpdates) > 0 {
+		assert.DeepEqual(t, unpatchAvailableUpdates(availableUpdates), tc.wantAvailableUpdates)
 	}
 }
 
@@ -1188,14 +1217,14 @@ func patchInstructions(
 	return patchedInstructions
 }
 
-func unpatchResults(
-	results []version.ScanResult,
-) []version.ScanResult {
-	unpatchedResults := make([]version.ScanResult, 0, len(results))
-	for _, result := range results {
-		switch target := result.Target.(type) {
+func unpatchAvailableUpdates(
+	availableUpdates []version.AvailableUpdate,
+) []version.AvailableUpdate {
+	unpatchedAvailableUpdates := make([]version.AvailableUpdate, 0, len(availableUpdates))
+	for _, availableUpdate := range availableUpdates {
+		switch target := availableUpdate.Target.(type) {
 		case *version.ContainerUpdateTarget:
-			unpatchedResult := result
+			unpatchedAvailableUpdate := availableUpdate
 
 			split := strings.Split(target.Image, "/")
 			unpatchedImage := split[1]
@@ -1203,23 +1232,23 @@ func unpatchResults(
 			target.Image = unpatchedImage
 			target.UnstructuredNode[target.UnstructuredKey] = unpatchedImage
 
-			unpatchedResult.Target = target
+			unpatchedAvailableUpdate.Target = target
 
-			unpatchedResults = append(unpatchedResults, unpatchedResult)
+			unpatchedAvailableUpdates = append(unpatchedAvailableUpdates, unpatchedAvailableUpdate)
 
 		case *version.ChartUpdateTarget:
-			patchedResult := result
+			patchedAvailableUpdate := availableUpdate
 
 			if registry.IsOCI(target.Chart.RepoURL) {
 				target.Chart.RepoURL = "oci://"
 			} else {
 				target.Chart.RepoURL = "https://"
 			}
-			patchedResult.Target = target
+			patchedAvailableUpdate.Target = target
 
-			unpatchedResults = append(unpatchedResults, patchedResult)
+			unpatchedAvailableUpdates = append(unpatchedAvailableUpdates, patchedAvailableUpdate)
 		}
 	}
 
-	return unpatchedResults
+	return unpatchedAvailableUpdates
 }

@@ -28,13 +28,14 @@ type GitlabRepository struct {
 	client gitlabClient
 }
 
-func (g *GitlabRepository) CreatePullRequest(title, branch, targetBranch string) error {
+func (g *GitlabRepository) CreatePullRequest(title, desc, branch, targetBranch string) error {
 	return g.client.CreatePullRequest(context.Background(),
 		PullRequestRequest{
-			RepoID:     g.RepoID(),
-			Title:      title,
-			Branch:     branch,
-			BaseBranch: targetBranch,
+			RepoID:      g.RepoID(),
+			Title:       title,
+			Description: desc,
+			Branch:      branch,
+			BaseBranch:  targetBranch,
 		},
 	)
 }
@@ -53,6 +54,7 @@ func (g *gitlabClient) CreatePullRequest(
 		req.RepoID,
 		&gogitlab.CreateMergeRequestOptions{
 			Title:        &req.Title,
+			Description:  &req.Description,
 			SourceBranch: &req.Branch,
 			TargetBranch: &req.BaseBranch,
 		},

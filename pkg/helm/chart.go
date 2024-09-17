@@ -1015,16 +1015,11 @@ func (c *Client) deleteResource(info *resource.Info, policy v1.DeletionPropagati
 }
 
 type ChartVersionIter struct {
-	currIdx  int
 	Versions repo.ChartVersions
 }
 
-func (iter *ChartVersionIter) HasNext() bool {
-	return iter.currIdx < len(iter.Versions)
-}
-
-func (iter *ChartVersionIter) Next() string {
-	version := iter.Versions[iter.currIdx].Version
-	iter.currIdx++
-	return version
+func (iter *ChartVersionIter) ForEach(do func(item string, idx int)) {
+	for idx, item := range iter.Versions {
+		do(item.Version, idx)
+	}
 }

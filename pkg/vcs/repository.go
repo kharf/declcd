@@ -46,7 +46,7 @@ type Repository interface {
 	SwitchBranch(branch string, create bool) error
 	CurrentBranch() (string, error)
 	Push(src, dst string) error
-	CreatePullRequest(title, src, dst string) error
+	CreatePullRequest(title, desc, src, dst string) error
 }
 
 type repositoryOption func(*repositoryOptions)
@@ -195,7 +195,7 @@ func (g *GenericRepository) Commit(file string, message string) (string, error) 
 
 var ErrPullRequestNotSupported = errors.New("Pull-Request not supported")
 
-func (g *GenericRepository) CreatePullRequest(title string, src string, dst string) error {
+func (g *GenericRepository) CreatePullRequest(title string, desc, src string, dst string) error {
 	return ErrPullRequestNotSupported
 }
 

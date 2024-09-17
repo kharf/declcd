@@ -47,10 +47,11 @@ func (s WithKeySuffix) apply(opts *deployKeyOptions) {
 }
 
 type PullRequestRequest struct {
-	RepoID     string
-	Title      string
-	Branch     string
-	BaseBranch string
+	RepoID      string
+	Title       string
+	Description string
+	Branch      string
+	BaseBranch  string
 }
 
 type providerClient interface {
