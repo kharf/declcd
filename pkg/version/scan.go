@@ -56,8 +56,12 @@ type Scanner struct {
 // It holds details about the current and new version, as well as the file and line at which these versions were found and the desired update integration method.
 type AvailableUpdate struct {
 	// The current version that is being scanned for updates.
+	// Format: tag@digest.
+	// Digest is optional.
 	CurrentVersion string
 	// The new version that has been found.
+	// Format: tag@digest.
+	// Digest is optional.
 	NewVersion string
 
 	// Integration defines the method on how to push updates to the version control system.
@@ -97,14 +101,20 @@ func (scanner *Scanner) Scan(
 			continue
 		}
 
-		url, err := scanResult.pkg.url(idx)
+		pkgMetadata, err := scanResult.pkg.loadMetadata(idx)
 		if err != nil {
-			scanner.Log.Error(err, "Unable to get update url for target")
+			scanner.Log.Error(err, "Unable to get metadata for update target")
+		}
+
+		currentVersion := scanResult.currentVersion
+		if scanResult.currentDigest != "" {
+			newVersion = fmt.Sprintf("%s@%s", newVersion, pkgMetadata.digest)
+			currentVersion = fmt.Sprintf("%s@%s", currentVersion, scanResult.currentDigest)
 		}
 
 		availableUpdates = append(availableUpdates, AvailableUpdate{
-			URL:            url,
-			CurrentVersion: scanResult.currentVersion,
+			URL:            pkgMetadata.infoURL,
+			CurrentVersion: currentVersion,
 			NewVersion:     newVersion,
 			Integration:    updateInstr.Integration,
 			File:           updateInstr.File,
@@ -116,9 +126,14 @@ func (scanner *Scanner) Scan(
 	return availableUpdates, nil
 }
 
+type pkgMetadata struct {
+	infoURL string
+	digest  string
+}
+
 type pkg struct {
-	versions VersionIter[string]
-	url      func(versionsIdx int) (string, error)
+	versions     VersionIter[string]
+	loadMetadata func(versionsIdx int) (*pkgMetadata, error)
 }
 
 func (scanner *Scanner) scanTarget(
@@ -126,14 +141,14 @@ func (scanner *Scanner) scanTarget(
 	target UpdateTarget,
 	auth *cloud.Auth,
 ) (*scanResult, error) {
-	var currentVersion string
+	var currentVersion, currentDigest string
 	var err error
 	var pkg *pkg
 
 	switch target := target.(type) {
 	case *ContainerUpdateTarget:
 		var repo string
-		repo, currentVersion, _, err = parsers.ParseImageName(target.Image)
+		repo, currentVersion, currentDigest, err = parsers.ParseImageName(target.Image)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +164,34 @@ func (scanner *Scanner) scanTarget(
 
 	case *ChartUpdateTarget:
 		currentVersion = target.Chart.Version
-		pkg, err = scanner.scanHelmChart(ctx, target)
+		versionParts := strings.Split(currentVersion, "@")
+		if len(versionParts) == 2 {
+			currentVersion = versionParts[0]
+			currentDigest = versionParts[1]
+		}
+
+		if registry.IsOCI(target.Chart.RepoURL) {
+			host, _ := strings.CutPrefix(target.Chart.RepoURL, "oci://")
+			repo := fmt.Sprintf(
+				"%s/%s",
+				host,
+				target.Chart.Name,
+			)
+
+			pkg, err = scanner.scanContainer(
+				ctx,
+				host,
+				repo,
+				target.Chart.Auth,
+			)
+		} else {
+			pkg, err = scanner.scanHTTPHelmChart(
+				ctx,
+				target.Chart.RepoURL,
+				target.Chart.Name,
+				target.Chart.Auth,
+			)
+		}
 	}
 
 	if err != nil {
@@ -158,37 +200,9 @@ func (scanner *Scanner) scanTarget(
 
 	return &scanResult{
 		currentVersion: currentVersion,
+		currentDigest:  currentDigest,
 		pkg:            *pkg,
-		url:            pkg.url,
 	}, nil
-}
-
-func (scanner *Scanner) scanHelmChart(
-	ctx context.Context,
-	target *ChartUpdateTarget,
-) (*pkg, error) {
-	if registry.IsOCI(target.Chart.RepoURL) {
-		host, _ := strings.CutPrefix(target.Chart.RepoURL, "oci://")
-		repo := fmt.Sprintf(
-			"%s/%s",
-			host,
-			target.Chart.Name,
-		)
-
-		return scanner.scanContainer(
-			ctx,
-			host,
-			repo,
-			target.Chart.Auth,
-		)
-	}
-
-	return scanner.scanHTTPHelmChart(
-		ctx,
-		target.Chart.RepoURL,
-		target.Chart.Name,
-		target.Chart.Auth,
-	)
 }
 
 func (scanner *Scanner) scanContainer(
@@ -229,22 +243,31 @@ func (scanner *Scanner) scanContainer(
 
 	return &pkg{
 		versions: &slices.Iter[string]{Slice: remoteVersions},
-		url: func(versionsIdx int) (string, error) {
+		loadMetadata: func(versionsIdx int) (*pkgMetadata, error) {
 			version := remoteVersions[versionsIdx]
 
 			tag := repository.Tag(version)
 			image, err := remote.Image(tag, authOptions...)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 
 			manifest, err := image.Manifest()
 			if err != nil {
-				return "", err
+				return nil, err
+			}
+
+			digest, err := image.Digest()
+			if err != nil {
+				return nil, err
 			}
 
 			source := manifest.Annotations["org.opencontainers.image.url"]
-			return source, nil
+
+			return &pkgMetadata{
+				infoURL: source,
+				digest:  digest.String(),
+			}, nil
 		},
 	}, nil
 }
@@ -305,17 +328,20 @@ func (scanner *Scanner) scanHTTPHelmChart(
 
 	return &pkg{
 		versions: &helm.ChartVersionIter{Versions: chartVersions},
-		url: func(versionsIdx int) (string, error) {
+		loadMetadata: func(versionsIdx int) (*pkgMetadata, error) {
 			version := chartVersions[versionsIdx]
-			return version.Home, nil
+			return &pkgMetadata{
+				infoURL: version.Home,
+				digest:  version.Digest,
+			}, nil
 		},
 	}, nil
 }
 
 type scanResult struct {
 	currentVersion string
+	currentDigest  string
 	pkg            pkg
-	url            func(versionsIdx int) (string, error)
 }
 
 type VersionIter[T any] interface {

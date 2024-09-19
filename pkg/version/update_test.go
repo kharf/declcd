@@ -55,31 +55,31 @@ var (
 		name: "Updates",
 		haveFiles: `
 -- apps/myapp.cue --
-image: "myimage:1.15.0"
+image: "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a"
 image2: "myimage:1.16.5"
-version: "1.15.0"
-version2: "1.15.0"
+version: "1.15.0@digest"
+version2: "1.15.0@digest"
 image3: "myimage3:1.16.5"
 `,
 		wantFiles: `
 -- apps/myapp.cue --
-image: "myimage:1.16.5"
+image: "myimage:1.16.5@sha256:digest"
 image2: "myimage:1.16.5"
-version: "1.17.0"
-version2: "1.15.0"
+version: "1.17.0@newdigest"
+version2: "1.15.0@digest"
 image3: "myimage3:1.16.5"
 `,
 		haveAvailableUpdates: []version.AvailableUpdate{
 			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
+				CurrentVersion: "1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
+				NewVersion:     "1.16.5@sha256:digest",
 				Integration:    version.Direct,
 				File:           "apps/myapp.cue",
 				Line:           1,
 				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
+					Image: "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
 					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
+						"image": "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
 					},
 					UnstructuredKey: "image",
 				},
@@ -99,8 +99,8 @@ image3: "myimage3:1.16.5"
 				},
 			},
 			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.17.0",
+				CurrentVersion: "1.15.0@digest",
+				NewVersion:     "1.17.0@newdigest",
 				Integration:    version.Direct,
 				File:           "apps/myapp.cue",
 				Line:           3,
@@ -108,15 +108,15 @@ image3: "myimage3:1.16.5"
 					Chart: &helm.Chart{
 						Name:    "mychart",
 						RepoURL: "oci://",
-						Version: "1.15.0",
+						Version: "1.15.0@digest",
 						Auth:    nil,
 					},
 				},
 				URL: "https://test",
 			},
 			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.17.0",
+				CurrentVersion: "1.15.0@digest",
+				NewVersion:     "1.17.0@newdigest",
 				Integration:    version.PR,
 				File:           "apps/myapp.cue",
 				Line:           4,
@@ -124,7 +124,7 @@ image3: "myimage3:1.16.5"
 					Chart: &helm.Chart{
 						Name:    "mychart2",
 						RepoURL: "oci://",
-						Version: "1.15.0",
+						Version: "1.15.0@digest",
 						Auth:    nil,
 					},
 				},
@@ -149,17 +149,17 @@ image3: "myimage3:1.16.5"
 		wantUpdates: []version.Update{
 			{
 				CommitHash: "",
-				NewVersion: "1.16.5",
+				NewVersion: "1.16.5@sha256:digest",
 			},
 			{
 				CommitHash: "",
-				NewVersion: "1.17.0",
+				NewVersion: "1.17.0@newdigest",
 			},
 		},
 		wantPullRequests: []vcs.PullRequestRequest{
 			{
 				RepoID:      vcs.DefaultRepoID,
-				Title:       "chore(update): bump mychart2 to 1.17.0",
+				Title:       "chore(update): bump mychart2 to 1.17.0@newdigest",
 				Description: "https://test",
 				Branch:      "declcd/update-mychart2",
 				BaseBranch:  "main",
