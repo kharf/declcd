@@ -16,17 +16,9 @@ package version_test
 
 import (
 	"context"
+	"cuelabs.dev/go/oci/ociregistry"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"strings"
-	"testing"
-
-	"cuelabs.dev/go/oci/ociregistry"
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/cloudtest"
 	"github.com/kharf/declcd/internal/dnstest"
@@ -41,10 +33,17 @@ import (
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/repo"
+	"io"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/yaml"
+	"strconv"
+	"strings"
+	"testing"
 )
 
 // Helm Charts should only have either 'https://' or 'oci://' as repoURL value as they will be patched in the test run to contact the correct test server.
@@ -67,6 +66,51 @@ var (
 	newVersions = scanTestCase{
 		name: "New-Versions",
 		haveUpdateInstructions: []version.UpdateInstruction{
+			{
+				Strategy:   version.SemVer,
+				Constraint: "<1.17.x",
+				Auth:       nil,
+				File:       "myfile",
+				Line:       5,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+					},
+					UnstructuredKey: "image",
+				},
+			},
+			{
+				Strategy:   version.SemVer,
+				Constraint: "1.16.x",
+				Auth:       nil,
+				File:       "myfile",
+				Line:       5,
+				Target: &version.ChartUpdateTarget{
+					Chart: &helm.Chart{
+						Name:    "mychart",
+						RepoURL: "oci://",
+						Version: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+						Auth:    nil,
+					},
+				},
+			},
+			{
+				Strategy:    version.SemVer,
+				Constraint:  "1.16.x",
+				Auth:        nil,
+				File:        "myfile",
+				Line:        5,
+				Integration: version.Direct,
+				Target: &version.ChartUpdateTarget{
+					Chart: &helm.Chart{
+						Name:    "mychart",
+						RepoURL: "https://",
+						Version: "1.15.0@bbbb",
+						Auth:    nil,
+					},
+				},
+			},
 			{
 				Strategy:   version.SemVer,
 				Constraint: "<1.17.x",
@@ -127,6 +171,51 @@ var (
 			"mychart": "https://test2",
 		},
 		wantAvailableUpdates: []version.AvailableUpdate{
+			{
+				CurrentVersion: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+				NewVersion:     "1.16.5@sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
+				File:           "myfile",
+				Line:           5,
+				Target: &version.ContainerUpdateTarget{
+					Image: "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+					UnstructuredNode: map[string]any{
+						"image": "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+					},
+					UnstructuredKey: "image",
+				},
+				URL: "https://test",
+			},
+			{
+				CurrentVersion: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+				NewVersion:     "1.16.5@sha256:bcd827cf80fc369198cdf9b0db565e2bf0a5354d45c88596f47c38f7008dedb6",
+				File:           "myfile",
+				Line:           5,
+				Target: &version.ChartUpdateTarget{
+					Chart: &helm.Chart{
+						Name:    "mychart",
+						RepoURL: "oci://",
+						Version: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+						Auth:    nil,
+					},
+				},
+				URL: "",
+			},
+			{
+				CurrentVersion: "1.15.0@bbbb",
+				NewVersion:     "1.16.5@cccc",
+				File:           "myfile",
+				Line:           5,
+				Integration:    version.Direct,
+				Target: &version.ChartUpdateTarget{
+					Chart: &helm.Chart{
+						Name:    "mychart",
+						RepoURL: "https://",
+						Version: "1.15.0@bbbb",
+						Auth:    nil,
+					},
+				},
+				URL: "https://test2",
+			},
 			{
 				CurrentVersion: "1.15.0",
 				NewVersion:     "1.16.5",
@@ -1026,6 +1115,7 @@ func runScanTestCase(
 		chartVersions := make(repo.ChartVersions, 0, len(versions))
 		for _, version := range versions {
 			chartVersions = append(chartVersions, &repo.ChartVersion{
+				Digest: "cccc",
 				Metadata: &chart.Metadata{
 					Version: version,
 					Home:    tc.haveRemoteChartURLs[chartName],

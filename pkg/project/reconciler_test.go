@@ -373,7 +373,6 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 		bytes, err := json.Marshal(&manifest)
 		assert.NilError(t, err)
-
 		desc, err := tlsRegistry.PushManifest(
 			ctx,
 			container,
@@ -1019,11 +1018,21 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	)
 
 	registry := helmEnv.ChartServer.(*helmtest.OciRegistry)
+	manifest := ociregistry.Manifest{
+		MediaType:   "application/vnd.oci.image.manifest.v1+json",
+		Annotations: map[string]string{},
+		Config: ociregistry.Descriptor{
+			Digest: digest.FromString(""),
+		},
+	}
+	bytes, err := json.Marshal(&manifest)
+	assert.NilError(t, err)
+
 	_, err = registry.Server.PushManifest(
 		ctx,
 		"subcomponent",
 		"1.15.0",
-		[]byte{},
+		bytes,
 		"application/vnd.docker.distribution.manifest.v2+json",
 	)
 	assert.NilError(t, err)
@@ -1255,11 +1264,24 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 		},
 	)
 	for _, container := range broadTemplate.Containers() {
+		manifest := ociregistry.Manifest{
+			MediaType: "application/vnd.oci.image.manifest.v1+json",
+			Annotations: map[string]string{
+				"org.opencontainers.image.url": "test",
+			},
+			Config: ociregistry.Descriptor{
+				Digest: digest.FromString(""),
+			},
+		}
+
+		bytes, err := json.Marshal(&manifest)
+		assert.NilError(t, err)
+
 		desc, err := tlsRegistry.PushManifest(
 			ctx,
 			container,
 			"1.15.3",
-			[]byte{},
+			bytes,
 			"application/vnd.docker.distribution.manifest.v2+json",
 		)
 		assert.NilError(t, err)
@@ -1421,11 +1443,24 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 		},
 	)
 	for _, container := range broadTemplate.Containers() {
+		manifest := ociregistry.Manifest{
+			MediaType: "application/vnd.oci.image.manifest.v1+json",
+			Annotations: map[string]string{
+				"org.opencontainers.image.url": "test",
+			},
+			Config: ociregistry.Descriptor{
+				Digest: digest.FromString(""),
+			},
+		}
+
+		bytes, err := json.Marshal(&manifest)
+		assert.NilError(t, err)
+
 		desc, err := tlsRegistry.PushManifest(
 			ctx,
 			container,
 			"1.15.3",
-			[]byte{},
+			bytes,
 			"application/vnd.docker.distribution.manifest.v2+json",
 		)
 		assert.NilError(t, err)
