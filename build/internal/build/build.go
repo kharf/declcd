@@ -124,9 +124,10 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 		Directory(".").
 		DockerBuild().
 		WithRegistryAuth("ghcr.io", "kharf", token).
-		WithLabel("org.opencontainers.image.title", "declcd").
-		WithLabel("org.opencontainers.image.created", time.Now().String()).
-		WithLabel("org.opencontainers.image.source", "https://github.com/kharf/declcd").
+		WithAnnotation("org.opencontainers.image.title", "declcd").
+		WithAnnotation("org.opencontainers.image.created", time.Now().String()).
+		WithAnnotation("org.opencontainers.image.source", "https://github.com/kharf/declcd").
+		WithAnnotation("org.opencontainers.image.url", "https://github.com/kharf/declcd").
 		Publish(ctx, "ghcr.io/kharf/declcd:"+version)
 	if err != nil {
 		return nil, err
