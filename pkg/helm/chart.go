@@ -653,7 +653,7 @@ func (c *ChartReconciler) load(
 		pathErr := &fs.PathError{}
 		if errors.As(err, &pathErr) {
 			log.V(1).Info("Pulling chart")
-			if err := c.pull(ctx, chartRequest, namespace, archivePath.dir); err != nil {
+			if err := c.pull(ctx, chartRequest, namespace, archivePath); err != nil {
 				return nil, err
 			}
 			chart, err := loader.Load(archivePath.fullPath)
@@ -671,11 +671,11 @@ func (c *ChartReconciler) pull(
 	ctx context.Context,
 	chartRequest *Chart,
 	namespace string,
-	chartDestPath string,
+	archivePath archivePath,
 ) error {
 	helmConfig := ctx.Value(configKey{}).(*action.Configuration)
 	pull := action.NewPullWithOpts(action.WithConfig(helmConfig))
-	pull.DestDir = chartDestPath
+	pull.DestDir = archivePath.dir
 
 	httpClient := http.DefaultClient
 	httpClient.Transport = &http.Transport{
@@ -722,7 +722,7 @@ func (c *ChartReconciler) pull(
 	version, _ := ParseVersion(chartRequest.Version)
 	pull.Settings = cli.New()
 	pull.Version = version
-	err := os.MkdirAll(chartDestPath, 0700)
+	err := os.MkdirAll(archivePath.dir, 0700)
 	if err != nil {
 		return err
 	}
@@ -731,6 +731,17 @@ func (c *ChartReconciler) pull(
 	if err != nil {
 		return err
 	}
+
+	if err := os.Rename(
+		filepath.Join(
+			archivePath.dir,
+			fmt.Sprintf("%s-%s.tgz", chartRequest.Name, version),
+		),
+		archivePath.fullPath,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 

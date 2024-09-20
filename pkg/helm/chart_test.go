@@ -904,13 +904,19 @@ func TestChartReconciler_Reconcile_OCI(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicOciHelmEnvironment := newHelmEnvironment(t, true, false, "", "")
+	publicOciHelmEnvironment := newHelmEnvironment(
+		t,
+		true,
+		false,
+		"",
+		"",
+	)
 	defer publicOciHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
 		"default",
 		publicOciHelmEnvironment.ChartServer.URL(),
-		"1.0.0",
+		fmt.Sprintf("%s@%s", "1.0.0", publicOciHelmEnvironment.V1Digest),
 		nil,
 		false,
 		Values{},
