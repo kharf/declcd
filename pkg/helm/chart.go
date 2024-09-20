@@ -38,16 +38,13 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	helmKube "helm.sh/helm/v3/pkg/kube"
-	"helm.sh/helm/v3/pkg/postrender"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/repo"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/rest"
 )
 
@@ -722,8 +719,9 @@ func (c *ChartReconciler) pull(
 		chartRef = chartRequest.Name
 	}
 
+	version, _ := ParseVersion(chartRequest.Version)
 	pull.Settings = cli.New()
-	pull.Version = chartRequest.Version
+	pull.Version = version
 	err := os.MkdirAll(chartDestPath, 0700)
 	if err != nil {
 		return err
@@ -795,231 +793,5 @@ func newArchivePath(chart *Chart, chartCacheRoot string) archivePath {
 	return archivePath{
 		dir:      chartDestPath,
 		fullPath: fullPath,
-	}
-}
-
-// ReleaseMetadata is a small representation of a Release.
-// Release is a running instance of a Chart.
-// When a chart is installed, the ChartReconciler creates a release to track that installation.
-type ReleaseMetadata struct {
-	componentID string
-	name        string
-	namespace   string
-}
-
-// NewReleaseMetadata constructs a ReleaseMetadata,
-// which is a small representation of a Release.
-func NewReleaseMetadata(componentID string, name string, namespace string) ReleaseMetadata {
-	return ReleaseMetadata{
-		componentID: componentID,
-		name:        name,
-		namespace:   namespace,
-	}
-}
-
-// Name of the helm release.
-func (hr ReleaseMetadata) Name() string {
-	return hr.name
-}
-
-// Namespace of the helm release.
-func (hr ReleaseMetadata) Namespace() string {
-	return hr.namespace
-}
-
-// ComponentID is a link to the component this release belongs to.
-func (hr ReleaseMetadata) ComponentID() string {
-	return hr.componentID
-}
-
-type PostRenderer struct {
-	Patches *Patches
-}
-
-func (pr *PostRenderer) Run(
-	renderedManifests *bytes.Buffer,
-) (modifiedManifests *bytes.Buffer, err error) {
-	dec := yaml.NewDecoder(renderedManifests)
-	modifiedManifests = &bytes.Buffer{}
-	enc := yaml.NewEncoder(modifiedManifests)
-
-	for {
-		var renderedUnstrObj map[string]any
-		if err := dec.Decode(&renderedUnstrObj); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
-
-		renderedunstr := unstructured.Unstructured{
-			Object: renderedUnstrObj,
-		}
-
-		patchedExtendedUnstr := pr.Patches.Get(
-			renderedunstr.GetName(),
-			renderedunstr.GetNamespace(),
-			v1.TypeMeta{
-				APIVersion: renderedunstr.GetAPIVersion(),
-				Kind:       renderedunstr.GetKind(),
-			},
-		)
-
-		if patchedExtendedUnstr != nil {
-			mergeMaps(renderedUnstrObj, patchedExtendedUnstr.Object)
-		}
-
-		if err := enc.Encode(renderedUnstrObj); err != nil {
-			return nil, err
-		}
-	}
-
-	return
-}
-
-var _ postrender.PostRenderer = (*PostRenderer)(nil)
-
-func mergeMaps(dst map[string]any, src map[string]any) {
-	for srcKey, srcValue := range src {
-		dstValue, dstKeyFound := dst[srcKey]
-		if srcValueMap, ok := srcValue.(map[string]any); ok && dstKeyFound {
-			if dstValueMap, ok := dstValue.(map[string]any); ok {
-				mergeMaps(dstValueMap, srcValueMap)
-			} else {
-				dst[srcKey] = srcValue
-			}
-		} else {
-			dst[srcKey] = srcValue
-		}
-	}
-}
-
-// Client is a dedicated Kubernetes client for Helm with Server-Side Apply.
-// TODO: remove when Helm supports SSA.
-type Client struct {
-	*helmKube.Client
-	DynamicClient kube.Client[kube.ExtendedUnstructured, unstructured.Unstructured]
-	FieldManager  string
-	Patches       *Patches
-}
-
-var _ helmKube.Interface = (*Client)(nil)
-
-var ErrObjectNotUnstructured = errors.New("Helm object is not of type unstructured.Unstructured")
-
-// taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
-func (c *Client) Create(resources helmKube.ResourceList) (*helmKube.Result, error) {
-	ctx := context.Background()
-	for _, info := range resources {
-		unstr, ok := info.Object.(*unstructured.Unstructured)
-		if !ok {
-			return nil, ErrObjectNotUnstructured
-		}
-
-		if err := c.apply(ctx, unstr); err != nil {
-			return nil, err
-		}
-	}
-	return &helmKube.Result{Created: resources}, nil
-}
-
-func (c *Client) apply(ctx context.Context, unstr *unstructured.Unstructured) error {
-	var patch *kube.ExtendedUnstructured
-	if c.Patches != nil {
-		patch = c.Patches.Get(unstr.GetName(), unstr.GetNamespace(), v1.TypeMeta{
-			APIVersion: unstr.GetAPIVersion(),
-			Kind:       unstr.GetKind(),
-		})
-	}
-
-	extendedUnstr := &kube.ExtendedUnstructured{}
-	if patch != nil {
-		extendedUnstr.Metadata = patch.Metadata
-	}
-	extendedUnstr.Unstructured = unstr
-
-	if err := c.DynamicClient.Apply(ctx, extendedUnstr, c.FieldManager, kube.Force(true)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var metadataAccessor = meta.NewAccessor()
-
-// taken from helm.sh/helm/v3/pkg/kube and patched with SSA.
-func (c *Client) Update(
-	original helmKube.ResourceList,
-	target helmKube.ResourceList,
-	force bool,
-) (*helmKube.Result, error) {
-	ctx := context.Background()
-	res := &helmKube.Result{}
-	err := target.Visit(func(info *resource.Info, err error) error {
-		unstr, ok := info.Object.(*unstructured.Unstructured)
-		if !ok {
-			return ErrObjectNotUnstructured
-		}
-
-		// Append the created resource to the results, even if something fails
-		res.Created = append(res.Created, info)
-		if err := c.apply(ctx, unstr); err != nil {
-			return err
-		}
-
-		return nil
-	})
-	if err != nil {
-		return res, err
-	}
-	for _, info := range original.Difference(target) {
-		c.Log(
-			"Deleting %s %q in namespace %s...",
-			info.Mapping.GroupVersionKind.Kind,
-			info.Name,
-			info.Namespace,
-		)
-
-		if err := info.Get(); err != nil {
-			c.Log("Unable to get obj %q, err: %s", info.Name, err)
-			continue
-		}
-		annotations, err := metadataAccessor.Annotations(info.Object)
-		if err != nil {
-			c.Log("Unable to get annotations on %q, err: %s", info.Name, err)
-		}
-		if annotations != nil && annotations[helmKube.ResourcePolicyAnno] == helmKube.KeepPolicy {
-			c.Log(
-				"Skipping delete of %q due to annotation [%s=%s]",
-				info.Name,
-				helmKube.ResourcePolicyAnno,
-				helmKube.KeepPolicy,
-			)
-			continue
-		}
-		if err := c.deleteResource(info, v1.DeletePropagationBackground); err != nil {
-			c.Log("Failed to delete %q, err: %s", info.ObjectName(), err)
-			continue
-		}
-		res.Deleted = append(res.Deleted, info)
-	}
-	return res, nil
-}
-
-func (c *Client) deleteResource(info *resource.Info, policy v1.DeletionPropagation) error {
-	opts := &v1.DeleteOptions{PropagationPolicy: &policy}
-	_, err := resource.NewHelper(info.Client, info.Mapping).
-		WithFieldManager(c.FieldManager).
-		DeleteWithOptions(info.Namespace, info.Name, opts)
-	return err
-}
-
-type ChartVersionIter struct {
-	Versions repo.ChartVersions
-}
-
-func (iter *ChartVersionIter) ForEach(do func(item string, idx int)) {
-	for idx, item := range iter.Versions {
-		do(item.Version, idx)
 	}
 }

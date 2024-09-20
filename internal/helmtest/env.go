@@ -1288,12 +1288,21 @@ func (opt provider) Apply(opts *options) {
 	opts.cloudProviderID = cloud.ProviderID(opt)
 }
 
+type digest string
+
+var _ Option = (*digest)(nil)
+
+func (opt digest) Apply(opts *options) {
+	opts.digest = string(opt)
+}
+
 type options struct {
 	enabled         bool
 	oci             bool
 	private         bool
 	project         projectOption
 	cloudProviderID cloud.ProviderID
+	digest          string
 }
 
 type Option interface {
@@ -1326,6 +1335,10 @@ func WithProject(
 
 func WithProvider(providerID cloud.ProviderID) provider {
 	return provider(providerID)
+}
+
+func WithDigest(dig string) digest {
+	return digest(dig)
 }
 
 type Server interface {
@@ -1392,22 +1405,23 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 		private:         false,
 		oci:             false,
 		cloudProviderID: "",
+		digest:          "",
 	}
 	for _, o := range opts {
 		o.Apply(options)
 	}
 
-	v1Archive, err := createChartV1Archive(t)
+	v1Archive, err := createChartV1Archive(t, options.digest)
 	if err != nil {
 		return nil, err
 	}
 
-	v2Archive, err := createChartV2Archive(t)
+	v2Archive, err := createChartV2Archive(t, options.digest)
 	if err != nil {
 		return nil, err
 	}
 
-	v3Archive, err := createChartV3Archive(t)
+	v3Archive, err := createChartV3Archive(t, options.digest)
 	if err != nil {
 		return nil, err
 	}
@@ -1470,25 +1484,37 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 			return nil, err
 		}
 
+		version := "1.0.0"
+		if options.digest != "" {
+			version = fmt.Sprintf("%s@%s", version, options.digest)
+		}
 		_, err = helmRegistryClient.Push(
 			v1Bytes,
-			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", "1.0.0"),
+			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", version),
 		)
 		if err != nil {
 			return nil, err
 		}
 
+		version = "2.0.0"
+		if options.digest != "" {
+			version = fmt.Sprintf("%s@%s", version, options.digest)
+		}
 		_, err = helmRegistryClient.Push(
 			v2Bytes,
-			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", "2.0.0"),
+			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", version),
 		)
 		if err != nil {
 			return nil, err
 		}
 
+		version = "3.0.0"
+		if options.digest != "" {
+			version = fmt.Sprintf("%s@%s", version, options.digest)
+		}
 		_, err = helmRegistryClient.Push(
 			v3Bytes,
-			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", "3.0.0"),
+			fmt.Sprintf("%s/%s:%s", ociServer.Addr(), "test", version),
 		)
 		if err != nil {
 			return nil, err
@@ -1519,6 +1545,18 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 			}
 
 			if strings.HasSuffix(r.URL.Path, "index.yaml") {
+				version1 := "1.0.0"
+				if options.digest != "" {
+					version1 = fmt.Sprintf("%s@%s", version1, options.digest)
+				}
+				version2 := "2.0.0"
+				if options.digest != "" {
+					version2 = fmt.Sprintf("%s@%s", version2, options.digest)
+				}
+				version3 := "3.0.0"
+				if options.digest != "" {
+					version3 = fmt.Sprintf("%s@%s", version3, options.digest)
+				}
 				index := &repo.IndexFile{
 					APIVersion: "v1",
 					Generated:  time.Now(),
@@ -1530,7 +1568,7 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 									Version:    "1.0.0",
 									Name:       "test",
 								},
-								URLs: []string{chartServer.URL() + "/test-1.0.0.tgz"},
+								URLs: []string{chartServer.URL() + fmt.Sprintf("/test-%s.tgz", version1)},
 							},
 							&repo.ChartVersion{
 								Metadata: &chart.Metadata{
@@ -1538,7 +1576,7 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 									Version:    "2.0.0",
 									Name:       "test",
 								},
-								URLs: []string{chartServer.URL() + "/test-2.0.0.tgz"},
+								URLs: []string{chartServer.URL() + fmt.Sprintf("/test-%s.tgz", version2)},
 							},
 							&repo.ChartVersion{
 								Metadata: &chart.Metadata{
@@ -1546,7 +1584,7 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 									Version:    "3.0.0",
 									Name:       "test",
 								},
-								URLs: []string{chartServer.URL() + "/test-3.0.0.tgz"},
+								URLs: []string{chartServer.URL() + fmt.Sprintf("/test-%s.tgz", version3)},
 							},
 						},
 					},
@@ -1599,8 +1637,12 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 	}, nil
 }
 
-func createChartV1Archive(t *testing.T) (*os.File, error) {
-	archive, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("*-test-%s.tgz", "1.0.0"))
+func createChartV1Archive(t *testing.T, digest string) (*os.File, error) {
+	version := "1.0.0"
+	if digest != "" {
+		version = fmt.Sprintf("%s@%s", version, digest)
+	}
+	archive, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("*-test-%s.tgz", version))
 	if err != nil {
 		return nil, err
 	}
@@ -1613,8 +1655,12 @@ func createChartV1Archive(t *testing.T) (*os.File, error) {
 	return createChartArchive(archive, chartDir)
 }
 
-func createChartV2Archive(t *testing.T) (*os.File, error) {
-	archive, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("*-test-%s.tgz", "2.0.0"))
+func createChartV2Archive(t *testing.T, digest string) (*os.File, error) {
+	version := "2.0.0"
+	if digest != "" {
+		version = fmt.Sprintf("%s@%s", version, digest)
+	}
+	archive, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("*-test-%s.tgz", version))
 	if err != nil {
 		return nil, err
 	}
@@ -1627,8 +1673,12 @@ func createChartV2Archive(t *testing.T) (*os.File, error) {
 	return createChartArchive(archive, chartDir)
 }
 
-func createChartV3Archive(t *testing.T) (*os.File, error) {
-	archive, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("*-test-%s.tgz", "3.0.0"))
+func createChartV3Archive(t *testing.T, digest string) (*os.File, error) {
+	version := "3.0.0"
+	if digest != "" {
+		version = fmt.Sprintf("%s@%s", version, digest)
+	}
+	archive, err := os.CreateTemp(t.TempDir(), fmt.Sprintf("*-test-%s.tgz", version))
 	if err != nil {
 		return nil, err
 	}

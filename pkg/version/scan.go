@@ -163,12 +163,7 @@ func (scanner *Scanner) scanTarget(
 		)
 
 	case *ChartUpdateTarget:
-		currentVersion = target.Chart.Version
-		versionParts := strings.Split(currentVersion, "@")
-		if len(versionParts) == 2 {
-			currentVersion = versionParts[0]
-			currentDigest = versionParts[1]
-		}
+		currentVersion, currentDigest = helm.ParseVersion(target.Chart.Version)
 
 		if registry.IsOCI(target.Chart.RepoURL) {
 			host, _ := strings.CutPrefix(target.Chart.RepoURL, "oci://")

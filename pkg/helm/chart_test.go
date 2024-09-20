@@ -54,12 +54,14 @@ func newHelmEnvironment(
 	oci bool,
 	private bool,
 	cloudProvider cloud.ProviderID,
+	digest string,
 ) *helmtest.Environment {
 	helmEnvironment, err := helmtest.NewHelmEnvironment(
 		t,
 		helmtest.WithOCI(oci),
 		helmtest.WithPrivate(private),
 		helmtest.WithProvider(cloudProvider),
+		helmtest.WithDigest(digest),
 	)
 	assert.NilError(t, err)
 	return helmEnvironment
@@ -535,13 +537,13 @@ func TestChartReconciler_Reconcile_HTTP(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "digest")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
 		"default",
 		publicHelmEnvironment.ChartServer.URL(),
-		"1.0.0",
+		"1.0.0@digest",
 		nil,
 		false,
 		Values{
@@ -645,7 +647,7 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretNotFound(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -722,7 +724,7 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretRefNotFound(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -797,7 +799,7 @@ func TestChartReconciler_Reconcile_HTTPAuth(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	privateHelmEnvironment := newHelmEnvironment(t, false, true, "")
+	privateHelmEnvironment := newHelmEnvironment(t, false, true, "", "")
 	defer privateHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -902,7 +904,7 @@ func TestChartReconciler_Reconcile_OCI(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicOciHelmEnvironment := newHelmEnvironment(t, true, false, "")
+	publicOciHelmEnvironment := newHelmEnvironment(t, true, false, "", "")
 	defer publicOciHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -995,7 +997,7 @@ func TestChartReconciler_Reconcile_OCIAuthSecretNotFound(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "")
+	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "", "")
 	defer privateOciHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -1072,7 +1074,7 @@ func TestChartReconciler_Reconcile_OCIAuthSecretRefNotFound(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "")
+	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "", "")
 	defer privateOciHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -1147,7 +1149,7 @@ func TestChartReconciler_Reconcile_OCIAuth(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "")
+	privateOciHelmEnvironment := newHelmEnvironment(t, true, true, "", "")
 	defer privateOciHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -1252,7 +1254,7 @@ func TestChartReconciler_Reconcile_OCIGCPWorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	gcpHelmEnvironment := newHelmEnvironment(t, true, true, cloud.GCP)
+	gcpHelmEnvironment := newHelmEnvironment(t, true, true, cloud.GCP, "")
 	defer gcpHelmEnvironment.Close()
 	gcpCloudEnvironment, err := cloudtest.NewGCPEnvironment()
 	assert.NilError(t, err)
@@ -1353,7 +1355,7 @@ func TestChartReconciler_Reconcile_OCIAWSWorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	awsHelmEnvironment := newHelmEnvironment(t, true, true, cloud.AWS)
+	awsHelmEnvironment := newHelmEnvironment(t, true, true, cloud.AWS, "")
 	defer awsHelmEnvironment.Close()
 	awsEnvironment, err := cloudtest.NewAWSEnvironment(
 		awsHelmEnvironment.ChartServer.Addr(),
@@ -1455,7 +1457,7 @@ func TestChartReconciler_Reconcile_OCIAzureWorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	azureHelmEnvironment := newHelmEnvironment(t, true, true, cloud.Azure)
+	azureHelmEnvironment := newHelmEnvironment(t, true, true, cloud.Azure, "")
 	defer azureHelmEnvironment.Close()
 	azureEnvironment, err := cloudtest.NewAzureEnvironment()
 	assert.NilError(t, err)
@@ -1556,7 +1558,7 @@ func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -1649,7 +1651,7 @@ func TestChartReconciler_Reconcile_Cached(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	flakyHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	flakyHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer flakyHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -1783,7 +1785,7 @@ func TestChartReconciler_Reconcile_InstallPatches(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -1962,13 +1964,13 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "digest")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
 		"default",
 		publicHelmEnvironment.ChartServer.URL(),
-		"1.0.0",
+		"1.0.0@digest",
 		nil,
 		false,
 		Values{},
@@ -2048,7 +2050,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	chart := &Chart{
 		Name:    "test",
 		RepoURL: publicHelmEnvironment.ChartServer.URL(),
-		Version: "2.0.0",
+		Version: "2.0.0@digest",
 	}
 
 	releaseDeclaration.Chart = chart
@@ -2084,7 +2086,7 @@ func TestChartReconciler_Reconcile_UpgradeCRDs(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -2206,7 +2208,7 @@ func TestChartReconciler_Reconcile_UpgradeCRDsForbidden(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -2328,7 +2330,7 @@ func TestChartReconciler_Reconcile_NoUpgrade(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -2444,7 +2446,7 @@ func TestChartReconciler_Reconcile_Conflicts(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -2560,7 +2562,7 @@ func TestChartReconciler_Reconcile_IngoreConflicts(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -2707,7 +2709,7 @@ func TestChartReconciler_Reconcile_PendingUpgradeRecovery(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(
@@ -2814,7 +2816,7 @@ func TestChartReconciler_Reconcile_PendingInstallRecovery(t *testing.T) {
 	assert.NilError(t, err)
 	defer cueModuleRegistry.Close()
 
-	publicHelmEnvironment := newHelmEnvironment(t, false, false, "")
+	publicHelmEnvironment := newHelmEnvironment(t, false, false, "", "")
 	defer publicHelmEnvironment.Close()
 
 	releaseDeclaration := createReleaseDeclaration(

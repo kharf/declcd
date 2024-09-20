@@ -14,13 +14,6 @@
 
 package helm
 
-import (
-	"strings"
-
-	"github.com/kharf/declcd/pkg/kube"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
 // ReleaseComponent represents a Declcd component with its id, dependencies and content.
 // It is the Go equivalent of the CUE definition the user interacts with.
 // See [ReleaseDeclaration] for more.
@@ -79,61 +72,3 @@ type CRDs struct {
 
 // Values provide a way to override Helm Chart template defaults with custom information.
 type Values map[string]interface{}
-
-// Patches allow to overwrite rendered manifests before installing/upgrading.
-// Additionally they can be used to attach build attributes to fields.
-type Patches struct {
-	Unstructureds map[string]kube.ExtendedUnstructured
-}
-
-func NewPatches() *Patches {
-	return &Patches{
-		Unstructureds: map[string]kube.ExtendedUnstructured{},
-	}
-}
-
-func (p *Patches) Put(unstructured kube.ExtendedUnstructured) {
-	var namespace string
-	if unstructured.GetNamespace() == "" {
-		namespace = "default"
-	} else {
-		namespace = unstructured.GetNamespace()
-	}
-
-	sb := strings.Builder{}
-	sb.WriteString(unstructured.GetAPIVersion())
-	sb.WriteString("-")
-	sb.WriteString(unstructured.GetKind())
-	sb.WriteString("-")
-	sb.WriteString(namespace)
-	sb.WriteString("-")
-	sb.WriteString(unstructured.GetName())
-
-	p.Unstructureds[sb.String()] = unstructured
-}
-
-func (p *Patches) Get(
-	name string,
-	namespace string,
-	typeMeta v1.TypeMeta,
-) *kube.ExtendedUnstructured {
-	if namespace == "" {
-		namespace = "default"
-	}
-
-	sb := strings.Builder{}
-	sb.WriteString(typeMeta.APIVersion)
-	sb.WriteString("-")
-	sb.WriteString(typeMeta.Kind)
-	sb.WriteString("-")
-	sb.WriteString(namespace)
-	sb.WriteString("-")
-	sb.WriteString(name)
-
-	unstr, found := p.Unstructureds[sb.String()]
-	if !found {
-		return nil
-	}
-
-	return &unstr
-}
