@@ -208,6 +208,12 @@ _{{.Shard}}LeaderRoleName: "{{.Shard}}-leader-election"
 							args: [
 								"--log-level=0",
 							]
+							env: [
+								{
+									name: "SSH_KNOWN_HOSTS"
+									value: "/.ssh/known_hosts"
+								},
+							]
 							securityContext: {
 								allowPrivilegeEscalation: false
 								capabilities: {
