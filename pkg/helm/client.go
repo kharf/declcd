@@ -70,7 +70,7 @@ func (c *Client) apply(ctx context.Context, unstr *unstructured.Unstructured) er
 	}
 	extendedUnstr.Unstructured = unstr
 
-	if err := c.DynamicClient.Apply(ctx, extendedUnstr, c.FieldManager, kube.Force(true)); err != nil {
+	if _, err := c.DynamicClient.Apply(ctx, extendedUnstr, c.FieldManager, kube.ForceApply(true)); err != nil {
 		return err
 	}
 

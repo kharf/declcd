@@ -188,8 +188,17 @@ func (client *FakeDynamicClient) Apply(
 	obj *unstructured.Unstructured,
 	fieldManager string,
 	opts ...kube.ApplyOption,
-) error {
-	return client.Err
+) (*unstructured.Unstructured, error) {
+	return nil, client.Err
+}
+
+func (client *FakeDynamicClient) Patch(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	fieldManager string,
+	opts ...kube.PatchOption,
+) (*unstructured.Unstructured, error) {
+	return nil, client.Err
 }
 
 func (client *FakeDynamicClient) Update(

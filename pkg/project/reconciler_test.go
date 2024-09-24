@@ -745,7 +745,7 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 		t,
 		strings.Contains(
 			err.Error(),
-			`is forbidden: User "system:serviceaccount:tenant:mysa" cannot patch resource`,
+			`is forbidden: User "system:serviceaccount:tenant:mysa" cannot get resource`,
 		),
 	)
 
@@ -1373,11 +1373,11 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 		},
 	}
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		&unstr,
 		"imposter",
-		kube.Force(true),
+		kube.ForceApply(true),
 	)
 	assert.NilError(t, err)
 
@@ -1553,11 +1553,11 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 		},
 	}
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		&anotherUnstr,
 		"imposter",
-		kube.Force(true),
+		kube.ForceApply(true),
 	)
 	assert.NilError(t, err)
 

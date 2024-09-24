@@ -321,7 +321,7 @@ func (c *ChartReconciler) installOrUpgrade(
 				return nil, err
 			}
 
-			if err := c.Client.DynamicClient().Apply(ctx, manifest, c.FieldManager, kube.Force(true)); err != nil {
+			if _, err := c.Client.DynamicClient().Apply(ctx, manifest, c.FieldManager, kube.ForceApply(true)); err != nil {
 				return nil, err
 			}
 		}
@@ -516,7 +516,7 @@ func (c *ChartReconciler) diffManifest(
 		}, nil
 	}
 
-	if err := dynClient.Apply(ctx, newManifest, c.FieldManager, kube.DryRun(true)); err != nil {
+	if _, err := dynClient.Apply(ctx, newManifest, c.FieldManager, kube.DryRunApply(true)); err != nil {
 		switch k8sErrors.ReasonForError(err) {
 		case v1.StatusReasonUnknown:
 			return nil, err

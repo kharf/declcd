@@ -67,7 +67,7 @@ func (reconciler *Reconciler) Reconcile(
 		)
 
 		unstr := componentInstance.Content
-		if err := reconciler.DynamicClient.Apply(ctx, &unstr, reconciler.FieldManager, kube.Force(true)); err != nil {
+		if _, err := reconciler.DynamicClient.Apply(ctx, &unstr, reconciler.FieldManager, kube.ForceApply(true)); err != nil {
 			return err
 		}
 

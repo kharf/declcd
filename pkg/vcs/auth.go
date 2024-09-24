@@ -104,7 +104,7 @@ func (config RepositoryConfigurator) createAuthSecret(
 		unstr.Object["data"].(map[string][]byte)[Token] = []byte(config.token)
 	}
 
-	if err := config.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
+	if _, err := config.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
 		return err
 	}
 

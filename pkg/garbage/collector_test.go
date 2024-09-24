@@ -451,7 +451,7 @@ func prepareManifests(
 	for _, im := range invManifests {
 		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(toObject(im))
 		unstr := unstructured.Unstructured{Object: obj}
-		err = client.Apply(ctx, &unstr, "test")
+		_, err = client.Apply(ctx, &unstr, "test")
 		assert.NilError(t, err)
 		buf := &bytes.Buffer{}
 		json.NewEncoder(buf).Encode(unstr.Object)

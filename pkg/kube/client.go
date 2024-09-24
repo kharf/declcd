@@ -15,6 +15,7 @@
 package kube
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"slices"
@@ -23,6 +24,9 @@ import (
 
 	"helm.sh/helm/v3/pkg/action"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +41,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// InMemoryRESTClientGetter is a Helm RESTClientGetter implementatiion, which caches
+// discovery information in memory and will stay up-to-date if Invalidate is
+// called with regularity.
+//
+// NOTE: The client will NOT resort to live lookups on cache misses.
 type InMemoryRESTClientGetter struct {
 	Cfg        *rest.Config
 	RestMapper meta.RESTMapper
@@ -69,22 +78,33 @@ type applyOptions struct {
 }
 
 // ApplyOption is a specific configuration used for applying changes to an object.
-type ApplyOption interface {
-	Apply(opts *applyOptions)
-}
+type ApplyOption func(*applyOptions)
 
 // DryRun indicates that modifications should not be persisted.
-type DryRun bool
-
-func (dr DryRun) Apply(opts *applyOptions) {
-	opts.dryRun = bool(dr)
+func DryRunApply(value bool) ApplyOption {
+	return func(opts *applyOptions) {
+		opts.dryRun = value
+	}
 }
 
 // Force indicates that conflicts should not error.
-type Force bool
+func ForceApply(value bool) ApplyOption {
+	return func(opts *applyOptions) {
+		opts.force = value
+	}
+}
 
-func (f Force) Apply(opts *applyOptions) {
-	opts.force = bool(f)
+type patchOptions struct {
+	patchType types.PatchType
+}
+
+// PatchOption is a specific configuration used for applying json patch changes to an object.
+type PatchOption func(*patchOptions)
+
+func PatchType(value types.PatchType) PatchOption {
+	return func(opts *patchOptions) {
+		opts.patchType = value
+	}
 }
 
 // Client connects to a Kubernetes cluster
@@ -94,7 +114,9 @@ type Client[T any, R any] interface {
 	// and takes the ownership of this object.
 	// The object is created when it does not exist.
 	// It errors on conflicts if force is set to false.
-	Apply(ctx context.Context, obj *T, fieldManager string, opts ...ApplyOption) error
+	Apply(ctx context.Context, obj *T, fieldManager string, opts ...ApplyOption) (*R, error)
+	// Patch applies partial changes to an object and takes ownership of this object/field.
+	Patch(ctx context.Context, obj *T, fieldManager string, opts ...PatchOption) (*R, error)
 	// Get retrieves the unstructured object from a Kubernetes cluster.
 	Get(ctx context.Context, obj *T) (*R, error)
 	// Delete removes the object from the Kubernetes cluster.
@@ -152,10 +174,10 @@ func (client *DynamicClient) Apply(
 	obj *unstructured.Unstructured,
 	fieldManager string,
 	opts ...ApplyOption,
-) error {
+) (*unstructured.Unstructured, error) {
 	applyOptions := new(applyOptions)
 	for _, opt := range opts {
-		opt.Apply(applyOptions)
+		opt(applyOptions)
 	}
 
 	return client.apply(
@@ -171,24 +193,24 @@ func (client *DynamicClient) apply(
 	obj *unstructured.Unstructured,
 	fieldManager string,
 	options *applyOptions,
-) error {
+) (*unstructured.Unstructured, error) {
 	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	createOptions := v1.ApplyOptions{
+	applyOptions := v1.ApplyOptions{
 		FieldManager: fieldManager,
 		Force:        options.force,
 	}
 
 	if options.dryRun {
-		createOptions.DryRun = []string{"All"}
+		applyOptions.DryRun = []string{"All"}
 	}
 
-	_, err = resourceInterface.Apply(ctx, obj.GetName(), obj, createOptions)
+	runtimeObj, err := resourceInterface.Apply(ctx, obj.GetName(), obj, applyOptions)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if !options.dryRun {
@@ -206,18 +228,75 @@ func (client *DynamicClient) apply(
 		)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if obj.GetKind() == "CustomResourceDefinition" {
 		// clear cache because we just introduced a new crd
 		if err := client.Invalidate(); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return runtimeObj, nil
+}
+
+// Patch applies partial changes to an object and takes ownership of this object/field.
+func (client *DynamicClient) Patch(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	fieldManager string,
+	opts ...PatchOption,
+) (*unstructured.Unstructured, error) {
+	options := new(patchOptions)
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	return client.patch(ctx, obj, fieldManager, options)
+}
+
+func (client *DynamicClient) patch(
+	ctx context.Context,
+	obj *unstructured.Unstructured,
+	fieldManager string,
+	options *patchOptions,
+) (*unstructured.Unstructured, error) {
+	resourceInterface, err := client.resourceInterface(obj.GroupVersionKind(), obj.GetNamespace())
+	if err != nil {
+		return nil, err
+	}
+
+	patchOptions := v1.PatchOptions{
+		FieldManager: fieldManager,
+	}
+
+	objBytes, err := runtime.Encode(unstructured.UnstructuredJSONScheme, obj)
+	if err != nil {
+		return nil, err
+	}
+
+	runtimeObj, err := resourceInterface.Patch(
+		ctx,
+		obj.GetName(),
+		options.patchType,
+		objBytes,
+		patchOptions,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// clear cache because we just introduced a new crd
+	if obj.GetKind() == "CustomResourceDefinition" {
+
+		if err := client.Invalidate(); err != nil {
+			return nil, err
+		}
+	}
+
+	return runtimeObj, nil
 }
 
 func (client *DynamicClient) wait(
@@ -411,53 +490,192 @@ func (e *ExtendedDynamicClient) Apply(
 	obj *ExtendedUnstructured,
 	fieldManager string,
 	opts ...ApplyOption,
-) error {
+) (*unstructured.Unstructured, error) {
 	applyOptions := new(applyOptions)
 	for _, opt := range opts {
-		opt.Apply(applyOptions)
+		opt(applyOptions)
 	}
 
-	originalForce := applyOptions.force
+	runtimeObj, err := e.dynamicClient.Get(ctx, obj.Unstructured)
+	if err != nil {
+		statusErr, ok := err.(*k8sErrors.StatusError)
+		if !ok || statusErr.Status().Reason != v1.StatusReasonNotFound {
+			return nil, err
+		}
 
-	// First try always applies and errors on conflict.
+		return e.dynamicClient.apply(
+			ctx,
+			obj.Unstructured,
+			fieldManager,
+			applyOptions,
+		)
+	}
+
+	// https://github.com/kubernetes-sigs/structured-merge-diff
+	managedFieldUpdate := &unstructured.Unstructured{}
+	managedFieldUpdate.SetName(obj.GetName())
+	managedFieldUpdate.SetNamespace(obj.GetNamespace())
+	managedFieldUpdate.SetAPIVersion(obj.GetAPIVersion())
+	managedFieldUpdate.SetKind(obj.GetKind())
+	managedFields, err := cleanManagedFields(
+		runtimeObj,
+		fieldManager,
+	)
+	if err != nil {
+		return nil, err
+	}
+	managedFieldUpdate.SetManagedFields(managedFields)
+
+	if _, err := e.dynamicClient.patch(ctx, managedFieldUpdate, fieldManager, &patchOptions{
+		patchType: types.MergePatchType,
+	}); err != nil {
+		return nil, err
+	}
+
+	// if there are no ignored fields, try to apply and return immediately.
+	if obj.Metadata == nil {
+		return e.dynamicClient.apply(
+			ctx,
+			obj.Unstructured,
+			fieldManager,
+			applyOptions,
+		)
+	}
+
+	// First try applies without force and errors on conflict.
 	// That is done to avoid ownership push around because there might be other managers specifically managing fields of manifests.
 	// For example, HPAs managing replicas fields.
+	originalForce := applyOptions.force
 	applyOptions.force = false
 
-	if err := e.dynamicClient.apply(ctx, obj.Unstructured, fieldManager, applyOptions); err != nil {
+	runtimeObj, err = e.dynamicClient.apply(
+		ctx,
+		obj.Unstructured,
+		fieldManager,
+		applyOptions,
+	)
+
+	if err != nil {
 		statusErr, ok := err.(*k8sErrors.StatusError)
-		if ok && statusErr.Status().Reason == v1.StatusReasonConflict {
-			if obj.Metadata == nil && !originalForce {
-				return err
+		if !ok || statusErr.Status().Reason != v1.StatusReasonConflict {
+			return nil, err
+		}
+
+		// Retry with original force option.
+		applyOptions.force = originalForce
+		return e.applyWithoutIgnoredFields(
+			ctx,
+			obj,
+			fieldManager,
+			statusErr.Status().Details.Causes,
+			applyOptions,
+		)
+	}
+
+	return runtimeObj, nil
+}
+
+func (e *ExtendedDynamicClient) applyWithoutIgnoredFields(
+	ctx context.Context,
+	obj *ExtendedUnstructured,
+	fieldManager string,
+	conflictCauses []v1.StatusCause,
+	applyOptions *applyOptions,
+) (*unstructured.Unstructured, error) {
+	unstr := obj.Unstructured
+	if obj.Metadata != nil {
+		unstr = obj.DeepCopy()
+
+		for _, cause := range conflictCauses {
+			if err := removeIgnoredFields(cause.Field, unstr.Object, *obj.Metadata); err != nil {
+				return nil, err
 			}
-
-			unstr := obj.Unstructured
-			if obj.Metadata != nil {
-				causes := statusErr.Status().Details.Causes
-
-				unstr = obj.DeepCopy()
-
-				for _, cause := range causes {
-					if err := deleteIgnoredFields(cause.Field, unstr.Object, *obj.Metadata); err != nil {
-						return err
-					}
-				}
-			}
-
-			// Retry with original force option.
-			applyOptions.force = originalForce
-			if err := e.dynamicClient.apply(ctx, unstr, fieldManager, applyOptions); err != nil {
-				return err
-			}
-		} else {
-			return err
 		}
 	}
 
-	return nil
+	return e.dynamicClient.apply(ctx, unstr, fieldManager, applyOptions)
 }
 
-func deleteIgnoredFields(
+var imposterFieldManagers = []string{
+	"kubectl", "k9s",
+}
+
+func cleanManagedFields(
+	runtimeObj *unstructured.Unstructured,
+	fieldManager string,
+) ([]v1.ManagedFieldsEntry, error) {
+	var controllerManagedFieldsEntry v1.ManagedFieldsEntry
+	manuallyManagedFields := make([]v1.ManagedFieldsEntry, 0)
+	otherManagedFields := make([]v1.ManagedFieldsEntry, 0)
+	for _, managedField := range runtimeObj.GetManagedFields() {
+		if managedField.Subresource != "" {
+			continue
+		}
+
+		if isImposter(managedField.Manager) {
+			manuallyManagedFields = append(manuallyManagedFields, managedField)
+			continue
+		}
+
+		if managedField.Manager == fieldManager {
+			controllerManagedFieldsEntry = managedField
+			continue
+		}
+
+		otherManagedFields = append(otherManagedFields, managedField)
+	}
+
+	for _, manuallyManagedField := range manuallyManagedFields {
+		manualSet := fieldpath.Set{}
+		err := manualSet.FromJSON(bytes.NewReader(manuallyManagedField.FieldsV1.Raw))
+		if err != nil {
+			return nil, err
+		}
+
+		controllerSet := fieldpath.Set{}
+		if err := controllerSet.FromJSON(bytes.NewReader(controllerManagedFieldsEntry.FieldsV1.Raw)); err != nil {
+			return nil, err
+		}
+
+		mergedSet := manualSet.Union(&controllerSet)
+
+		controllerManagedFieldsEntry.FieldsV1.Raw, err = mergedSet.ToJSON()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	otherManagedFields = append(otherManagedFields, controllerManagedFieldsEntry)
+	return otherManagedFields, nil
+}
+
+func isImposter(
+	manager string,
+) bool {
+	for _, imposter := range imposterFieldManagers {
+		if strings.Contains(manager, imposter) {
+			return true
+		}
+	}
+	return false
+}
+
+// Patch applies partial changes to an object and takes ownership of this object/field.
+func (client *ExtendedDynamicClient) Patch(
+	ctx context.Context,
+	obj *ExtendedUnstructured,
+	fieldManager string,
+	opts ...PatchOption,
+) (*unstructured.Unstructured, error) {
+	options := new(patchOptions)
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	return client.dynamicClient.patch(ctx, obj.Unstructured, fieldManager, options)
+}
+
+func removeIgnoredFields(
 	jsonPath string,
 	unstrMap map[string]any,
 	metadata ManifestMetadata,
