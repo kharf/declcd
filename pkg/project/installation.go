@@ -166,7 +166,7 @@ func (act InstallAction) installObject(
 	default:
 	}
 
-	if err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
+	if _, err := act.kubeClient.Apply(ctx, unstr, fieldManager); err != nil {
 		if k8sErrors.IsNotFound(err) {
 			time.Sleep(1 * time.Second)
 			return act.installObject(ctx, unstr, fieldManager)

@@ -88,7 +88,7 @@ func applyRepoAuthSecret(
 			},
 		},
 	}
-	err := client.Apply(
+	_, err := client.Apply(
 		ctx,
 		&unstr,
 		"charttest",
@@ -583,7 +583,7 @@ func TestChartReconciler_Reconcile_HTTP(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -693,7 +693,7 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretNotFound(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -768,7 +768,7 @@ func TestChartReconciler_Reconcile_HTTPAuthSecretRefNotFound(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -845,7 +845,7 @@ func TestChartReconciler_Reconcile_HTTPAuth(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -952,7 +952,7 @@ func TestChartReconciler_Reconcile_OCI(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1049,7 +1049,7 @@ func TestChartReconciler_Reconcile_OCIAuthSecretNotFound(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1124,7 +1124,7 @@ func TestChartReconciler_Reconcile_OCIAuthSecretRefNotFound(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1201,7 +1201,7 @@ func TestChartReconciler_Reconcile_OCIAuth(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1310,7 +1310,7 @@ func TestChartReconciler_Reconcile_OCIGCPWorkloadIdentity(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1412,7 +1412,7 @@ func TestChartReconciler_Reconcile_OCIAWSWorkloadIdentity(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1513,7 +1513,7 @@ func TestChartReconciler_Reconcile_OCIAzureWorkloadIdentity(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1606,7 +1606,7 @@ func TestChartReconciler_Reconcile_Namespaced(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1699,7 +1699,7 @@ func TestChartReconciler_Reconcile_Cached(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -1919,7 +1919,7 @@ func TestChartReconciler_Reconcile_InstallPatches(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2012,7 +2012,7 @@ func TestChartReconciler_Reconcile_Upgrade(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2134,7 +2134,7 @@ func TestChartReconciler_Reconcile_UpgradeCRDs(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2256,7 +2256,7 @@ func TestChartReconciler_Reconcile_UpgradeCRDsForbidden(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2378,7 +2378,7 @@ func TestChartReconciler_Reconcile_NoUpgrade(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2494,7 +2494,7 @@ func TestChartReconciler_Reconcile_Conflicts(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2527,11 +2527,11 @@ func TestChartReconciler_Reconcile_Conflicts(t *testing.T) {
 		},
 	}
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		&unstr,
 		"imposter",
-		kube.Force(true),
+		kube.ForceApply(true),
 	)
 	assert.NilError(t, err)
 
@@ -2641,7 +2641,7 @@ func TestChartReconciler_Reconcile_IngoreConflicts(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2674,11 +2674,11 @@ func TestChartReconciler_Reconcile_IngoreConflicts(t *testing.T) {
 		},
 	}
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		&unstr,
 		"imposter",
-		kube.Force(true),
+		kube.ForceApply(true),
 	)
 	assert.NilError(t, err)
 
@@ -2757,7 +2757,7 @@ func TestChartReconciler_Reconcile_PendingUpgradeRecovery(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
@@ -2864,7 +2864,7 @@ func TestChartReconciler_Reconcile_PendingInstallRecovery(t *testing.T) {
 	ns.SetKind("Namespace")
 	ns.SetName(releaseDeclaration.Namespace)
 
-	err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
+	_, err = kubernetes.DynamicTestKubeClient.DynamicClient().Apply(
 		ctx,
 		ns,
 		"controller",
