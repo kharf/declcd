@@ -184,8 +184,9 @@ func (efrt *enforceHostRoundTripper) RoundTrip(r *http.Request) (*http.Response,
 }
 
 type deployKeyRequest struct {
-	Key   string `json:"key"`
-	Title string `json:"title"`
+	Key     string `json:"key"`
+	Title   string `json:"title"`
+	CanPush bool   `json:"can_push"`
 }
 
 func MockGitProvider(
@@ -290,6 +291,7 @@ func MockGitProvider(
 
 			assert.Equal(t, req.Title, expectedDeployKeyTitle)
 			assert.Assert(t, strings.HasPrefix(req.Key, "ssh-ed25519 AAAA"))
+			assert.Equal(t, req.CanPush, true)
 
 			w.Write([]byte(`{
 				"key" : "ssh-rsa AAAA...",

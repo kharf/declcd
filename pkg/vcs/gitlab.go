@@ -79,9 +79,11 @@ func (g *gitlabClient) CreateDeployKey(
 	if err != nil {
 		return nil, err
 	}
+	canPush := true
 	_, _, err = g.client.DeployKeys.AddDeployKey(id, &gogitlab.AddDeployKeyOptions{
-		Title: &deployKey.title,
-		Key:   &deployKey.publicKeyOpenSSH,
+		Title:   &deployKey.title,
+		Key:     &deployKey.publicKeyOpenSSH,
+		CanPush: &canPush,
 	})
 	if err != nil {
 		return nil, err
