@@ -608,16 +608,12 @@ func cleanManagedFields(
 	manuallyManagedFields := make([]v1.ManagedFieldsEntry, 0)
 	otherManagedFields := make([]v1.ManagedFieldsEntry, 0)
 	for _, managedField := range runtimeObj.GetManagedFields() {
-		if managedField.Subresource != "" {
-			continue
-		}
-
-		if isImposter(managedField.Manager) {
+		if isImposter(managedField.Manager) && managedField.Subresource == "" {
 			manuallyManagedFields = append(manuallyManagedFields, managedField)
 			continue
 		}
 
-		if managedField.Manager == fieldManager {
+		if managedField.Manager == fieldManager && managedField.Subresource == "" {
 			controllerManagedFieldsEntry = managedField
 			continue
 		}
