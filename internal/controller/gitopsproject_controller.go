@@ -114,17 +114,18 @@ func (controller *GitOpsProjectController) Reconcile(
 		return requeueResult, nil
 	}
 
+	// Refetch to get newest state.
+	if err := controller.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
+		log.Error(err, "Unable to fetch GitOpsProject resource from cluster")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	reconciledTime := v1.Now()
 	gProject.Status.Revision = gitops.GitOpsProjectRevision{
 		CommitHash:    result.CommitHash,
 		ReconcileTime: reconciledTime,
 	}
 
-	// Refetch to get newest state.
-	if err := controller.Client.Get(ctx, req.NamespacedName, &gProject); err != nil {
-		log.Error(err, "Unable to fetch GitOpsProject resource from cluster")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
 	if err := controller.updateCondition(ctx, &gProject, v1.Condition{
 		Type:               "Finished",
 		Reason:             "Success",
