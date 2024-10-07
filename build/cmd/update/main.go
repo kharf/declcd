@@ -39,7 +39,7 @@ func run() error {
 	defer client.Close()
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
 	_, err = client.Container().
-		From("node:20.17.0-alpine").
+		From("node:20.18.0-alpine").
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithSecretVariable("RENOVATE_TOKEN", pat).
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
