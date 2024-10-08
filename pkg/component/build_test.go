@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func useSuccessTemplate() string {
+func useAllFeaturesTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
 module: "github.com/kharf/declcd/internal/component/build@v0"
@@ -108,7 +108,7 @@ _deployment: {
 				containers: [
 					{
 						name:  "prometheus"
-						image: "prometheus:1.14.2" @update(strategy=semver, constraint="<= 1.15.3, >= 1.4", secret=promreg, integration=direct)
+						image: "prometheus:1.14.2" @update(strategy=semver, constraint="<= 1.15.3, >= 1.4", secret=promreg, integration=direct, schedule="5 * * * * *")
 						ports: [{
 							containerPort: 80
 						}]
@@ -970,9 +970,9 @@ func TestBuilder_Build(t *testing.T) {
 		expectedErr         string
 	}{
 		{
-			name:        "Success",
+			name:        "All-Features",
 			packagePath: "./infra/success",
-			template:    useSuccessTemplate(),
+			template:    useAllFeaturesTemplate(),
 			expectedBuildResult: &BuildResult{
 				Instances: []Instance{
 					&Manifest{
@@ -1559,13 +1559,14 @@ This field may not be empty.`,
 					{
 						Strategy:   version.SemVer,
 						Constraint: "<= 1.15.3, >= 1.4",
+						Schedule:   "5 * * * * *",
 						Auth: &cloud.Auth{
 							SecretRef: &cloud.SecretRef{
 								Name: "promreg",
 							},
 						},
 						Integration: version.Direct,
-						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						File:        "infra/success/component.cue",
 						Line:        65,
 						Target: &version.ContainerUpdateTarget{
 							Image: "prometheus:1.14.2",
@@ -1590,7 +1591,7 @@ This field may not be empty.`,
 							},
 						},
 						Integration: version.PR,
-						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						File:        "infra/success/component.cue",
 						Line:        79,
 						Target: &version.ContainerUpdateTarget{
 							Image: "sidecar2:1.14.2",
@@ -1610,7 +1611,7 @@ This field may not be empty.`,
 						Strategy:    version.SemVer,
 						Constraint:  "<5.0.0",
 						Integration: version.PR,
-						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						File:        "infra/success/component.cue",
 						Line:        137,
 						Target: &version.ChartUpdateTarget{
 							Chart: &helm.Chart{
@@ -1628,7 +1629,7 @@ This field may not be empty.`,
 							},
 						},
 						Integration: version.Direct,
-						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						File:        "infra/success/component.cue",
 						Line:        178,
 						Target: &version.ContainerUpdateTarget{
 							Image: "sidecar:1.14.2",
@@ -1648,7 +1649,7 @@ This field may not be empty.`,
 						Strategy:    version.SemVer,
 						Constraint:  "*",
 						Integration: version.Direct,
-						File:        fmt.Sprintf("%s/infra/success/component.cue", rootDir),
+						File:        "infra/success/component.cue",
 						Line:        221,
 						Target: &version.ChartUpdateTarget{
 							Chart: &helm.Chart{

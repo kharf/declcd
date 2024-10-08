@@ -140,7 +140,7 @@ func ReadCredentials(
 	ctx context.Context,
 	host string,
 	auth Auth,
-	kubeClient *kube.DynamicClient,
+	kubeClient kube.Client[unstructured.Unstructured, unstructured.Unstructured],
 	opts ...option,
 ) (*Credentials, error) {
 	options := options{
@@ -194,7 +194,7 @@ func readCredentialsFromSecret(
 	ctx context.Context,
 	secretName string,
 	namespace string,
-	client *kube.DynamicClient,
+	client kube.Client[unstructured.Unstructured, unstructured.Unstructured],
 ) (*Credentials, error) {
 	secretReq := &unstructured.Unstructured{}
 	secretReq.SetKind("Secret")

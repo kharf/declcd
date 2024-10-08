@@ -17,6 +17,7 @@ package component
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	cueErrors "cuelang.org/go/cue/errors"
@@ -141,7 +142,12 @@ func (b Builder) Build(opts ...buildOption) (*BuildResult, error) {
 				return nil, buildError(err)
 			}
 
-			content, metadata, updateInstr, err := decodeValue(*contentValue, nil, nil)
+			content, metadata, updateInstr, err := decodeValue(
+				*contentValue,
+				nil,
+				nil,
+				options.projectRoot,
+			)
 			if err != nil {
 				return nil, buildError(err)
 			}
@@ -182,7 +188,7 @@ func (b Builder) Build(opts ...buildOption) (*BuildResult, error) {
 				return nil, buildError(err)
 			}
 
-			chart, updateInstr, err := decodeChart(componentValue)
+			chart, updateInstr, err := decodeChart(componentValue, options.projectRoot)
 			if err != nil {
 				return nil, buildError(err)
 			}
@@ -209,7 +215,12 @@ func (b Builder) Build(opts ...buildOption) (*BuildResult, error) {
 			patches := helm.NewPatches()
 			for patchesValueIter.Next() {
 				value := patchesValueIter.Value()
-				content, metadata, updateInstr, err := decodeValue(value, nil, nil)
+				content, metadata, updateInstr, err := decodeValue(
+					value,
+					nil,
+					nil,
+					options.projectRoot,
+				)
 				if err != nil {
 					return nil, buildError(err)
 				}
@@ -284,7 +295,10 @@ func decodeValues(componentValue cue.Value) (helm.Values, error) {
 	return values, nil
 }
 
-func decodeChart(componentValue cue.Value) (*helm.Chart, *version.UpdateInstruction, error) {
+func decodeChart(
+	componentValue cue.Value,
+	projectRoot string,
+) (*helm.Chart, *version.UpdateInstruction, error) {
 	chartValue, err := getValue(componentValue, "chart")
 	if err != nil {
 		return nil, nil, err
@@ -338,7 +352,12 @@ func decodeChart(componentValue cue.Value) (*helm.Chart, *version.UpdateInstruct
 		}
 
 		if updateInstr != nil {
-			updateInstr.File = versionValue.Pos().Filename()
+			relPath, err := filepath.Rel(projectRoot, versionValue.Pos().Filename())
+			if err != nil {
+				return nil, nil, err
+			}
+
+			updateInstr.File = relPath
 			updateInstr.Line = versionValue.Pos().Line()
 			updateInstr.Target = &version.ChartUpdateTarget{
 				Chart: chart,
@@ -353,6 +372,7 @@ func decodeValue(
 	value cue.Value,
 	defaultValue *cue.Value,
 	parentNode map[string]any,
+	projectRoot string,
 ) (any, *kube.ManifestMetadata, []version.UpdateInstruction, error) {
 	if value.Err() != nil {
 		return nil, nil, nil, value.Err()
@@ -381,7 +401,7 @@ func decodeValue(
 			)
 		}
 
-		return decodeValue(value, &defaultValue, parentNode)
+		return decodeValue(value, &defaultValue, parentNode, projectRoot)
 	}
 
 	switch value.Kind() {
@@ -390,18 +410,23 @@ func decodeValue(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		content, metadata, updateInstructions, err = decodeStruct(finalValue)
+		content, metadata, updateInstructions, err = decodeStruct(finalValue, projectRoot)
 
 	case cue.ListKind:
 		fieldMeta, err = decodeBuildAttributes(value)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		content, metadata, updateInstructions, err = decodeList(finalValue)
+		content, metadata, updateInstructions, err = decodeList(finalValue, projectRoot)
 
 	default:
 		var updateInstr *version.UpdateInstruction
-		content, fieldMeta, updateInstr, err = decodeField(value, finalValue, parentNode)
+		content, fieldMeta, updateInstr, err = decodeField(
+			value,
+			finalValue,
+			parentNode,
+			projectRoot,
+		)
 		if updateInstr != nil {
 			updateInstructions = append(updateInstructions, *updateInstr)
 		}
@@ -426,6 +451,7 @@ func decodeValue(
 
 func decodeList(
 	value cue.Value,
+	projectRoot string,
 ) ([]any, *kube.ManifestMetadata, []version.UpdateInstruction, error) {
 	iter, err := value.List()
 	if err != nil {
@@ -442,6 +468,7 @@ func decodeList(
 			childValue,
 			nil,
 			nil,
+			projectRoot,
 		)
 		if err != nil {
 			return nil, nil, nil, err
@@ -467,6 +494,7 @@ func decodeField(
 	value cue.Value,
 	finalValue cue.Value,
 	parentNode map[string]any,
+	projectRoot string,
 ) (any, *kube.ManifestFieldMetadata, *version.UpdateInstruction, error) {
 
 	switch finalValue.Kind() {
@@ -481,7 +509,12 @@ func decodeField(
 		}
 
 		if updateInstr != nil {
-			updateInstr.File = finalValue.Pos().Filename()
+			relPath, err := filepath.Rel(projectRoot, finalValue.Pos().Filename())
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			updateInstr.File = relPath
 			updateInstr.Line = finalValue.Pos().Line()
 			updateInstr.Target = &version.ContainerUpdateTarget{
 				Image:            concreteValue,
@@ -542,6 +575,7 @@ func decodeField(
 
 func decodeStruct(
 	value cue.Value,
+	projectRoot string,
 ) (map[string]any, *kube.ManifestMetadata, []version.UpdateInstruction, error) {
 	iter, err := value.Fields()
 	if err != nil {
@@ -559,7 +593,12 @@ func decodeStruct(
 			return nil, nil, nil, ErrEmptyFieldLabel
 		}
 
-		childContent, childMetadata, childUpdateInstr, err := decodeValue(childValue, nil, content)
+		childContent, childMetadata, childUpdateInstr, err := decodeValue(
+			childValue,
+			nil,
+			content,
+			projectRoot,
+		)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -652,6 +691,11 @@ func decodeUpdateAttribute(
 		return nil, err
 	}
 
+	schedule, _, err := attr.Lookup(0, "schedule")
+	if err != nil {
+		return nil, err
+	}
+
 	var auth *cloud.Auth
 	if workloadIdentity != "" {
 		auth = &cloud.Auth{
@@ -690,6 +734,7 @@ func decodeUpdateAttribute(
 		Constraint:  constraint,
 		Auth:        auth,
 		Integration: integration,
+		Schedule:    schedule,
 	}
 
 	return updateInstr, nil

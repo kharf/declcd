@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5"
@@ -30,7 +29,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
 	inttxtar "github.com/kharf/declcd/internal/txtar"
-	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/vcs"
 	"github.com/kharf/declcd/pkg/version"
 	"golang.org/x/tools/txtar"
@@ -38,139 +36,47 @@ import (
 )
 
 type updateTestCase struct {
-	name                    string
-	haveFiles               string
-	haveAvailableUpdates    []version.AvailableUpdate
-	haveBranches            []string
-	haveBranchesWithChanges map[string]string
-	havePullRequests        []vcs.PullRequestRequest
-	wantUpdates             []version.Update
-	wantPullRequests        []vcs.PullRequestRequest
-	wantFiles               string
-	wantErr                 string
+	name                  string
+	haveFiles             string
+	haveAvailableUpdate   version.AvailableUpdate
+	haveBranch            string
+	haveBranchWithChanges map[string]string
+	havePullRequest       *vcs.PullRequestRequest
+	wantUpdate            *version.Update
+	wantPullRequest       *vcs.PullRequestRequest
+	wantFiles             string
+	wantErr               string
 }
 
 var (
 	updates = updateTestCase{
-		name: "Updates",
+		name: "Update",
 		haveFiles: `
 -- apps/myapp.cue --
 image: "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a"
-image2: "myimage:1.16.5"
-version: "1.15.0@digest"
-version2: "1.15.0@digest"
-image3: "myimage3:1.16.5"
 `,
 		wantFiles: `
 -- apps/myapp.cue --
 image: "myimage:1.16.5@sha256:digest"
-image2: "myimage:1.16.5"
-version: "1.17.0@newdigest"
-version2: "1.15.0@digest"
-image3: "myimage3:1.16.5"
 `,
-		haveAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
-				NewVersion:     "1.16.5@sha256:digest",
-				Integration:    version.Direct,
-				File:           "apps/myapp.cue",
-				Line:           1,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
-					},
-					UnstructuredKey: "image",
+		haveAvailableUpdate: version.AvailableUpdate{
+			CurrentVersion: "1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
+			NewVersion:     "1.16.5@sha256:digest",
+			Integration:    version.Direct,
+			File:           "apps/myapp.cue",
+			Line:           1,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0@sha256:sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
 				},
-			},
-			{
-				CurrentVersion: "1.16.5",
-				NewVersion:     "1.16.5",
-				Integration:    version.Direct,
-				File:           "apps/myapp.cue",
-				Line:           2,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.16.5",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.16.5",
-					},
-					UnstructuredKey: "image",
-				},
-			},
-			{
-				CurrentVersion: "1.15.0@digest",
-				NewVersion:     "1.17.0@newdigest",
-				Integration:    version.Direct,
-				File:           "apps/myapp.cue",
-				Line:           3,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0@digest",
-						Auth:    nil,
-					},
-				},
-				URL: "https://test",
-			},
-			{
-				CurrentVersion: "1.15.0@digest",
-				NewVersion:     "1.17.0@newdigest",
-				Integration:    version.PR,
-				File:           "apps/myapp.cue",
-				Line:           4,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart2",
-						RepoURL: "oci://",
-						Version: "1.15.0@digest",
-						Auth:    nil,
-					},
-				},
-				URL: "https://test",
-			},
-			{
-				CurrentVersion: "1.16.5",
-				NewVersion:     "1.17.0",
-				Integration:    version.PR,
-				File:           "apps/myapp.cue",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage3:1.16.5",
-					UnstructuredNode: map[string]any{
-						"image": "myimage3:1.16.5",
-					},
-					UnstructuredKey: "image",
-				},
-				URL: "https://test",
+				UnstructuredKey: "image",
 			},
 		},
-		wantUpdates: []version.Update{
-			{
-				CommitHash: "",
-				NewVersion: "1.16.5@sha256:digest",
-			},
-			{
-				CommitHash: "",
-				NewVersion: "1.17.0@newdigest",
-			},
-		},
-		wantPullRequests: []vcs.PullRequestRequest{
-			{
-				RepoID:      vcs.DefaultRepoID,
-				Title:       "chore(update): bump mychart2 to 1.17.0@newdigest",
-				Description: "https://test",
-				Branch:      "declcd/update-mychart2",
-				BaseBranch:  "main",
-			},
-			{
-				RepoID:      vcs.DefaultRepoID,
-				Title:       "chore(update): bump myimage3 to 1.17.0",
-				Description: "https://test",
-				Branch:      "declcd/update-myimage3",
-				BaseBranch:  "main",
-			},
+		wantUpdate: &version.Update{
+			CommitHash: "",
+			NewVersion: "1.16.5@sha256:digest",
+			IsPR:       false,
 		},
 	}
 
@@ -184,30 +90,31 @@ image: "myimage:1.14.0"
 -- apps/myapp.cue --
 image: "myimage:1.14.0"
 `,
-		haveAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.14.0",
-				NewVersion:     "1.15.0",
-				Integration:    version.PR,
-				File:           "apps/myapp.cue",
-				Line:           1,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.14.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.14.0",
-					},
-					UnstructuredKey: "image",
+		haveAvailableUpdate: version.AvailableUpdate{
+			CurrentVersion: "1.14.0",
+			NewVersion:     "1.15.0",
+			Integration:    version.PR,
+			File:           "apps/myapp.cue",
+			Line:           1,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.14.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.14.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
-		haveBranches: []string{"declcd/update-myimage"},
-		wantPullRequests: []vcs.PullRequestRequest{
-			{
-				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump myimage to 1.15.0",
-				Branch:     "declcd/update-myimage",
-				BaseBranch: "main",
-			},
+		haveBranch: "declcd/update-myimage",
+		wantPullRequest: &vcs.PullRequestRequest{
+			RepoID:     vcs.DefaultRepoID,
+			Title:      "chore(update): bump myimage to 1.15.0",
+			Branch:     "declcd/update-myimage",
+			BaseBranch: "main",
+		},
+		wantUpdate: &version.Update{
+			CommitHash: "",
+			NewVersion: "1.15.0",
+			IsPR:       true,
 		},
 	}
 
@@ -221,35 +128,36 @@ image: "myimage:1.14.0"
 -- apps/myapp.cue --
 image: "myimage:1.14.0"
 `,
-		haveBranchesWithChanges: map[string]string{
+		haveBranchWithChanges: map[string]string{
 			"declcd/update-myimage": `
 -- apps/myapp.cue --
 image: "myimage:1.15.0"
 `,
 		},
-		haveAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.14.0",
-				NewVersion:     "1.15.0",
-				Integration:    version.PR,
-				File:           "apps/myapp.cue",
-				Line:           1,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.14.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.14.0",
-					},
-					UnstructuredKey: "image",
+		haveAvailableUpdate: version.AvailableUpdate{
+			CurrentVersion: "1.14.0",
+			NewVersion:     "1.15.0",
+			Integration:    version.PR,
+			File:           "apps/myapp.cue",
+			Line:           1,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.14.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.14.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
-		wantPullRequests: []vcs.PullRequestRequest{
-			{
-				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump myimage to 1.15.0",
-				Branch:     "declcd/update-myimage",
-				BaseBranch: "main",
-			},
+		wantPullRequest: &vcs.PullRequestRequest{
+			RepoID:     vcs.DefaultRepoID,
+			Title:      "chore(update): bump myimage to 1.15.0",
+			Branch:     "declcd/update-myimage",
+			BaseBranch: "main",
+		},
+		wantUpdate: &version.Update{
+			CommitHash: "",
+			NewVersion: "1.15.0",
+			IsPR:       true,
 		},
 	}
 
@@ -258,63 +166,36 @@ image: "myimage:1.15.0"
 		haveFiles: `
 -- apps/myapp.cue --
 image: "myimage:1.14.0"
-image: "myimage:1.14.0"
 `,
 		wantFiles: `
 -- apps/myapp.cue --
 image: "myimage:1.14.0"
-image: "myimage:1.15.0"
 `,
-		havePullRequests: []vcs.PullRequestRequest{
-			{
-				Branch:     "declcd/update-myimage",
-				BaseBranch: "main",
-			},
+		havePullRequest: &vcs.PullRequestRequest{
+			Branch:     "declcd/update-myimage",
+			BaseBranch: "main",
 		},
-		wantPullRequests: []vcs.PullRequestRequest{
-			{
-				RepoID:     vcs.DefaultRepoID,
-				Title:      "chore(update): bump myimage to 1.15.0",
-				Branch:     "declcd/update-myimage",
-				BaseBranch: "main",
-			},
+		wantPullRequest: &vcs.PullRequestRequest{
+			RepoID:     vcs.DefaultRepoID,
+			Title:      "chore(update): bump myimage to 1.15.0",
+			Branch:     "declcd/update-myimage",
+			BaseBranch: "main",
 		},
-		haveAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.14.0",
-				NewVersion:     "1.15.0",
-				Integration:    version.PR,
-				File:           "apps/myapp.cue",
-				Line:           1,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.14.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.14.0",
-					},
-					UnstructuredKey: "image",
+		haveAvailableUpdate: version.AvailableUpdate{
+			CurrentVersion: "1.14.0",
+			NewVersion:     "1.15.0",
+			Integration:    version.PR,
+			File:           "apps/myapp.cue",
+			Line:           1,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.14.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.14.0",
 				},
-			},
-			{
-				CurrentVersion: "1.14.0",
-				NewVersion:     "1.15.0",
-				Integration:    version.Direct,
-				File:           "apps/myapp.cue",
-				Line:           2,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.14.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.14.0",
-					},
-					UnstructuredKey: "image",
-				},
+				UnstructuredKey: "image",
 			},
 		},
-		wantUpdates: []version.Update{
-			{
-				CommitHash: "",
-				NewVersion: "1.15.0",
-			},
-		},
+		wantUpdate: nil,
 	}
 )
 
@@ -341,12 +222,21 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	haveArch, err := inttxtar.Create(projectDir, bytes.NewReader([]byte(tc.haveFiles)))
 	assert.NilError(t, err)
 
+	wantPRs := make([]vcs.PullRequestRequest, 0, 1)
+	if tc.wantPullRequest != nil {
+		wantPRs = append(wantPRs, *tc.wantPullRequest)
+	}
+	havePRs := make([]vcs.PullRequestRequest, 0, 1)
+	if tc.havePullRequest != nil {
+		havePRs = append(havePRs, *tc.havePullRequest)
+	}
+
 	server, client := gittest.MockGitProvider(
 		t,
 		vcs.DefaultRepoID,
 		fmt.Sprintf("declcd-%s", `dev`),
-		tc.wantPullRequests,
-		tc.havePullRequests,
+		wantPRs,
+		havePRs,
 	)
 	defer server.Close()
 
@@ -360,12 +250,12 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	}), vcs.WithProvider(vcs.GitHub), vcs.WithHTTPClient(client))
 	assert.NilError(t, err)
 
-	for _, branch := range tc.haveBranches {
-		err = vcsRepository.SwitchBranch(branch, true)
+	if tc.haveBranch != "" {
+		err = vcsRepository.SwitchBranch(tc.haveBranch, true)
 		assert.NilError(t, err)
 	}
 
-	for branch, files := range tc.haveBranchesWithChanges {
+	for branch, files := range tc.haveBranchWithChanges {
 		err = vcsRepository.SwitchBranch(branch, true)
 		assert.NilError(t, err)
 		_, err := inttxtar.Create(projectDir, bytes.NewReader([]byte(files)))
@@ -380,35 +270,33 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	updater := &version.Updater{
 		Log:        logr.Discard(),
 		Repository: vcsRepository,
+		Branch:     "main",
 	}
 
-	patchedAvailableUpdates := make([]version.AvailableUpdate, 0, len(tc.haveAvailableUpdates))
-	for _, availableUpdate := range tc.haveAvailableUpdates {
-		patchedAvailableUpdates = append(
-			patchedAvailableUpdates,
-			patchFile(availableUpdate, projectDir),
-		)
-	}
-
-	updates, err := updater.Update(ctx, patchedAvailableUpdates, "main")
+	update, err := updater.Update(ctx, tc.haveAvailableUpdate)
 	if tc.wantErr != "" {
 		assert.ErrorContains(t, err, tc.wantErr)
 		return
 	}
 	assert.NilError(t, err)
 
-	assert.Equal(t, len(updates.DirectUpdates), len(tc.wantUpdates))
-	assert.Assert(t, slices.CompareFunc(
-		updates.DirectUpdates,
-		tc.wantUpdates,
-		func(current version.Update, expected version.Update) int {
-			if current.NewVersion == expected.NewVersion {
-				return 0
-			}
+	if tc.wantUpdate != nil {
+		assert.Equal(
+			t,
+			update.IsPR,
+			tc.wantUpdate.IsPR,
+		)
 
-			return -1
-		},
-	) == 0)
+		assert.Equal(
+			t,
+			update.NewVersion,
+			tc.wantUpdate.NewVersion,
+		)
+
+		assert.Assert(t, update.CommitHash != "")
+	} else {
+		assert.Assert(t, update == nil)
+	}
 
 	wantArch, err := inttxtar.Create(t.TempDir(), bytes.NewReader([]byte(tc.wantFiles)))
 	assert.NilError(t, err)
@@ -420,38 +308,18 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 		"wrong testcase: file count of haveFiles and wantFiles should not differ",
 	)
 
-	for _, availableUpdate := range patchedAvailableUpdates {
-		switch target := availableUpdate.Target.(type) {
-		case *version.ContainerUpdateTarget:
-			split := strings.Split(target.Image, ":")
-			if availableUpdate.Integration == version.PR {
-				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], availableUpdate.CurrentVersion))
-			} else {
-				assert.Equal(t, target.GetStructValue(), fmt.Sprintf("%s:%s", split[0], availableUpdate.NewVersion))
-			}
-		case *version.ChartUpdateTarget:
-			if availableUpdate.Integration == version.PR {
-				assert.Equal(t, target.GetStructValue(), availableUpdate.CurrentVersion)
-			} else {
-				assert.Equal(t, target.GetStructValue(), availableUpdate.NewVersion)
-			}
-		}
+	haveFile, err := os.Open(filepath.Join(projectDir, tc.haveAvailableUpdate.File))
+	assert.NilError(t, err)
+	haveData, err := io.ReadAll(haveFile)
+	assert.NilError(t, err)
 
-		haveFile, err := os.Open(availableUpdate.File)
-		assert.NilError(t, err)
-		haveData, err := io.ReadAll(haveFile)
-		assert.NilError(t, err)
-		haveFileName, err := filepath.Rel(projectDir, haveFile.Name())
-		assert.NilError(t, err)
+	assert.Assert(t, slices.ContainsFunc(wantArch.Files, func(wantFile txtar.File) bool {
+		return wantFile.Name == tc.haveAvailableUpdate.File
+	}))
 
-		assert.Assert(t, slices.ContainsFunc(wantArch.Files, func(wantFile txtar.File) bool {
-			return wantFile.Name == haveFileName
-		}))
-
-		for _, wantFile := range wantArch.Files {
-			if wantFile.Name == haveFileName {
-				assert.Equal(t, string(haveData), string(wantFile.Data))
-			}
+	for _, wantFile := range wantArch.Files {
+		if wantFile.Name == tc.haveAvailableUpdate.File {
+			assert.Equal(t, string(haveData), string(wantFile.Data))
 		}
 	}
 
@@ -470,17 +338,12 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	assert.NilError(t, err)
 
 	// check if prs are pushed to remote
-	for _, pr := range tc.wantPullRequests {
+	if tc.wantPullRequest != nil {
 		assert.Assert(
 			t,
 			slices.ContainsFunc(remoteRefs, func(ref *plumbing.Reference) bool {
-				return pr.Branch == ref.Name().Short() && ref.Name().IsBranch()
+				return tc.wantPullRequest.Branch == ref.Name().Short() && ref.Name().IsBranch()
 			}),
 		)
 	}
-}
-
-func patchFile(availableUpdate version.AvailableUpdate, dir string) version.AvailableUpdate {
-	availableUpdate.File = filepath.Join(dir, availableUpdate.File)
-	return availableUpdate
 }

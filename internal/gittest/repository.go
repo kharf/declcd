@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -261,7 +262,7 @@ func MockGitProvider(
 			if slices.ContainsFunc(havePRs, func(pr vcs.PullRequestRequest) bool {
 				return pr.Branch == *req.Head && pr.BaseBranch == *req.Base
 			}) {
-				w.WriteHeader(401)
+				w.WriteHeader(400)
 				w.Write([]byte("already exists"))
 				return
 			}
@@ -337,7 +338,7 @@ func MockGitProvider(
 			if slices.ContainsFunc(havePRs, func(pr vcs.PullRequestRequest) bool {
 				return pr.Branch == req.SourceBranch && pr.BaseBranch == req.TargetBranch
 			}) {
-				w.WriteHeader(401)
+				w.WriteHeader(400)
 				w.Write([]byte("already exists"))
 				return
 			}
@@ -355,3 +356,52 @@ func MockGitProvider(
 	}
 	return server, client
 }
+
+type FakeRepository struct {
+	mu       sync.Mutex
+	RepoPath string
+
+	CommitsMade []string
+}
+
+func (f *FakeRepository) Commit(file string, message string) (string, error) {
+	f.mu.Lock()
+	f.CommitsMade = append(f.CommitsMade, message)
+	f.mu.Unlock()
+	return "hash", nil
+}
+
+func (f *FakeRepository) CreatePullRequest(
+	title string,
+	desc string,
+	src string,
+	dst string,
+) error {
+	panic("unimplemented")
+}
+
+func (f *FakeRepository) CurrentBranch() (string, error) {
+	panic("unimplemented")
+}
+
+func (f *FakeRepository) Path() string {
+	return f.RepoPath
+}
+
+func (f *FakeRepository) Pull() (string, error) {
+	return "hash", nil
+}
+
+func (f *FakeRepository) Push(src string, dst string) error {
+	return nil
+}
+
+func (f *FakeRepository) RepoID() string {
+	panic("unimplemented")
+}
+
+func (f *FakeRepository) SwitchBranch(branch string, create bool) error {
+	panic("unimplemented")
+}
+
+var _ vcs.Repository = (*FakeRepository)(nil)

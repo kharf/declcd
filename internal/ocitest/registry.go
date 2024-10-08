@@ -39,7 +39,6 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/otiai10/copy"
 )
 
 type Registry struct {
@@ -242,7 +241,7 @@ func StartCUERegistry(
 	}
 
 	schemaSrc := "schema"
-	err = copy.Copy(schemaSrc, filepath.Join(modDir, schemaSrc))
+	err = os.CopyFS(filepath.Join(modDir, schemaSrc), os.DirFS(schemaSrc))
 	if err != nil {
 		return nil, err
 	}

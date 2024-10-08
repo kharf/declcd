@@ -100,7 +100,7 @@ func main() {
 
 	cfg := ctrl.GetConfigOrDie()
 
-	mgr, err := controller.Setup(
+	mgr, scheduler, err := controller.Setup(
 		cfg,
 		controller.NamePodinfoPath(namePodinfoPath),
 		controller.NamespacePodinfoPath(namespacePodinfoPath),
@@ -114,6 +114,9 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+
+	scheduler.Start()
+	defer scheduler.Shutdown()
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		fmt.Println(err)
