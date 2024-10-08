@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/go-logr/logr"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/pkg/component"
@@ -67,6 +68,9 @@ type Reconciler struct {
 
 	// Namespace the controller runs in.
 	Namespace string
+
+	// Cron scheduler running in the background scanning for image updates.
+	Scheduler gocron.Scheduler
 }
 
 // ReconcileResult reports the outcome and metadata of a reconciliation.
@@ -190,32 +194,20 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	scanner := version.Scanner{
-		Log:       log,
-		Client:    kubeDynamicClient.DynamicClient(),
-		Namespace: reconciler.Namespace,
+	updateScheduler := version.UpdateScheduler{
+		Scanner: version.Scanner{
+			Log:       log,
+			Client:    kubeDynamicClient.DynamicClient(),
+			Namespace: reconciler.Namespace,
+		},
+		Updater: version.Updater{
+			Log:        log,
+			Repository: repository,
+		},
 	}
 
-	scanResult, err := scanner.Scan(ctx, projectInstance.UpdateInstructions)
-	if err != nil {
-		log.Error(
-			err,
-			"Unable to scan for version updates",
-		)
-		return nil, err
-	}
-
-	updater := version.Updater{
-		Log:        log,
-		Repository: repository,
-	}
-	updates, err := updater.Update(ctx, scanResult, gProject.Spec.Branch)
-	if err != nil {
-		log.Error(
-			err,
-			"Unable to update versions",
-		)
-		return nil, err
+	if err := updateScheduler.Setup(ctx, projectInstance.UpdateInstructions); err != nil {
+		log.Error(err, "Unable to setup update scheduler")
 	}
 
 	componentInstances, err := projectInstance.Dag.TopologicalSort()

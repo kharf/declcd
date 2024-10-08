@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/go-logr/logr"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -79,51 +80,46 @@ type AvailableUpdate struct {
 
 func (scanner *Scanner) Scan(
 	ctx context.Context,
-	updateInstructions []UpdateInstruction,
-) ([]AvailableUpdate, error) {
-	var availableUpdates []AvailableUpdate
-	for _, updateInstr := range updateInstructions {
-		strategy := getStrategy(updateInstr.Strategy, updateInstr.Constraint)
+	updateInstr UpdateInstruction,
+) (*AvailableUpdate, bool, error) {
+	strategy := getStrategy(updateInstr.Strategy, updateInstr.Constraint)
 
-		scanResult, err := scanner.scanTarget(ctx, updateInstr.Target, updateInstr.Auth)
-		if err != nil {
-			return nil, err
-		}
-
-		newVersion, hasNewVersion, idx, err := strategy.HasNewerRemoteVersion(
-			scanResult.currentVersion,
-			scanResult.pkg.versions,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if !hasNewVersion {
-			continue
-		}
-
-		pkgMetadata, err := scanResult.pkg.loadMetadata(idx)
-		if err != nil {
-			scanner.Log.Error(err, "Unable to get metadata for update target")
-		}
-
-		currentVersion := scanResult.currentVersion
-		if scanResult.currentDigest != "" {
-			newVersion = fmt.Sprintf("%s@%s", newVersion, pkgMetadata.digest)
-			currentVersion = fmt.Sprintf("%s@%s", currentVersion, scanResult.currentDigest)
-		}
-
-		availableUpdates = append(availableUpdates, AvailableUpdate{
-			URL:            pkgMetadata.infoURL,
-			CurrentVersion: currentVersion,
-			NewVersion:     newVersion,
-			Integration:    updateInstr.Integration,
-			File:           updateInstr.File,
-			Line:           updateInstr.Line,
-			Target:         updateInstr.Target,
-		})
+	scanResult, err := scanner.scanTarget(ctx, updateInstr.Target, updateInstr.Auth)
+	if err != nil {
+		return nil, false, err
 	}
 
-	return availableUpdates, nil
+	newVersion, hasNewVersion, idx, err := strategy.HasNewerRemoteVersion(
+		scanResult.currentVersion,
+		scanResult.pkg.versions,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	if !hasNewVersion {
+		return nil, false, nil
+	}
+
+	pkgMetadata, err := scanResult.pkg.loadMetadata(idx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	currentVersion := scanResult.currentVersion
+	if scanResult.currentDigest != "" {
+		newVersion = fmt.Sprintf("%s@%s", newVersion, pkgMetadata.digest)
+		currentVersion = fmt.Sprintf("%s@%s", currentVersion, scanResult.currentDigest)
+	}
+
+	return &AvailableUpdate{
+		URL:            pkgMetadata.infoURL,
+		CurrentVersion: currentVersion,
+		NewVersion:     newVersion,
+		Integration:    updateInstr.Integration,
+		File:           updateInstr.File,
+		Line:           updateInstr.Line,
+		Target:         updateInstr.Target,
+	}, true, nil
 }
 
 type pkgMetadata struct {
@@ -345,3 +341,78 @@ type VersionIter[T any] interface {
 
 var _ VersionIter[string] = (*slices.Iter[string])(nil)
 var _ VersionIter[string] = (*helm.ChartVersionIter)(nil)
+
+type UpdateScheduler struct {
+	Log logr.Logger
+
+	Scanner Scanner
+	Updater Updater
+	// Cron scheduler running in the background scanning for image updates.
+	Scheduler gocron.Scheduler
+}
+
+func (scheduler *UpdateScheduler) Setup(
+	ctx context.Context,
+	updateInstructions []UpdateInstruction,
+) error {
+	for _, job := range scheduler.Scheduler.Jobs() {
+		clean := true
+		for _, instruction := range updateInstructions {
+			if job.Name() == instruction.Target.Name() {
+				if _, err := scheduler.Scheduler.Update(job.ID(), gocron.DurationJob(instruction.Interval),
+					gocron.NewTask(
+						func(instruction UpdateInstruction) (*AvailableUpdate, error) {
+							availableUpdate, hasUpdate, err := scheduler.Scanner.Scan(ctx, instruction)
+							if err != nil {
+								scheduler.Log.Error(
+									err,
+									"Unable to scan for version updates",
+								)
+								return nil, err
+							}
+
+							if hasUpdate {
+								updates, err := scheduler.Updater.Update(ctx, availableUpdate, gProject.Spec.Branch)
+								if err != nil {
+									scheduler.Log.Error(
+										err,
+										"Unable to update versions",
+									)
+									return nil, err
+								}
+							}
+							return
+						},
+						instruction,
+					),
+				); err != nil {
+					return err
+				}
+
+				clean = false
+			} else {
+				if _, err := scheduler.Scheduler.NewJob(
+					gocron.DurationJob(instruction.Interval),
+					gocron.NewTask(
+						func(instruction UpdateInstruction) (*AvailableUpdate, error) {
+							return nil, nil
+						},
+						instruction,
+					),
+				); err != nil {
+					return err
+				}
+
+				clean = false
+			}
+		}
+
+		if clean {
+			if err := scheduler.Scheduler.RemoveJob(job.ID()); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

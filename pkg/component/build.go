@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	cueErrors "cuelang.org/go/cue/errors"
 
@@ -652,6 +653,11 @@ func decodeUpdateAttribute(
 		return nil, err
 	}
 
+	intervalDef, _, err := attr.Lookup(0, "interval")
+	if err != nil {
+		return nil, err
+	}
+
 	var auth *cloud.Auth
 	if workloadIdentity != "" {
 		auth = &cloud.Auth{
@@ -685,11 +691,17 @@ func decodeUpdateAttribute(
 		integration = version.PR
 	}
 
+	interval, err := time.ParseDuration(intervalDef)
+	if err != nil {
+		return nil, err
+	}
+
 	updateInstr := &version.UpdateInstruction{
 		Strategy:    strat,
 		Constraint:  constraint,
 		Auth:        auth,
 		Integration: integration,
+		Interval:    interval,
 	}
 
 	return updateInstr, nil

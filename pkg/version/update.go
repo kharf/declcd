@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-logr/logr"
@@ -121,6 +122,9 @@ type UpdateInstruction struct {
 	// Integration defines the method on how to push updates to the version control system.
 	Integration UpdateIntegration
 
+	// Interval defines how often the target is scanned for updates.
+	Interval time.Duration
+
 	// File path where the version value is located.
 	File string
 	// Line number in the file where the version value resides.
@@ -141,10 +145,6 @@ type Update struct {
 	NewVersion string
 }
 
-type Updates struct {
-	DirectUpdates []Update
-}
-
 // Updater accepts update instructions that tell which images to update.
 // For every instruction it contacts image registries to fetch remote tags and calculates the latest tag based on the provided update strategy.
 // If the latest tag is greater than the current tag, it updates the image and commits the changes.
@@ -157,68 +157,59 @@ type Updater struct {
 // Update accepts available updates that tell which images or chart to update and returns update results.
 func (updater *Updater) Update(
 	ctx context.Context,
-	availableUpdates []AvailableUpdate,
+	availableUpdate AvailableUpdate,
 	branch string,
-) (*Updates, error) {
-	var directUpdates []Update
-	for _, availableUpdate := range availableUpdates {
-		if availableUpdate.CurrentVersion == availableUpdate.NewVersion {
-			continue
-		}
-
-		targetName := availableUpdate.Target.Name()
-
-		commitMessage := fmt.Sprintf(
-			"chore(update): bump %s to %s",
-			targetName,
-			availableUpdate.NewVersion,
-		)
-
-		log := updater.Log.WithValues(
-			"target",
-			targetName,
-			"newVersion",
-			availableUpdate.NewVersion,
-			"file",
-			availableUpdate.File,
-		)
-
-		switch availableUpdate.Integration {
-		case PR:
-			log.V(1).Info(
-				"Creating Update-PullRequest",
-			)
-
-			if err := updater.createPR(targetName, commitMessage, availableUpdate, branch); err != nil &&
-				!errors.Is(err, vcs.ErrPRAlreadyExists) {
-				log.Error(err, "Error creating Update-PullRequest")
-			}
-
-		case Direct:
-			log.V(1).Info(
-				"Updating",
-			)
-
-			update, err := updater.update(commitMessage, availableUpdate)
-			if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
-				log.Error(err, "Error updating")
-			}
-
-			if update != nil {
-				directUpdates = append(directUpdates, *update)
-			}
-		}
-
-		if err := updater.Repository.SwitchBranch(branch, false); err != nil {
-			// return error, because we can't proceed with updates and reconciliation on the wrong branch.
-			return nil, err
-		}
+) (*Update, error) {
+	if availableUpdate.CurrentVersion == availableUpdate.NewVersion {
+		return nil, nil
 	}
 
-	if len(directUpdates) > 0 {
+	targetName := availableUpdate.Target.Name()
+
+	commitMessage := fmt.Sprintf(
+		"chore(update): bump %s to %s",
+		targetName,
+		availableUpdate.NewVersion,
+	)
+
+	log := updater.Log.WithValues(
+		"target",
+		targetName,
+		"newVersion",
+		availableUpdate.NewVersion,
+		"file",
+		availableUpdate.File,
+	)
+
+	switch availableUpdate.Integration {
+	case PR:
+		log.V(1).Info(
+			"Creating Update-PullRequest",
+		)
+
+		if err := updater.createPR(targetName, commitMessage, availableUpdate, branch); err != nil &&
+			!errors.Is(err, vcs.ErrPRAlreadyExists) {
+			log.Error(err, "Error creating Update-PullRequest")
+		}
+
+	case Direct:
+		log.V(1).Info(
+			"Updating",
+		)
+
+		update, err := updater.update(commitMessage, availableUpdate)
+		if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
+			log.Error(err, "Error updating")
+		}
+
 		if err := updater.Repository.Push(branch, branch); err != nil {
 			updater.Log.Error(err, "Error pushing updates")
 		}
+	}
+
+	if err := updater.Repository.SwitchBranch(branch, false); err != nil {
+		// return error, because we can't proceed with updates and reconciliation on the wrong branch.
+		return nil, err
 	}
 
 	return &Updates{
