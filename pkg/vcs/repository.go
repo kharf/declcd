@@ -161,7 +161,12 @@ func (g *GenericRepository) Commit(file string, message string) (string, error) 
 	}
 
 	if status.IsClean() {
-		return "", git.ErrEmptyCommit
+		head, err := g.gitRepository.Head()
+		if err != nil {
+			return "", err
+		}
+
+		return head.Hash().String(), nil
 	}
 
 	relPath, err := filepath.Rel(

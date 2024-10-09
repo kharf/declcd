@@ -70,7 +70,8 @@ type Reconciler struct {
 	Namespace string
 
 	// Cron scheduler running in the background scanning for image updates.
-	Scheduler gocron.Scheduler
+	Scheduler         gocron.Scheduler
+	SchedulerQuitChan chan struct{}
 }
 
 // ReconcileResult reports the outcome and metadata of a reconciliation.
@@ -195,6 +196,8 @@ func (reconciler *Reconciler) Reconcile(
 	}
 
 	updateScheduler := version.UpdateScheduler{
+		Log:       log,
+		Scheduler: reconciler.Scheduler,
 		Scanner: version.Scanner{
 			Log:       log,
 			Client:    kubeDynamicClient.DynamicClient(),
@@ -203,11 +206,13 @@ func (reconciler *Reconciler) Reconcile(
 		Updater: version.Updater{
 			Log:        log,
 			Repository: repository,
+			Branch:     gProject.Spec.Branch,
 		},
+		QuitChan: reconciler.SchedulerQuitChan,
 	}
 
-	if err := updateScheduler.Setup(ctx, projectInstance.UpdateInstructions); err != nil {
-		log.Error(err, "Unable to setup update scheduler")
+	if err := updateScheduler.Update(ctx, projectInstance.UpdateInstructions); err != nil {
+		log.Error(err, "Unable to update update scheduler")
 	}
 
 	componentInstances, err := projectInstance.Dag.TopologicalSort()
@@ -229,12 +234,6 @@ func (reconciler *Reconciler) Reconcile(
 			"Unable to reconcile components",
 		)
 		return nil, err
-	}
-
-	// direct updates produce commits before core reconciliation,
-	// so the latest update commit becomes the reconciled commit.
-	if len(updates.DirectUpdates) > 0 {
-		reconciledCommitHash = updates.DirectUpdates[len(updates.DirectUpdates)-1].CommitHash
 	}
 
 	return &ReconcileResult{

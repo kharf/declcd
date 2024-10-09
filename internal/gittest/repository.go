@@ -261,7 +261,7 @@ func MockGitProvider(
 			if slices.ContainsFunc(havePRs, func(pr vcs.PullRequestRequest) bool {
 				return pr.Branch == *req.Head && pr.BaseBranch == *req.Base
 			}) {
-				w.WriteHeader(401)
+				w.WriteHeader(400)
 				w.Write([]byte("already exists"))
 				return
 			}
@@ -337,7 +337,7 @@ func MockGitProvider(
 			if slices.ContainsFunc(havePRs, func(pr vcs.PullRequestRequest) bool {
 				return pr.Branch == req.SourceBranch && pr.BaseBranch == req.TargetBranch
 			}) {
-				w.WriteHeader(401)
+				w.WriteHeader(400)
 				w.Write([]byte("already exists"))
 				return
 			}

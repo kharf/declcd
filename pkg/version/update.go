@@ -143,22 +143,24 @@ type Update struct {
 
 	// NewVersion contains the updated version.
 	NewVersion string
+
+	// IsPR tells whether this update is a direct commit or a pull request.
+	IsPR bool
 }
 
-// Updater accepts update instructions that tell which images to update.
-// For every instruction it contacts image registries to fetch remote tags and calculates the latest tag based on the provided update strategy.
-// If the latest tag is greater than the current tag, it updates the image and commits the changes.
+// Updater accepts update information that tell which images to update.
 // It pushes its changes to remote before returning.
 type Updater struct {
 	Log        logr.Logger
 	Repository vcs.Repository
+	Branch     string
 }
 
 // Update accepts available updates that tell which images or chart to update and returns update results.
+// The update result can be nil in case a PR for the update currently already exists.
 func (updater *Updater) Update(
 	ctx context.Context,
 	availableUpdate AvailableUpdate,
-	branch string,
 ) (*Update, error) {
 	if availableUpdate.CurrentVersion == availableUpdate.NewVersion {
 		return nil, nil
@@ -181,15 +183,19 @@ func (updater *Updater) Update(
 		availableUpdate.File,
 	)
 
+	var update *Update
 	switch availableUpdate.Integration {
 	case PR:
 		log.V(1).Info(
 			"Creating Update-PullRequest",
 		)
 
-		if err := updater.createPR(targetName, commitMessage, availableUpdate, branch); err != nil &&
+		var err error
+		update, err = updater.createPR(targetName, commitMessage, availableUpdate)
+		if err != nil &&
 			!errors.Is(err, vcs.ErrPRAlreadyExists) {
 			log.Error(err, "Error creating Update-PullRequest")
+			return nil, err
 		}
 
 	case Direct:
@@ -198,51 +204,52 @@ func (updater *Updater) Update(
 		)
 
 		update, err := updater.update(commitMessage, availableUpdate)
-		if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
+		if err != nil {
 			log.Error(err, "Error updating")
+			return nil, err
 		}
 
-		if err := updater.Repository.Push(branch, branch); err != nil {
+		if err := updater.Repository.Push(updater.Branch, updater.Branch); err != nil {
 			updater.Log.Error(err, "Error pushing updates")
 		}
+
+		return update, nil
 	}
 
-	if err := updater.Repository.SwitchBranch(branch, false); err != nil {
+	if err := updater.Repository.SwitchBranch(updater.Branch, false); err != nil {
 		// return error, because we can't proceed with updates and reconciliation on the wrong branch.
 		return nil, err
 	}
 
-	return &Updates{
-		DirectUpdates: directUpdates,
-	}, nil
+	return update, nil
 }
 
 func (updater *Updater) createPR(
 	targetName string,
 	commitMessage string,
 	availableUpdate AvailableUpdate,
-	branch string,
-) error {
+) (*Update, error) {
 	src := fmt.Sprintf("declcd/update-%s", targetName)
 	if err := updater.Repository.SwitchBranch(src, true); err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err := updater.update(commitMessage, availableUpdate)
-	if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
-		return err
+	update, err := updater.update(commitMessage, availableUpdate)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := updater.Repository.Push(src, src); err != nil &&
 		!errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return err
+		return nil, err
 	}
 
-	if err := updater.Repository.CreatePullRequest(commitMessage, availableUpdate.URL, src, branch); err != nil {
-		return err
+	if err := updater.Repository.CreatePullRequest(commitMessage, availableUpdate.URL, src, updater.Branch); err != nil {
+		return nil, err
 	}
 
-	return nil
+	update.IsPR = true
+	return update, nil
 }
 
 func (updater *Updater) update(

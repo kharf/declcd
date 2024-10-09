@@ -37,6 +37,8 @@ import (
 )
 
 // Scanner is the system for performing version scanning operations.
+// It takes update instructions and contacts image registries to fetch remote tags and calculates the latest tag based on the provided update strategy.
+// If the latest tag is greater than the current tag, it returns an AvailableUpdate.
 type Scanner struct {
 	Log    logr.Logger
 	Client *kube.DynamicClient
@@ -45,7 +47,7 @@ type Scanner struct {
 	Namespace string
 
 	// Endpoint to the microsoft azure login server.
-	// Default is usually: https://login.microsoftonline.com/.
+	// Default is: https://login.microsoftonline.com/.
 	AzureLoginURL string
 
 	// Endpoint to the google metadata server, which provides access tokens.
@@ -347,72 +349,105 @@ type UpdateScheduler struct {
 
 	Scanner Scanner
 	Updater Updater
+
 	// Cron scheduler running in the background scanning for image updates.
 	Scheduler gocron.Scheduler
+
+	QuitChan chan struct{}
 }
 
-func (scheduler *UpdateScheduler) Setup(
+func (scheduler *UpdateScheduler) Update(
 	ctx context.Context,
 	updateInstructions []UpdateInstruction,
 ) error {
-	for _, job := range scheduler.Scheduler.Jobs() {
-		clean := true
-		for _, instruction := range updateInstructions {
-			if job.Name() == instruction.Target.Name() {
-				if _, err := scheduler.Scheduler.Update(job.ID(), gocron.DurationJob(instruction.Interval),
-					gocron.NewTask(
-						func(instruction UpdateInstruction) (*AvailableUpdate, error) {
-							availableUpdate, hasUpdate, err := scheduler.Scanner.Scan(ctx, instruction)
-							if err != nil {
-								scheduler.Log.Error(
-									err,
-									"Unable to scan for version updates",
-								)
-								return nil, err
-							}
+	updateChan := make(chan AvailableUpdate, len(updateInstructions))
 
-							if hasUpdate {
-								updates, err := scheduler.Updater.Update(ctx, availableUpdate, gProject.Spec.Branch)
-								if err != nil {
-									scheduler.Log.Error(
-										err,
-										"Unable to update versions",
-									)
-									return nil, err
-								}
-							}
-							return
-						},
-						instruction,
-					),
+	for _, instruction := range updateInstructions {
+		for _, job := range scheduler.Scheduler.Jobs() {
+			durationJob := gocron.DurationJob(instruction.Interval)
+			task := gocron.NewTask(
+				scheduler.scan,
+				ctx,
+				instruction,
+				updateChan,
+			)
+			if job.Name() == instruction.Target.Name() {
+				if _, err := scheduler.Scheduler.Update(job.ID(), durationJob,
+					task,
 				); err != nil {
 					return err
 				}
-
-				clean = false
 			} else {
 				if _, err := scheduler.Scheduler.NewJob(
-					gocron.DurationJob(instruction.Interval),
-					gocron.NewTask(
-						func(instruction UpdateInstruction) (*AvailableUpdate, error) {
-							return nil, nil
-						},
-						instruction,
-					),
+					durationJob,
+					task,
 				); err != nil {
 					return err
 				}
-
-				clean = false
 			}
 		}
+	}
 
-		if clean {
+	for _, job := range scheduler.Scheduler.Jobs() {
+		if !haveJobForInstructions(job.Name(), updateInstructions) {
 			if err := scheduler.Scheduler.RemoveJob(job.ID()); err != nil {
 				return err
 			}
 		}
 	}
 
+	go func() {
+		for {
+			select {
+			case availableUpdate := <-updateChan:
+				_, err := scheduler.Updater.Update(ctx, availableUpdate)
+				if err != nil {
+					scheduler.Log.Error(
+						err,
+						fmt.Sprintf(
+							"Unable to update %s to version %s",
+							availableUpdate.Target.Name(),
+							availableUpdate.NewVersion,
+						),
+					)
+				}
+
+			case <-scheduler.QuitChan:
+				if err := scheduler.Scheduler.Shutdown(); err != nil {
+					scheduler.Log.Error(err, "Unable to shutdown update scheduler")
+				}
+				return
+			}
+		}
+	}()
+
 	return nil
+}
+
+func haveJobForInstructions(jobName string, updateInstructions []UpdateInstruction) bool {
+	for _, instruction := range updateInstructions {
+		if jobName == instruction.Target.Name() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (scheduler *UpdateScheduler) scan(
+	ctx context.Context,
+	instruction UpdateInstruction,
+	updateChan chan<- AvailableUpdate,
+) {
+	availableUpdate, hasUpdate, err := scheduler.Scanner.Scan(ctx, instruction)
+	if err != nil {
+		scheduler.Log.Error(
+			err,
+			fmt.Sprintf("Unable to scan %s for version updates", instruction.Target.Name()),
+		)
+	}
+
+	if hasUpdate {
+		updateChan <- *availableUpdate
+	}
 }

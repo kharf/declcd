@@ -17,6 +17,7 @@ package vcs
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -64,10 +65,18 @@ func (g *githubClient) CreatePullRequest(
 		return err
 	}
 
-	_, _, err = g.client.PullRequests.Create(ctx, owner, repo, newPR)
+	_, resp, err := g.client.PullRequests.Create(ctx, owner, repo, newPR)
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("%w: %s", ErrPRAlreadyExists, err.Error())
+		if resp != nil {
+			defer resp.Body.Close()
+			msg, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+
+			if strings.Contains(string(msg), "already exists") {
+				return fmt.Errorf("%w: %s", ErrPRAlreadyExists, msg)
+			}
 		}
 
 		return err

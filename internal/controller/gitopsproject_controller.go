@@ -20,7 +20,9 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	goRuntime "runtime"
@@ -346,6 +348,14 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Schedul
 		return nil, nil, err
 	}
 
+	schedulerQuitChan := make(chan struct{}, 1)
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signalChan
+		schedulerQuitChan <- struct{}{}
+	}()
+
 	scheduler, err := gocron.NewScheduler()
 	if err != nil {
 		log.Error(err, "Unable to setup cron scheduler")
@@ -369,6 +379,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Schedul
 			CacheDir:              os.TempDir(),
 			Namespace:             namespace,
 			Scheduler:             scheduler,
+			SchedulerQuitChan:     schedulerQuitChan,
 		},
 	}).SetupWithManager(mgr, controllerName); err != nil {
 		log.Error(err, "Unable to create controller")

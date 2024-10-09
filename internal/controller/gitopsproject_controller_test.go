@@ -224,7 +224,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 					)
 					Expect(err).NotTo(HaveOccurred())
 
-					mgr, err := Setup(
+					mgr, scheduler, err := Setup(
 						kubernetes.ControlPlane.Config,
 						InsecureSkipTLSverify(true),
 						MetricsAddr("0"),
@@ -233,6 +233,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 					go func() {
 						defer GinkgoRecover()
+						scheduler.Start()
 						_ = mgr.Start(ctx)
 					}()
 
@@ -348,7 +349,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				envs[projectName] = env
 			}
 
-			mgr, err := Setup(
+			mgr, scheduler, err := Setup(
 				kubernetes.ControlPlane.Config,
 				InsecureSkipTLSverify(true),
 				MetricsAddr("0"),
@@ -357,6 +358,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 			go func() {
 				defer GinkgoRecover()
+				scheduler.Start()
 				_ = mgr.Start(ctx)
 			}()
 		})

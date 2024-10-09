@@ -17,6 +17,7 @@ package vcs
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -50,7 +51,7 @@ func (g *gitlabClient) CreatePullRequest(
 	ctx context.Context,
 	req PullRequestRequest,
 ) error {
-	_, _, err := g.client.MergeRequests.CreateMergeRequest(
+	_, resp, err := g.client.MergeRequests.CreateMergeRequest(
 		req.RepoID,
 		&gogitlab.CreateMergeRequestOptions{
 			Title:        &req.Title,
@@ -60,8 +61,16 @@ func (g *gitlabClient) CreatePullRequest(
 		},
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("%w: %s", ErrPRAlreadyExists, err.Error())
+		if resp != nil {
+			defer resp.Body.Close()
+			msg, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+
+			if strings.Contains(string(msg), "already exists") {
+				return fmt.Errorf("%w: %s", ErrPRAlreadyExists, msg)
+			}
 		}
 
 		return err
