@@ -46,11 +46,9 @@ import (
 	"testing"
 )
 
-// Helm Charts should only have either 'https://' or 'oci://' as repoURL value as they will be patched in the test run to contact the correct test server.
-
 type scanTestCase struct {
 	name                    string
-	haveUpdateInstructions  []version.UpdateInstruction
+	haveUpdateInstruction   version.UpdateInstruction
 	haveCloudProvider       cloud.ProviderID
 	havePrivateRegistry     bool
 	haveCredentialsSecret   *corev1.Secret
@@ -58,232 +56,149 @@ type scanTestCase struct {
 	haveRemoteChartVersions map[string][]string
 	haveRemoteURLs          map[string]string
 	haveRemoteChartURLs     map[string]string
-	wantAvailableUpdates    []version.AvailableUpdate
+	wantAvailableUpdate     *version.AvailableUpdate
 	wantErr                 string
 }
 
 var (
-	newVersions = scanTestCase{
-		name: "New-Versions",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-					},
-					UnstructuredKey: "image",
+	newContainerVersion = scanTestCase{
+		name: "New-Container-Version",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
 				},
-			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-						Auth:    nil,
-					},
-				},
-			},
-			{
-				Strategy:    version.SemVer,
-				Constraint:  "1.16.x",
-				Auth:        nil,
-				File:        "myfile",
-				Line:        5,
-				Integration: version.Direct,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0@bbbb",
-						Auth:    nil,
-					},
-				},
-			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
-				},
-			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth:    nil,
-					},
-				},
-			},
-			{
-				Strategy:    version.SemVer,
-				Constraint:  "1.16.x",
-				Auth:        nil,
-				File:        "myfile",
-				Line:        5,
-				Integration: version.Direct,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth:    nil,
-					},
-				},
+				UnstructuredKey: "image",
 			},
 		},
 		haveRemoteVersions: map[string][]string{
 			"myimage": {"1.14.0", "1.16.5", "1.15.1", "1.15.2", "other", "latest"},
-			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
-		},
-		haveRemoteChartVersions: map[string][]string{
-			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
 		haveRemoteURLs: map[string]string{
 			"myimage": "https://test",
 		},
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+			NewVersion:     "1.16.5@sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+				},
+				UnstructuredKey: "image",
+			},
+			URL: "https://test",
+		},
+	}
+
+	newHelmOciVersion = scanTestCase{
+		name: "New-Helm-Oci-Version",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "1.16.x",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "oci://",
+					Version: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+					Auth:    nil,
+				},
+			},
+		},
+		haveRemoteVersions: map[string][]string{
+			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
+		},
+		haveRemoteURLs: map[string]string{
+			"mychart": "https://test",
+		},
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+			NewVersion:     "1.16.5@sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "oci://",
+					Version: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
+					Auth:    nil,
+				},
+			},
+			URL: "https://test",
+		},
+	}
+
+	newHelmHttpVersion = scanTestCase{
+		name: "New-Helm-Http-Version",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:    version.SemVer,
+			Constraint:  "1.16.x",
+			Auth:        nil,
+			File:        "myfile",
+			Line:        5,
+			Integration: version.Direct,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "https://",
+					Version: "1.15.0@bbbb",
+					Auth:    nil,
+				},
+			},
+		},
+		haveRemoteChartVersions: map[string][]string{
+			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
+		},
 		haveRemoteChartURLs: map[string]string{
 			"mychart": "https://test2",
 		},
-		wantAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-				NewVersion:     "1.16.5@sha256:2d93689cbcdda92b425bfd82f87f5b656791a8a3e96c8eb2d702c6698987629a",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-					},
-					UnstructuredKey: "image",
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0@bbbb",
+			NewVersion:     "1.16.5@cccc",
+			File:           "myfile",
+			Line:           5,
+			Integration:    version.Direct,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "https://",
+					Version: "1.15.0@bbbb",
+					Auth:    nil,
 				},
-				URL: "https://test",
 			},
-			{
-				CurrentVersion: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-				NewVersion:     "1.16.5@sha256:bcd827cf80fc369198cdf9b0db565e2bf0a5354d45c88596f47c38f7008dedb6",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0@sha256:1ff6c18fbef2045af6b9c16bf034cc421a29027b800e4f9b68ae9b1cb3e9ae07",
-						Auth:    nil,
-					},
-				},
-				URL: "",
-			},
-			{
-				CurrentVersion: "1.15.0@bbbb",
-				NewVersion:     "1.16.5@cccc",
-				File:           "myfile",
-				Line:           5,
-				Integration:    version.Direct,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0@bbbb",
-						Auth:    nil,
-					},
-				},
-				URL: "https://test2",
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
-				},
-				URL: "https://test",
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth:    nil,
-					},
-				},
-				URL: "",
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Integration:    version.Direct,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth:    nil,
-					},
-				},
-				URL: "https://test2",
-			},
+			URL: "https://test2",
 		},
 	}
 
 	secretAuthRegistry = scanTestCase{
 		name: "Secret-Auth-Registry",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth: &cloud.Auth{
-					SecretRef: &cloud.SecretRef{
-						Name: "creds",
-					},
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth: &cloud.Auth{
+				SecretRef: &cloud.SecretRef{
+					Name: "creds",
 				},
-				File: "myfile",
-				Line: 5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+			},
+			File: "myfile",
+			Line: 5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		havePrivateRegistry: true,
@@ -304,79 +219,39 @@ var (
 		haveRemoteVersions: map[string][]string{
 			"myimage": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0",
+			NewVersion:     "1.16.5",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 	}
 
 	workloadIdentityAuthGCP = scanTestCase{
 		name: "WorkloadIdentity-Auth-GCP",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth: &cloud.Auth{
-					WorkloadIdentity: &cloud.WorkloadIdentity{
-						Provider: cloud.GCP,
-					},
-				},
-				File: "myfile",
-				Line: 5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth: &cloud.Auth{
+				WorkloadIdentity: &cloud.WorkloadIdentity{
+					Provider: cloud.GCP,
 				},
 			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.GCP,
-							},
-						},
-					},
+			File: "myfile",
+			Line: 5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
-			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.GCP,
-							},
-						},
-					},
-				},
+				UnstructuredKey: "image",
 			},
 		},
 		havePrivateRegistry: true,
@@ -388,97 +263,39 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0",
+			NewVersion:     "1.16.5",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.GCP,
-							},
-						},
-					},
-				},
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.GCP,
-							},
-						},
-					},
-				},
+				UnstructuredKey: "image",
 			},
 		},
 	}
 
 	workloadIdentityAuthAWS = scanTestCase{
 		name: "WorkloadIdentity-Auth-AWS",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth: &cloud.Auth{
-					WorkloadIdentity: &cloud.WorkloadIdentity{
-						Provider: cloud.AWS,
-					},
-				},
-				File: "myfile",
-				Line: 5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth: &cloud.Auth{
+				WorkloadIdentity: &cloud.WorkloadIdentity{
+					Provider: cloud.AWS,
 				},
 			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.AWS,
-							},
-						},
-					},
+			File: "myfile",
+			Line: 5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		havePrivateRegistry: true,
@@ -490,97 +307,39 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0",
+			NewVersion:     "1.16.5",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.AWS,
-							},
-						},
-					},
-				},
+				UnstructuredKey: "image",
 			},
 		},
 	}
 
 	workloadIdentityAuthAzure = scanTestCase{
 		name: "WorkloadIdentity-Auth-Azure",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth: &cloud.Auth{
-					WorkloadIdentity: &cloud.WorkloadIdentity{
-						Provider: cloud.Azure,
-					},
-				},
-				File: "myfile",
-				Line: 5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth: &cloud.Auth{
+				WorkloadIdentity: &cloud.WorkloadIdentity{
+					Provider: cloud.Azure,
 				},
 			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.Azure,
-							},
-						},
-					},
+			File: "myfile",
+			Line: 5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
-			},
-			{
-				Strategy:   version.SemVer,
-				Constraint: "1.16.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.Azure,
-							},
-						},
-					},
-				},
+				UnstructuredKey: "image",
 			},
 		},
 		havePrivateRegistry: true,
@@ -592,76 +351,36 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0",
+			NewVersion:     "1.16.5",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "oci://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.Azure,
-							},
-						},
-					},
-				},
-			},
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							WorkloadIdentity: &cloud.WorkloadIdentity{
-								Provider: cloud.Azure,
-							},
-						},
-					},
-				},
+				UnstructuredKey: "image",
 			},
 		},
 	}
 
 	secretAuthHelmHttpRepo = scanTestCase{
 		name: "Secret-Auth-Helm-Http-Repo",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							SecretRef: &cloud.SecretRef{
-								Name: "creds",
-							},
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "https://",
+					Version: "1.15.0",
+					Auth: &cloud.Auth{
+						SecretRef: &cloud.SecretRef{
+							Name: "creds",
 						},
 					},
 				},
@@ -685,21 +404,19 @@ var (
 		haveRemoteChartVersions: map[string][]string{
 			"mychart": {"1.14.0", "1.15.1", "1.15.2", "1.16.5", "other", "latest"},
 		},
-		wantAvailableUpdates: []version.AvailableUpdate{
-			{
-				CurrentVersion: "1.15.0",
-				NewVersion:     "1.16.5",
-				File:           "myfile",
-				Line:           5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							SecretRef: &cloud.SecretRef{
-								Name: "creds",
-							},
+		wantAvailableUpdate: &version.AvailableUpdate{
+			CurrentVersion: "1.15.0",
+			NewVersion:     "1.16.5",
+			File:           "myfile",
+			Line:           5,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "https://",
+					Version: "1.15.0",
+					Auth: &cloud.Auth{
+						SecretRef: &cloud.SecretRef{
+							Name: "creds",
 						},
 					},
 				},
@@ -709,21 +426,19 @@ var (
 
 	secretAuthHelmHttpRepoSecretNotFound = scanTestCase{
 		name: "Secret-Auth-Helm-Http-Repo-Secret-Not-Found",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							SecretRef: &cloud.SecretRef{
-								Name: "mysecret",
-							},
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "https://",
+					Version: "1.15.0",
+					Auth: &cloud.Auth{
+						SecretRef: &cloud.SecretRef{
+							Name: "mysecret",
 						},
 					},
 				},
@@ -749,21 +464,19 @@ var (
 
 	secretAuthHelmHttpRepoWrongCredentials = scanTestCase{
 		name: "Secret-Auth-Helm-Http-Repo-Wrong-Credentials",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ChartUpdateTarget{
-					Chart: &helm.Chart{
-						Name:    "mychart",
-						RepoURL: "https://",
-						Version: "1.15.0",
-						Auth: &cloud.Auth{
-							SecretRef: &cloud.SecretRef{
-								Name: "creds",
-							},
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ChartUpdateTarget{
+				Chart: &helm.Chart{
+					Name:    "mychart",
+					RepoURL: "https://",
+					Version: "1.15.0",
+					Auth: &cloud.Auth{
+						SecretRef: &cloud.SecretRef{
+							Name: "creds",
 						},
 					},
 				},
@@ -789,24 +502,22 @@ var (
 
 	secretAuthRegistryWrongCredentials = scanTestCase{
 		name: "Secret-Auth-Registry-Wrong-Credentials",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth: &cloud.Auth{
-					SecretRef: &cloud.SecretRef{
-						Name: "creds",
-					},
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth: &cloud.Auth{
+				SecretRef: &cloud.SecretRef{
+					Name: "creds",
 				},
-				File: "myfile",
-				Line: 5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+			},
+			File: "myfile",
+			Line: 5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		havePrivateRegistry: true,
@@ -829,24 +540,22 @@ var (
 
 	secretAuthRegistrySecretNotFound = scanTestCase{
 		name: "Secret-Auth-Registry-Secret-Not-Found",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<1.17.x",
-				Auth: &cloud.Auth{
-					SecretRef: &cloud.SecretRef{
-						Name: "mysecret",
-					},
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<1.17.x",
+			Auth: &cloud.Auth{
+				SecretRef: &cloud.SecretRef{
+					Name: "mysecret",
 				},
-				File: "myfile",
-				Line: 5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+			},
+			File: "myfile",
+			Line: 5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		havePrivateRegistry: true,
@@ -869,20 +578,18 @@ var (
 
 	badConstraint = scanTestCase{
 		name: "Bad-Constraint",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "wrong",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "wrong",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		haveRemoteVersions: map[string][]string{
@@ -893,20 +600,18 @@ var (
 
 	containerNotFound = scanTestCase{
 		name: "Container-Not-Found",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<3.0",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<3.0",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		wantErr: "repository name not known to registry",
@@ -914,20 +619,18 @@ var (
 
 	invalidCurrentSemverVersion = scanTestCase{
 		name: "Invalid-Current-Semver-Version",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<3.0",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:latest",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:latest",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<3.0",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:latest",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:latest",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		haveRemoteVersions: map[string][]string{
@@ -938,20 +641,18 @@ var (
 
 	noRemoteSemverVersion = scanTestCase{
 		name: "No-Remote-Semver-Version",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<3.0",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:latest",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:latest",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<3.0",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:latest",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:latest",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		haveRemoteVersions: map[string][]string{
@@ -961,20 +662,18 @@ var (
 
 	noNewVersion = scanTestCase{
 		name: "No-New-Version",
-		haveUpdateInstructions: []version.UpdateInstruction{
-			{
-				Strategy:   version.SemVer,
-				Constraint: "<3.0",
-				Auth:       nil,
-				File:       "myfile",
-				Line:       5,
-				Target: &version.ContainerUpdateTarget{
-					Image: "myimage:1.15.0",
-					UnstructuredNode: map[string]any{
-						"image": "myimage:1.15.0",
-					},
-					UnstructuredKey: "image",
+		haveUpdateInstruction: version.UpdateInstruction{
+			Strategy:   version.SemVer,
+			Constraint: "<3.0",
+			Auth:       nil,
+			File:       "myfile",
+			Line:       5,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.15.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.15.0",
 				},
+				UnstructuredKey: "image",
 			},
 		},
 		haveRemoteVersions: map[string][]string{
@@ -987,7 +686,9 @@ func TestScanner_Scan(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []scanTestCase{
-		newVersions,
+		newContainerVersion,
+		newHelmOciVersion,
+		newHelmHttpVersion,
 		badConstraint,
 		containerNotFound,
 		invalidCurrentSemverVersion,
@@ -1042,9 +743,9 @@ func runScanTestCase(
 	log := zap.New(zap.UseFlagOptions(&logOpts))
 
 	scanner := &version.Scanner{
-		Log:       log,
-		Client:    kubernetes.DynamicTestKubeClient.DynamicClient(),
-		Namespace: namespace.Name,
+		Log:        log,
+		KubeClient: kubernetes.DynamicTestKubeClient.DynamicClient(),
+		Namespace:  namespace.Name,
 	}
 
 	defer func() {
@@ -1210,135 +911,117 @@ func runScanTestCase(
 	helmServer := httptest.NewTLSServer(mux)
 	defer helmServer.Close()
 
-	patchedInstructions := patchInstructions(
-		tc.haveUpdateInstructions,
+	patchedInstruction := patchInstruction(
+		tc.haveUpdateInstruction,
 		tlsRegistry,
 		helmServer,
 		aws,
 	)
-	availableUpdates, err := scanner.Scan(ctx, patchedInstructions)
+	availableUpdate, hasUpdate, err := scanner.Scan(ctx, patchedInstruction)
 	if tc.wantErr != "" {
 		assert.ErrorContains(t, err, tc.wantErr)
 		return
 	}
 	assert.NilError(t, err)
 
-	assert.Equal(t, len(availableUpdates), len(tc.wantAvailableUpdates))
-
-	if len(availableUpdates) > 0 {
-		assert.DeepEqual(t, unpatchAvailableUpdates(availableUpdates), tc.wantAvailableUpdates)
+	if tc.wantAvailableUpdate == nil {
+		assert.Assert(t, availableUpdate == nil)
+		assert.Equal(t, hasUpdate, false)
+		return
 	}
+
+	assert.Assert(t, availableUpdate != nil)
+
+	assert.DeepEqual(t, unpatchAvailableUpdate(*availableUpdate), *tc.wantAvailableUpdate)
 }
 
-func patchInstructions(
-	instructions []version.UpdateInstruction,
+func patchInstruction(
+	instruction version.UpdateInstruction,
 	tlsRegistry *ocitest.Registry,
 	helmServer *httptest.Server,
 	aws *cloudtest.AWSEnvironment,
-) []version.UpdateInstruction {
-	patchedInstructions := make(
-		[]version.UpdateInstruction,
-		0,
-		len(instructions),
-	)
-	for _, instruction := range instructions {
-		switch target := instruction.Target.(type) {
-		case *version.ContainerUpdateTarget:
-			patchedInstruction := instruction
-
-			var patchedImage string
-			if instruction.Auth != nil && instruction.Auth.WorkloadIdentity != nil {
-				switch instruction.Auth.WorkloadIdentity.Provider {
-				case cloud.AWS:
-					patchedImage = fmt.Sprintf("%s/%s", aws.ECRServer.URL, target.Image)
-				case cloud.GCP:
-					patchedImage = fmt.Sprintf("%s/%s", tlsRegistry.Addr(), target.Image)
-				case cloud.Azure:
-					patchedImage = fmt.Sprintf("%s/%s", tlsRegistry.Addr(), target.Image)
-				}
-			} else {
+) version.UpdateInstruction {
+	patchedInstruction := instruction
+	switch target := instruction.Target.(type) {
+	case *version.ContainerUpdateTarget:
+		var patchedImage string
+		if instruction.Auth != nil && instruction.Auth.WorkloadIdentity != nil {
+			switch instruction.Auth.WorkloadIdentity.Provider {
+			case cloud.AWS:
+				patchedImage = fmt.Sprintf("%s/%s", aws.ECRServer.URL, target.Image)
+			case cloud.GCP:
+				patchedImage = fmt.Sprintf("%s/%s", tlsRegistry.Addr(), target.Image)
+			case cloud.Azure:
 				patchedImage = fmt.Sprintf("%s/%s", tlsRegistry.Addr(), target.Image)
 			}
+		} else {
+			patchedImage = fmt.Sprintf("%s/%s", tlsRegistry.Addr(), target.Image)
+		}
 
-			target.Image = patchedImage
-			target.UnstructuredNode[target.UnstructuredKey] = patchedImage
+		target.Image = patchedImage
+		target.UnstructuredNode[target.UnstructuredKey] = patchedImage
 
-			patchedInstruction.Target = target
+		patchedInstruction.Target = target
 
-			patchedInstructions = append(patchedInstructions, patchedInstruction)
-
-		case *version.ChartUpdateTarget:
-			patchedInstruction := instruction
-
-			if registry.IsOCI(target.Chart.RepoURL) {
-				if target.Chart.Auth != nil && target.Chart.Auth.WorkloadIdentity != nil {
-					switch target.Chart.Auth.WorkloadIdentity.Provider {
-					case cloud.AWS:
-						target.Chart.RepoURL = fmt.Sprintf("oci://%s", aws.ECRServer.URL)
-					case cloud.GCP:
-						target.Chart.RepoURL = tlsRegistry.URL()
-					case cloud.Azure:
-						target.Chart.RepoURL = tlsRegistry.URL()
-					}
-				} else {
+	case *version.ChartUpdateTarget:
+		if registry.IsOCI(target.Chart.RepoURL) {
+			if target.Chart.Auth != nil && target.Chart.Auth.WorkloadIdentity != nil {
+				switch target.Chart.Auth.WorkloadIdentity.Provider {
+				case cloud.AWS:
+					target.Chart.RepoURL = fmt.Sprintf("oci://%s", aws.ECRServer.URL)
+				case cloud.GCP:
+					target.Chart.RepoURL = tlsRegistry.URL()
+				case cloud.Azure:
 					target.Chart.RepoURL = tlsRegistry.URL()
 				}
 			} else {
-				if target.Chart.Auth != nil && target.Chart.Auth.WorkloadIdentity != nil {
-					switch target.Chart.Auth.WorkloadIdentity.Provider {
-					case cloud.AWS:
-						port := helmServer.Listener.Addr().(*net.TCPAddr).Port
-						target.Chart.RepoURL = fmt.Sprintf("https://%s:%v", cloudtest.AWSRegistryHost, strconv.Itoa(port))
-					case cloud.GCP:
-						target.Chart.RepoURL = helmServer.URL
-					case cloud.Azure:
-						target.Chart.RepoURL = helmServer.URL
-					}
-				} else {
+				target.Chart.RepoURL = tlsRegistry.URL()
+			}
+		} else {
+			if target.Chart.Auth != nil && target.Chart.Auth.WorkloadIdentity != nil {
+				switch target.Chart.Auth.WorkloadIdentity.Provider {
+				case cloud.AWS:
+					port := helmServer.Listener.Addr().(*net.TCPAddr).Port
+					target.Chart.RepoURL = fmt.Sprintf("https://%s:%v", cloudtest.AWSRegistryHost, strconv.Itoa(port))
+				case cloud.GCP:
+					target.Chart.RepoURL = helmServer.URL
+				case cloud.Azure:
 					target.Chart.RepoURL = helmServer.URL
 				}
+			} else {
+				target.Chart.RepoURL = helmServer.URL
 			}
-			patchedInstruction.Target = target
-
-			patchedInstructions = append(patchedInstructions, patchedInstruction)
 		}
+
+		patchedInstruction.Target = target
 	}
 
-	return patchedInstructions
+	return patchedInstruction
 }
 
-func unpatchAvailableUpdates(
-	availableUpdates []version.AvailableUpdate,
-) []version.AvailableUpdate {
-	unpatchedAvailableUpdates := make([]version.AvailableUpdate, 0, len(availableUpdates))
-	for _, availableUpdate := range availableUpdates {
-		switch target := availableUpdate.Target.(type) {
-		case *version.ContainerUpdateTarget:
-			unpatchedAvailableUpdate := availableUpdate
+func unpatchAvailableUpdate(
+	availableUpdate version.AvailableUpdate,
+) version.AvailableUpdate {
+	unpatchedAvailableUpdate := availableUpdate
 
-			split := strings.Split(target.Image, "/")
-			unpatchedImage := split[1]
+	switch target := availableUpdate.Target.(type) {
+	case *version.ContainerUpdateTarget:
+		split := strings.Split(target.Image, "/")
+		unpatchedImage := split[1]
 
-			target.Image = unpatchedImage
-			target.UnstructuredNode[target.UnstructuredKey] = unpatchedImage
+		target.Image = unpatchedImage
+		target.UnstructuredNode[target.UnstructuredKey] = unpatchedImage
 
-			unpatchedAvailableUpdate.Target = target
+		unpatchedAvailableUpdate.Target = target
 
-			unpatchedAvailableUpdates = append(unpatchedAvailableUpdates, unpatchedAvailableUpdate)
-
-		case *version.ChartUpdateTarget:
-			patchedAvailableUpdate := availableUpdate
-
-			if registry.IsOCI(target.Chart.RepoURL) {
-				target.Chart.RepoURL = "oci://"
-			} else {
-				target.Chart.RepoURL = "https://"
-			}
-			patchedAvailableUpdate.Target = target
-
-			unpatchedAvailableUpdates = append(unpatchedAvailableUpdates, patchedAvailableUpdate)
+	case *version.ChartUpdateTarget:
+		if registry.IsOCI(target.Chart.RepoURL) {
+			target.Chart.RepoURL = "oci://"
+		} else {
+			target.Chart.RepoURL = "https://"
 		}
+		unpatchedAvailableUpdate.Target = target
 	}
 
-	return unpatchedAvailableUpdates
+	return unpatchedAvailableUpdate
 }

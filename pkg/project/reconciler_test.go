@@ -26,8 +26,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"cuelabs.dev/go/oci/ociregistry"
+	"github.com/go-co-op/gocron/v2"
 	"github.com/go-git/go-git/v5"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/internal/cloudtest"
@@ -45,6 +47,8 @@ import (
 	"github.com/kharf/declcd/pkg/project"
 	"github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -151,7 +155,7 @@ release: component.#HelmRelease & {
 		name:    "test"
 		repoURL: "{{.HelmRepoURL}}"
 		version: "1.0.0"
-	} @update(constraint="<=2.0.0", integration=direct)
+	} @update(constraint="<=2.0.0", integration=direct, schedule="* * * * * *")
 
 	crds: {
 		allowUpgrade: true
@@ -176,7 +180,7 @@ release: component.#HelmRelease & {
 						containers: [
 							{
 								name:  "toolb"
-								image: "{{.ContainerRegistry}}/toolb:1.14.2" @update(constraint="*", integration=direct)
+								image: "{{.ContainerRegistry}}/toolb:1.14.2" @update(constraint="*", integration=direct, schedule="* * * * * *")
 								ports: [{
 									containerPort: 80
 								}]
@@ -264,7 +268,7 @@ _deployment: {
 				containers: [
 					{
 						name:  "containerone"
-						image: "{{.ContainerRegistry}}/containerone:1.14.2" @update(strategy=semver, constraint="1.2.x", integration=direct)
+						image: "{{.ContainerRegistry}}/containerone:1.14.2" @update(strategy=semver, constraint="1.2.x", integration=direct, schedule="* * * * * *")
 						ports: [{
 							name:          "http"
 							containerPort: 80
@@ -272,7 +276,7 @@ _deployment: {
 					},
 					{
 						name:  "containertwo"
-						image: "{{.ContainerRegistry}}/containertwo:1.14.2" @update(strategy=semver, constraint="<=1.16", integration=direct)
+						image: "{{.ContainerRegistry}}/containertwo:1.14.2" @update(strategy=semver, constraint="<=1.16", integration=direct, schedule="* * * * * *")
 						ports: [{
 							name:          "http"
 							containerPort: 80
@@ -395,6 +399,15 @@ func TestReconciler_Reconcile(t *testing.T) {
 	defer kubernetes.Stop()
 	projectManager := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
 
+	scheduler, err := gocron.NewScheduler()
+	assert.NilError(t, err)
+	scheduler.Start()
+	quitChan := make(chan struct{}, 1)
+	defer func() {
+		quitChan <- struct{}{}
+		_ = scheduler.Shutdown()
+	}()
+
 	reconciler := project.Reconciler{
 		KubeConfig:            kubernetes.ControlPlane.Config,
 		ComponentBuilder:      component.NewBuilder(),
@@ -405,6 +418,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 		WorkerPoolSize:        runtime.GOMAXPROCS(0),
 		InsecureSkipTLSverify: true,
 		CacheDir:              env.TestRoot,
+		Scheduler:             scheduler,
+		SchedulerQuitChan:     quitChan,
 	}
 
 	suspend := false
@@ -452,7 +467,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		t,
 		slices.ContainsFunc(subcomponentContainers, func(container corev1.Container) bool {
 			return container.Name == "containertwo" &&
-				container.Image == fmt.Sprintf("%s/containertwo:1.15.3", tlsRegistry.Addr())
+				container.Image == fmt.Sprintf("%s/containertwo:1.14.2", tlsRegistry.Addr())
 		}),
 	)
 
@@ -504,7 +519,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		Chart: &helm.Chart{
 			Name:    "test",
 			RepoURL: publicHelmEnvironment.ChartServer.URL(),
-			Version: "2.0.0",
+			Version: "1.0.0",
 			Auth:    nil,
 		},
 		Values: helm.Values{
@@ -531,7 +546,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 											map[string]any{
 												"name": "toolb",
 												"image": fmt.Sprintf(
-													"%s/toolb:1.15.3",
+													"%s/toolb:1.14.2",
 													tlsRegistry.Addr(),
 												),
 												"ports": []any{
@@ -625,6 +640,34 @@ func TestReconciler_Reconcile(t *testing.T) {
 	}
 	assert.Assert(t, inventoryStorage.HasItem(subComponentDeploymentManifest))
 
+	check := func(t poll.LogT) poll.Result {
+		_, err = reconciler.Reconcile(ctx, gProject)
+		if err != nil {
+			return poll.Error(err)
+		}
+
+		var mysubcomponent appsv1.Deployment
+		err = kubernetes.TestKubeClient.Get(
+			ctx,
+			types.NamespacedName{Name: "mysubcomponent", Namespace: ns},
+			&mysubcomponent,
+		)
+
+		if err != nil {
+			return poll.Error(err)
+		}
+
+		subcomponentContainers := mysubcomponent.Spec.Template.Spec.Containers
+		return poll.Compare(cmp.Equal(
+			slices.ContainsFunc(subcomponentContainers, func(container corev1.Container) bool {
+				return container.Name == "containertwo" &&
+					container.Image == fmt.Sprintf("%s/containertwo:1.15.3", tlsRegistry.Addr())
+			}), true,
+		))
+	}
+
+	poll.WaitOn(t, check, poll.WithDelay(1*time.Second))
+
 	err = env.GitRepository.Worktree.Pull(&git.PullOptions{Force: true})
 	assert.NilError(t, err)
 	err = os.RemoveAll(
@@ -708,6 +751,14 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 	defer kubernetes.Stop()
 	projectManager := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
 
+	scheduler, err := gocron.NewScheduler()
+	assert.NilError(t, err)
+	quitChan := make(chan struct{}, 1)
+	defer func() {
+		quitChan <- struct{}{}
+		_ = scheduler.Shutdown()
+	}()
+
 	reconciler := project.Reconciler{
 		KubeConfig:            kubernetes.ControlPlane.Config,
 		ComponentBuilder:      component.NewBuilder(),
@@ -718,6 +769,8 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 		WorkerPoolSize:        runtime.GOMAXPROCS(0),
 		InsecureSkipTLSverify: true,
 		CacheDir:              env.TestRoot,
+		Scheduler:             scheduler,
+		SchedulerQuitChan:     quitChan,
 	}
 
 	suspend := false
@@ -929,7 +982,7 @@ deployment: component.#Manifest & {
 					containers: [
 						{
 							name:  "subcomponent"
-							image: "{{.ContainerRegistry}}/subcomponent:1.14.2" @update(constraint="*", wi=aws, integration=direct)
+							image: "{{.ContainerRegistry}}/subcomponent:1.14.2" @update(constraint="*", wi=aws, integration=direct, schedule="* * * * * *")
 							ports: [{
 								name:          "http"
 								containerPort: 80
@@ -953,7 +1006,7 @@ release: component.#HelmRelease & {
 		repoURL: "{{.HelmRepoURL}}"
 		version: "1.0.0"
 		auth:    workloadidentity.#AWS
-	} @update(constraint="*", integration=direct)
+	} @update(constraint="*", integration=direct, schedule="* * * * * *")
 
 	crds: {
 		allowUpgrade: true
@@ -1048,6 +1101,15 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	defer kubernetes.Stop()
 	projectManager := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
 
+	scheduler, err := gocron.NewScheduler()
+	assert.NilError(t, err)
+	scheduler.Start()
+	quitChan := make(chan struct{}, 1)
+	defer func() {
+		quitChan <- struct{}{}
+		_ = scheduler.Shutdown()
+	}()
+
 	reconciler := project.Reconciler{
 		KubeConfig:            kubernetes.ControlPlane.Config,
 		ComponentBuilder:      component.NewBuilder(),
@@ -1058,6 +1120,8 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 		WorkerPoolSize:        runtime.GOMAXPROCS(0),
 		InsecureSkipTLSverify: true,
 		CacheDir:              env.TestRoot,
+		Scheduler:             scheduler,
+		SchedulerQuitChan:     quitChan,
 	}
 
 	suspend := false
@@ -1110,26 +1174,45 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	assert.Equal(t, dep.Name, "deployment")
 	assert.Equal(t, dep.Namespace, toolaNs)
 
-	// does not exist in chart v3 and therefore would mean that updates worked.
-	var svcAcc corev1.ServiceAccount
-	err = kubernetes.TestKubeClient.Get(
-		ctx,
-		types.NamespacedName{Name: "test", Namespace: toolaNs},
-		&svcAcc,
-	)
-	assert.Error(t, err, "serviceaccounts \"test\" not found")
+	check := func(t poll.LogT) poll.Result {
+		_, err = reconciler.Reconcile(ctx, gProject)
+		if err != nil {
+			return poll.Error(err)
+		}
 
-	inventoryStorage, err := inventoryInstance.Load()
-	assert.NilError(t, err)
+		// does not exist in chart v3 and therefore would mean that updates worked.
+		var svcAcc corev1.ServiceAccount
+		err = kubernetes.TestKubeClient.Get(
+			ctx,
+			types.NamespacedName{Name: "test", Namespace: toolaNs},
+			&svcAcc,
+		)
+		if err == nil {
+			return poll.Continue("service account still found")
+		}
 
-	invComponents := inventoryStorage.Items()
-	assert.Assert(t, len(invComponents) == 3, fmt.Sprintf("got %d", len(invComponents)))
-	testHR := &inventory.HelmReleaseItem{
-		Name:      testDep.Name,
-		Namespace: testDep.Namespace,
-		ID:        fmt.Sprintf("%s_%s_HelmRelease", testDep.Name, testDep.Namespace),
+		if err.Error() != "serviceaccounts \"test\" not found" {
+			return poll.Error(err)
+		}
+
+		inventoryStorage, err := inventoryInstance.Load()
+		if err != nil {
+			return poll.Error(err)
+		}
+
+		invComponents := inventoryStorage.Items()
+		if len(invComponents) != 3 {
+			return poll.Continue("expected inventory to contain 3 items")
+		}
+		testHR := &inventory.HelmReleaseItem{
+			Name:      testDep.Name,
+			Namespace: testDep.Namespace,
+			ID:        fmt.Sprintf("%s_%s_HelmRelease", testDep.Name, testDep.Namespace),
+		}
+		return poll.Compare(cmp.Equal(inventoryStorage.HasItem(testHR), true))
 	}
-	assert.Assert(t, inventoryStorage.HasItem(testHR))
+
+	poll.WaitOn(t, check, poll.WithDelay(1*time.Second))
 }
 
 func TestReconciler_Reconcile_Suspend(t *testing.T) {
@@ -1299,6 +1382,14 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 	defer kubernetes.Stop()
 	projectManager := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
 
+	scheduler, err := gocron.NewScheduler()
+	assert.NilError(t, err)
+	quitChan := make(chan struct{}, 1)
+	defer func() {
+		quitChan <- struct{}{}
+		_ = scheduler.Shutdown()
+	}()
+
 	reconciler := project.Reconciler{
 		KubeConfig:            kubernetes.ControlPlane.Config,
 		ComponentBuilder:      component.NewBuilder(),
@@ -1309,6 +1400,8 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 		WorkerPoolSize:        runtime.GOMAXPROCS(0),
 		InsecureSkipTLSverify: true,
 		CacheDir:              env.TestRoot,
+		Scheduler:             scheduler,
+		SchedulerQuitChan:     quitChan,
 	}
 
 	suspend := false
@@ -1479,6 +1572,14 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 
 	projectManager := project.NewManager(component.NewBuilder(), runtime.GOMAXPROCS(0))
 
+	scheduler, err := gocron.NewScheduler()
+	assert.NilError(t, err)
+	quitChan := make(chan struct{}, 1)
+	defer func() {
+		quitChan <- struct{}{}
+		_ = scheduler.Shutdown()
+	}()
+
 	reconciler := project.Reconciler{
 		KubeConfig:            kubernetes.ControlPlane.Config,
 		ComponentBuilder:      component.NewBuilder(),
@@ -1489,6 +1590,8 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 		WorkerPoolSize:        runtime.GOMAXPROCS(0),
 		InsecureSkipTLSverify: true,
 		CacheDir:              env.TestRoot,
+		Scheduler:             scheduler,
+		SchedulerQuitChan:     quitChan,
 	}
 
 	suspend := false

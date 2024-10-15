@@ -22,29 +22,33 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/kharf/declcd/internal/slices"
 	"github.com/kharf/declcd/pkg/cloud"
 	"github.com/kharf/declcd/pkg/helm"
 	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/declcd/pkg/oci"
+	"github.com/opencontainers/image-spec/specs-go/v1"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/repo"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/kubernetes/pkg/util/parsers"
 	"sigs.k8s.io/yaml"
 )
 
 // Scanner is the system for performing version scanning operations.
+// It takes update instructions and contacts image registries to fetch remote tags and calculates the latest tag based on the provided update strategy.
+// If the latest tag is greater than the current tag, it returns an AvailableUpdate.
 type Scanner struct {
-	Log    logr.Logger
-	Client *kube.DynamicClient
+	Log        logr.Logger
+	KubeClient kube.Client[unstructured.Unstructured, unstructured.Unstructured]
+
+	OCIClient oci.Client
 
 	// Kubernetes namespace where the registry credential secret is stored.
 	Namespace string
 
 	// Endpoint to the microsoft azure login server.
-	// Default is usually: https://login.microsoftonline.com/.
+	// Default is: https://login.microsoftonline.com/.
 	AzureLoginURL string
 
 	// Endpoint to the google metadata server, which provides access tokens.
@@ -79,51 +83,46 @@ type AvailableUpdate struct {
 
 func (scanner *Scanner) Scan(
 	ctx context.Context,
-	updateInstructions []UpdateInstruction,
-) ([]AvailableUpdate, error) {
-	var availableUpdates []AvailableUpdate
-	for _, updateInstr := range updateInstructions {
-		strategy := getStrategy(updateInstr.Strategy, updateInstr.Constraint)
+	updateInstr UpdateInstruction,
+) (*AvailableUpdate, bool, error) {
+	strategy := getStrategy(updateInstr.Strategy, updateInstr.Constraint)
 
-		scanResult, err := scanner.scanTarget(ctx, updateInstr.Target, updateInstr.Auth)
-		if err != nil {
-			return nil, err
-		}
-
-		newVersion, hasNewVersion, idx, err := strategy.HasNewerRemoteVersion(
-			scanResult.currentVersion,
-			scanResult.pkg.versions,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if !hasNewVersion {
-			continue
-		}
-
-		pkgMetadata, err := scanResult.pkg.loadMetadata(idx)
-		if err != nil {
-			scanner.Log.Error(err, "Unable to get metadata for update target")
-		}
-
-		currentVersion := scanResult.currentVersion
-		if scanResult.currentDigest != "" {
-			newVersion = fmt.Sprintf("%s@%s", newVersion, pkgMetadata.digest)
-			currentVersion = fmt.Sprintf("%s@%s", currentVersion, scanResult.currentDigest)
-		}
-
-		availableUpdates = append(availableUpdates, AvailableUpdate{
-			URL:            pkgMetadata.infoURL,
-			CurrentVersion: currentVersion,
-			NewVersion:     newVersion,
-			Integration:    updateInstr.Integration,
-			File:           updateInstr.File,
-			Line:           updateInstr.Line,
-			Target:         updateInstr.Target,
-		})
+	scanResult, err := scanner.scanTarget(ctx, updateInstr.Target, updateInstr.Auth)
+	if err != nil {
+		return nil, false, err
 	}
 
-	return availableUpdates, nil
+	newVersion, hasNewVersion, idx, err := strategy.HasNewerRemoteVersion(
+		scanResult.currentVersion,
+		scanResult.pkg.versions,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	if !hasNewVersion {
+		return nil, false, nil
+	}
+
+	pkgMetadata, err := scanResult.pkg.loadMetadata(idx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	currentVersion := scanResult.currentVersion
+	if scanResult.currentDigest != "" {
+		newVersion = fmt.Sprintf("%s@%s", newVersion, pkgMetadata.digest)
+		currentVersion = fmt.Sprintf("%s@%s", currentVersion, scanResult.currentDigest)
+	}
+
+	return &AvailableUpdate{
+		URL:            pkgMetadata.infoURL,
+		CurrentVersion: currentVersion,
+		NewVersion:     newVersion,
+		Integration:    updateInstr.Integration,
+		File:           updateInstr.File,
+		Line:           updateInstr.Line,
+		Target:         updateInstr.Target,
+	}, true, nil
 }
 
 type pkgMetadata struct {
@@ -206,18 +205,13 @@ func (scanner *Scanner) scanContainer(
 	repoName string,
 	auth *cloud.Auth,
 ) (*pkg, error) {
-	repository, err := name.NewRepository(repoName)
-	if err != nil {
-		return nil, err
-	}
-
-	authOptions := []remote.Option{}
+	var authOption oci.Option
 	if auth != nil {
 		creds, err := cloud.ReadCredentials(
 			ctx,
 			host,
 			*auth,
-			scanner.Client,
+			scanner.KubeClient,
 			cloud.WithNamespace(scanner.Namespace),
 			cloud.WithCustomAzureLoginURL(scanner.AzureLoginURL),
 			cloud.WithCustomGCPMetadataServerURL(scanner.GCPMetadataServerURL),
@@ -225,13 +219,22 @@ func (scanner *Scanner) scanContainer(
 		if err != nil {
 			return nil, err
 		}
-		authOptions = append(authOptions, remote.WithAuth(&authn.Basic{
-			Username: creds.Username,
-			Password: creds.Password,
-		}))
+
+		authOption = oci.WithBasicAuth(creds.Username, creds.Password)
 	}
 
-	remoteVersions, err := remote.List(repository, authOptions...)
+	var ociClient oci.Client
+	if scanner.OCIClient == nil {
+		var err error
+		ociClient, err = oci.NewRepositoryClient(repoName)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ociClient = scanner.OCIClient
+	}
+
+	remoteVersions, err := ociClient.ListTags(repoName, authOption)
 	if err != nil {
 		return nil, err
 	}
@@ -240,9 +243,7 @@ func (scanner *Scanner) scanContainer(
 		versions: &slices.Iter[string]{Slice: remoteVersions},
 		loadMetadata: func(versionsIdx int) (*pkgMetadata, error) {
 			version := remoteVersions[versionsIdx]
-
-			tag := repository.Tag(version)
-			image, err := remote.Image(tag, authOptions...)
+			image, err := ociClient.Image(version, authOption)
 			if err != nil {
 				return nil, err
 			}
@@ -257,7 +258,7 @@ func (scanner *Scanner) scanContainer(
 				return nil, err
 			}
 
-			source := manifest.Annotations["org.opencontainers.image.url"]
+			source := manifest.Annotations[v1.AnnotationURL]
 
 			return &pkgMetadata{
 				infoURL: source,
@@ -283,7 +284,7 @@ func (scanner *Scanner) scanHTTPHelmChart(
 			ctx,
 			repoURL,
 			*auth,
-			scanner.Client,
+			scanner.KubeClient,
 			cloud.WithNamespace(scanner.Namespace),
 			cloud.WithCustomAzureLoginURL(scanner.AzureLoginURL),
 			cloud.WithCustomGCPMetadataServerURL(scanner.GCPMetadataServerURL),

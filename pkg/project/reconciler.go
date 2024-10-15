@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/go-logr/logr"
 	gitops "github.com/kharf/declcd/api/v1beta1"
 	"github.com/kharf/declcd/pkg/component"
@@ -67,6 +68,10 @@ type Reconciler struct {
 
 	// Namespace the controller runs in.
 	Namespace string
+
+	// Cron scheduler running in the background scanning for image updates.
+	Scheduler         gocron.Scheduler
+	SchedulerQuitChan chan struct{}
 }
 
 // ReconcileResult reports the outcome and metadata of a reconciliation.
@@ -190,33 +195,43 @@ func (reconciler *Reconciler) Reconcile(
 		return nil, err
 	}
 
-	scanner := version.Scanner{
-		Log:       log,
-		Client:    kubeDynamicClient.DynamicClient(),
-		Namespace: reconciler.Namespace,
-	}
+	go func() {
+		updateRepositoryPath := fmt.Sprintf("%s-updates", repository.Path())
 
-	scanResult, err := scanner.Scan(ctx, projectInstance.UpdateInstructions)
-	if err != nil {
-		log.Error(
-			err,
-			"Unable to scan for version updates",
+		updateRepository, err := reconciler.RepositoryManager.LoadLocally(
+			ctx,
+			repositoryDir,
+			updateRepositoryPath,
+			gProject.Name,
 		)
-		return nil, err
-	}
+		if err != nil {
+			log.Error(
+				err,
+				"Unable to load gitops project repository for updates",
+			)
+			return
+		}
 
-	updater := version.Updater{
-		Log:        log,
-		Repository: repository,
-	}
-	updates, err := updater.Update(ctx, scanResult, gProject.Spec.Branch)
-	if err != nil {
-		log.Error(
-			err,
-			"Unable to update versions",
-		)
-		return nil, err
-	}
+		updateScheduler := version.UpdateScheduler{
+			Log:       log,
+			Scheduler: reconciler.Scheduler,
+			Scanner: version.Scanner{
+				Log:        log,
+				KubeClient: kubeDynamicClient.DynamicClient(),
+				Namespace:  reconciler.Namespace,
+			},
+			Updater: version.Updater{
+				Log:        log,
+				Repository: updateRepository,
+				Branch:     gProject.Spec.Branch,
+			},
+			QuitChan: reconciler.SchedulerQuitChan,
+		}
+
+		if _, err := updateScheduler.Schedule(ctx, projectInstance.UpdateInstructions); err != nil {
+			log.Error(err, "Unable to update update scheduler")
+		}
+	}()
 
 	componentInstances, err := projectInstance.Dag.TopologicalSort()
 	if err != nil {
@@ -237,12 +252,6 @@ func (reconciler *Reconciler) Reconcile(
 			"Unable to reconcile components",
 		)
 		return nil, err
-	}
-
-	// direct updates produce commits before core reconciliation,
-	// so the latest update commit becomes the reconciled commit.
-	if len(updates.DirectUpdates) > 0 {
-		reconciledCommitHash = updates.DirectUpdates[len(updates.DirectUpdates)-1].CommitHash
 	}
 
 	return &ReconcileResult{

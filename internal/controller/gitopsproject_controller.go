@@ -20,7 +20,9 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	goRuntime "runtime"
@@ -31,6 +33,7 @@ import (
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
+	"github.com/go-co-op/gocron/v2"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -243,7 +246,7 @@ func (opt LogLevel) apply(options *setupOptions) {
 	options.LogLevel = int(opt)
 }
 
-func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
+func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Scheduler, error) {
 	opts := &setupOptions{
 		NamePodinfoPath:       "/podinfo/name",
 		NamespacePodinfoPath:  "/podinfo/namespace",
@@ -268,7 +271,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	nameBytes, err := os.ReadFile(opts.NamePodinfoPath)
 	if err != nil {
 		log.Error(err, "Unable to read controller name")
-		return nil, err
+		return nil, nil, err
 	}
 
 	controllerName := strings.TrimSpace(string(nameBytes))
@@ -276,7 +279,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	namespaceBytes, err := os.ReadFile(opts.NamespacePodinfoPath)
 	if err != nil {
 		log.Error(err, "Unable to read namespace")
-		return nil, err
+		return nil, nil, err
 	}
 
 	namespace := strings.TrimSpace(string(namespaceBytes))
@@ -284,7 +287,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	shardBytes, err := os.ReadFile(opts.ShardPodinfoPath)
 	if err != nil {
 		log.Error(err, "Unable to read shard")
-		return nil, err
+		return nil, nil, err
 	}
 
 	shard := strings.TrimSpace(string(shardBytes))
@@ -292,7 +295,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	labelReq, err := labels.NewRequirement("declcd/shard", selection.Equals, []string{shard})
 	if err != nil {
 		log.Error(err, "Unable to set label requirements")
-		return nil, err
+		return nil, nil, err
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -318,7 +321,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	})
 	if err != nil {
 		log.Error(err, "Unable to create manager")
-		return nil, err
+		return nil, nil, err
 	}
 
 	componentBuilder := component.NewBuilder()
@@ -332,7 +335,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	kubeDynamicClient, err := kube.NewExtendedDynamicClient(cfg)
 	if err != nil {
 		log.Error(err, "Unable to setup Kubernetes client")
-		return nil, err
+		return nil, nil, err
 	}
 
 	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -342,8 +345,22 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 	}, []string{"project", "url"})
 	if err := metrics.Registry.Register(reconciliationHisto); err != nil {
 		log.Error(err, "Unable to register Prometheus Collector")
-		return nil, err
+		return nil, nil, err
 	}
+
+	scheduler, err := gocron.NewScheduler()
+	if err != nil {
+		log.Error(err, "Unable to setup cron scheduler")
+		return nil, nil, err
+	}
+
+	schedulerQuitChan := make(chan struct{}, 1)
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signalChan
+		schedulerQuitChan <- struct{}{}
+	}()
 
 	if err := (&GitOpsProjectController{
 		Log:                     log,
@@ -361,21 +378,23 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, error) {
 			PlainHTTP:             opts.PlainHTTP,
 			CacheDir:              os.TempDir(),
 			Namespace:             namespace,
+			Scheduler:             scheduler,
+			SchedulerQuitChan:     schedulerQuitChan,
 		},
 	}).SetupWithManager(mgr, controllerName); err != nil {
 		log.Error(err, "Unable to create controller")
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		log.Error(err, "Unable to set up health check")
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		log.Error(err, "Unable to set up ready check")
-		return nil, err
+		return nil, nil, err
 	}
 
-	return mgr, nil
+	return mgr, scheduler, nil
 }

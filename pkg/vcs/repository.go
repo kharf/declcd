@@ -19,7 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
+	"os"
 	"strings"
 	"time"
 
@@ -141,6 +141,14 @@ type GenericRepository struct {
 	repoID        string
 }
 
+func Duplicate(src, dst string) error {
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (g *GenericRepository) Path() string {
 	return g.path
 }
@@ -161,18 +169,15 @@ func (g *GenericRepository) Commit(file string, message string) (string, error) 
 	}
 
 	if status.IsClean() {
-		return "", git.ErrEmptyCommit
+		head, err := g.gitRepository.Head()
+		if err != nil {
+			return "", err
+		}
+
+		return head.Hash().String(), nil
 	}
 
-	relPath, err := filepath.Rel(
-		worktree.Filesystem.Root(),
-		file,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	_, err = worktree.Add(relPath)
+	_, err = worktree.Add(file)
 	if err != nil {
 		return "", err
 	}
@@ -306,8 +311,8 @@ func NewRepositoryManager(
 	}
 }
 
-// Load loads a remote vcs repository to a local path or opens it if it exists.
-func (manager RepositoryManager) Load(
+// Load clones a remote vcs repository to a local path or opens it if it exists.
+func (manager *RepositoryManager) Load(
 	ctx context.Context,
 	remoteURL string,
 	branch string,
@@ -363,6 +368,41 @@ func (manager RepositoryManager) Load(
 	}
 
 	return repository, nil
+}
+
+func (manager *RepositoryManager) LoadLocally(
+	ctx context.Context,
+	srcRepoPath string,
+	targetPath string,
+	projectName string,
+) (Repository, error) {
+	auth, err := GetAuth(ctx, manager.kubeClient, manager.controllerNamespace, projectName)
+	if err != nil {
+		return nil, err
+	}
+
+	newRepo, err := Open(targetPath, WithAuth(*auth))
+	if err != nil && err != git.ErrRepositoryNotExists {
+		return nil, err
+	}
+
+	if err == git.ErrRepositoryNotExists {
+		if err := Duplicate(srcRepoPath, targetPath); err != nil {
+			return nil, err
+		}
+
+		gitRepository, err := git.PlainOpen(targetPath)
+		if err != nil {
+			return nil, err
+		}
+
+		newRepo, err = NewRepository(targetPath, gitRepository, WithAuth(*auth))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return newRepo, nil
 }
 
 // RepositoryConfigurator is capable of setting up Declcd with a Git provider.
