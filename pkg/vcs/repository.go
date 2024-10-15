@@ -45,6 +45,7 @@ type Repository interface {
 	Commit(file, message string) (string, error)
 	SwitchBranch(branch string, create bool) error
 	CurrentBranch() (string, error)
+	DeleteLocalBranch(branch string) error
 	Push(src, dst string) error
 	CreatePullRequest(title, desc, src, dst string) error
 }
@@ -134,6 +135,14 @@ func NewRepository(
 	return &genericRepo, nil
 }
 
+func Duplicate(src, dst string) error {
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type GenericRepository struct {
 	path          string
 	gitRepository *git.Repository
@@ -141,12 +150,9 @@ type GenericRepository struct {
 	repoID        string
 }
 
-func Duplicate(src, dst string) error {
-	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
-		return err
-	}
-
-	return nil
+func (g *GenericRepository) DeleteLocalBranch(branch string) error {
+	branchRef := plumbing.NewBranchReferenceName(branch)
+	return g.gitRepository.Storer.RemoveReference(branchRef)
 }
 
 func (g *GenericRepository) Path() string {
@@ -169,12 +175,7 @@ func (g *GenericRepository) Commit(file string, message string) (string, error) 
 	}
 
 	if status.IsClean() {
-		head, err := g.gitRepository.Head()
-		if err != nil {
-			return "", err
-		}
-
-		return head.Hash().String(), nil
+		return "", git.ErrEmptyCommit
 	}
 
 	_, err = worktree.Add(file)
