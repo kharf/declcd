@@ -28,14 +28,14 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/google/go-cmp/cmp"
-	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/manifest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/vcs"
+	gitops "github.com/kharf/navecd/api/v1beta1"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/gittest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/manifest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/pkg/project"
+	"github.com/kharf/navecd/pkg/vcs"
 	"gotest.tools/v3/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -80,7 +80,7 @@ func defaultAssertion(
 	projectFile, err := os.Open(
 		filepath.Join(
 			testProject,
-			fmt.Sprintf("declcd/%s_project.cue", projectName),
+			fmt.Sprintf("navecd/%s_project.cue", projectName),
 		),
 	)
 	assert.NilError(t, err)
@@ -192,7 +192,7 @@ func fresh(t *testing.T, testContext testContext) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", projectName),
+		fmt.Sprintf("navecd-%s", projectName),
 		nil,
 		nil,
 	)
@@ -239,7 +239,7 @@ func persistToken(t *testing.T, testContext testContext) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", projectName),
+		fmt.Sprintf("navecd-%s", projectName),
 		nil,
 		nil,
 	)
@@ -300,7 +300,7 @@ func multiTenancy(t *testing.T, testContext testContext) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", projectName),
+		fmt.Sprintf("navecd-%s", projectName),
 		nil,
 		nil,
 	)
@@ -342,7 +342,7 @@ func multiTenancy(t *testing.T, testContext testContext) {
 	server, client = gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", secondaryProjectName),
+		fmt.Sprintf("navecd-%s", secondaryProjectName),
 		nil,
 		nil,
 	)
@@ -385,7 +385,7 @@ func runTwice(t *testing.T, testContext testContext) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", projectName),
+		fmt.Sprintf("navecd-%s", projectName),
 		nil,
 		nil,
 	)

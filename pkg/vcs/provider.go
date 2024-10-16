@@ -154,7 +154,7 @@ func genDeployKey(opts ...deployKeyOption) (*deployKey, error) {
 		base64.StdEncoding.EncodeToString(sshPublicKey.Marshal()),
 	)
 
-	title := "declcd"
+	title := "navecd"
 	if deployKeyOpts.keySuffix != "" {
 		title = fmt.Sprintf("%s-%s", title, deployKeyOpts.keySuffix)
 	}

@@ -20,7 +20,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/kharf/declcd/pkg/oci"
+	"github.com/kharf/navecd/pkg/oci"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 

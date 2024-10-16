@@ -23,8 +23,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/ocitest"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/ocitest"
 )
 
 var (
@@ -46,7 +46,7 @@ var _ = BeforeSuite(func() {
 	dnsServer, err = dnstest.NewDNSServer()
 	Expect(err).NotTo(HaveOccurred())
 
-	registryPath, err := os.MkdirTemp("", "declcd-cue-registry*")
+	registryPath, err := os.MkdirTemp("", "navecd-cue-registry*")
 	Expect(err).NotTo(HaveOccurred())
 
 	cueModuleRegistry, err = ocitest.StartCUERegistry(registryPath)

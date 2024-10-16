@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/kube"
 	helmKube "helm.sh/helm/v3/pkg/kube"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"

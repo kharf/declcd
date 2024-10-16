@@ -38,7 +38,7 @@ import (
 	"cuelang.org/go/mod/modzip"
 
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/kharf/declcd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/cloud"
 )
 
 type Registry struct {
@@ -77,10 +77,10 @@ func (r *Registry) Close() {
 // and Docker defaults to HTTP when it detects that the registry host
 // is localhost or 127.0.0.1.
 // In order to test OCI with a HTTPS server, we have to supply a "fake" host.
-// We use a mock dns server to create an A record which binds declcd.io to 127.0.0.1.
-// All OCI tests have to use declcd.io as host.
+// We use a mock dns server to create an A record which binds navecd.io to 127.0.0.1.
+// All OCI tests have to use navecd.io as host.
 func NewTLSRegistry(private bool, cloudProviderID cloud.ProviderID) (*Registry, error) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "declcd.io:0")
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "navecd.io:0")
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func NewTLSRegistry(private bool, cloudProviderID cloud.ProviderID) (*Registry, 
 		return nil, err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	addr := "declcd.io:" + strconv.Itoa(port)
+	addr := "navecd.io:" + strconv.Itoa(port)
 	registry := ocimem.New()
 	ociHandler := ociserver.New(registry, nil)
 	mux := http.NewServeMux()
@@ -102,7 +102,7 @@ func NewTLSRegistry(private bool, cloudProviderID cloud.ProviderID) (*Registry, 
 				return
 			}
 
-			expectedBody := "access_token=nottheacrtoken&grant_type=access_token&service=declcd.io%3A" + strconv.Itoa(
+			expectedBody := "access_token=nottheacrtoken&grant_type=access_token&service=navecd.io%3A" + strconv.Itoa(
 				port,
 			) + "&tenant=tenant"
 			if string(
@@ -165,7 +165,7 @@ func NewTLSRegistry(private bool, cloudProviderID cloud.ProviderID) (*Registry, 
 				case cloud.Azure:
 					expectedCreds = "00000000-0000-0000-0000-000000000000:aaaa"
 				default:
-					expectedCreds = "declcd:abcd"
+					expectedCreds = "navecd:abcd"
 				}
 
 				if creds != expectedCreds {
@@ -207,7 +207,7 @@ func NewTLSRegistry(private bool, cloudProviderID cloud.ProviderID) (*Registry, 
 	httpsServer.URL = strings.Replace(
 		httpsServer.URL,
 		"https://127.0.0.1",
-		"oci://declcd.io",
+		"oci://navecd.io",
 		1,
 	)
 
@@ -247,7 +247,7 @@ func StartCUERegistry(
 	}
 
 	ctx := context.Background()
-	m, err := module.NewVersion("github.com/kharf/declcd/schema", "v0.0.99")
+	m, err := module.NewVersion("github.com/kharf/navecd/schema", "v0.0.99")
 	if err != nil {
 		return nil, err
 	}

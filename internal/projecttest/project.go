@@ -22,9 +22,9 @@ import (
 	"text/template"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/txtar"
+	"github.com/kharf/navecd/internal/gittest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/txtar"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
 	ctrlZap "sigs.k8s.io/controller-runtime/pkg/log/zap"

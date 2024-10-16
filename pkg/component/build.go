@@ -23,11 +23,11 @@ import (
 	cueErrors "cuelang.org/go/cue/errors"
 
 	"cuelang.org/go/cue"
-	internalCue "github.com/kharf/declcd/internal/cue"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/version"
+	internalCue "github.com/kharf/navecd/internal/cue"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/version"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -43,10 +43,10 @@ var (
 
 const (
 	// ignoreAttr is a CUE build attribute a user can define on a field or declaration
-	// to tell Declcd to ignore fields or structs when applying Kubernetes Manifests.
+	// to tell Navecd to ignore fields or structs when applying Kubernetes Manifests.
 	ignoreAttr = "ignore"
 	// updateAttr is a CUE build attribute a user can define on a field
-	// to tell Declcd to automatically update container images.
+	// to tell Navecd to automatically update container images.
 	updateAttr = "update"
 )
 

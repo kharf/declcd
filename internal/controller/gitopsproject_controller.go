@@ -47,11 +47,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/go-logr/logr"
-	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/project"
-	"github.com/kharf/declcd/pkg/vcs"
+	gitops "github.com/kharf/navecd/api/v1beta1"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/project"
+	"github.com/kharf/navecd/pkg/vcs"
 	"github.com/prometheus/client_golang/prometheus"
 	helmKube "helm.sh/helm/v3/pkg/kube"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -292,7 +292,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Schedul
 
 	shard := strings.TrimSpace(string(shardBytes))
 
-	labelReq, err := labels.NewRequirement("declcd/shard", selection.Equals, []string{shard})
+	labelReq, err := labels.NewRequirement("navecd/shard", selection.Equals, []string{shard})
 	if err != nil {
 		log.Error(err, "Unable to set label requirements")
 		return nil, nil, err
@@ -339,7 +339,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Schedul
 	}
 
 	reconciliationHisto := prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "declcd",
+		Namespace: "navecd",
 		Name:      "reconciliation_duration_seconds",
 		Help:      "Duration of a GitOps Project reconciliation",
 	}, []string{"project", "url"})

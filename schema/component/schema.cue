@@ -61,7 +61,7 @@ _manifestMetadata: {
 // Helm CRD handling configuration.
 #CRDs: {
 	// Helm only supports installation by default.
-	// This option extends Helm to allow Declcd to upgrade CRDs packaged with a Chart.
+	// This option extends Helm to allow Navecd to upgrade CRDs packaged with a Chart.
 	allowUpgrade: bool | *false
 }
 

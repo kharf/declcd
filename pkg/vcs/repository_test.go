@@ -25,11 +25,11 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
-	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/projecttest"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/kharf/navecd/internal/gittest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/projecttest"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/vcs"
 	"gotest.tools/v3/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -172,33 +172,33 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 	}{
 		{
 			name:        "No@",
-			url:         "github.com:kharf/declcd.git",
+			url:         "github.com:kharf/navecd.git",
 			expectedErr: nil,
 		},
 		{
 			name:        "Multiple@",
-			url:         "git@@github.com:kharf/declcd.git",
+			url:         "git@@github.com:kharf/navecd.git",
 			expectedErr: nil,
 		},
 		{
 			name: "Missing:",
-			url:  "git@github.comkharf/declcd.git",
+			url:  "git@github.comkharf/navecd.git",
 			expectedErr: fmt.Errorf(
-				"%w: expected one ':' in url 'git@github.comkharf/declcd.git'",
+				"%w: expected one ':' in url 'git@github.comkharf/navecd.git'",
 				vcs.ErrUnknownURLFormat,
 			),
 		},
 		{
 			name: "Multiple:",
-			url:  "git@github.com:kha:rf/declcd.git",
+			url:  "git@github.com:kha:rf/navecd.git",
 			expectedErr: fmt.Errorf(
-				"%w: expected one ':' in url 'git@github.com:kha:rf/declcd.git'",
+				"%w: expected one ':' in url 'git@github.com:kha:rf/navecd.git'",
 				vcs.ErrUnknownURLFormat,
 			),
 		},
 		{
 			name: "MissingDotInHost",
-			url:  "git@githubcom:kharf/declcd.git",
+			url:  "git@githubcom:kharf/navecd.git",
 			expectedErr: fmt.Errorf(
 				"%w: expected one '.' in host 'githubcom'",
 				vcs.ErrUnknownURLFormat,
@@ -206,7 +206,7 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 		},
 		{
 			name: "MultipleDotsInHost",
-			url:  "git@gith.ub.com:kharf/declcd.git",
+			url:  "git@gith.ub.com:kharf/navecd.git",
 			expectedErr: fmt.Errorf(
 				"%w: expected one '.' in host 'gith.ub.com'",
 				vcs.ErrUnknownURLFormat,
@@ -214,17 +214,17 @@ func TestNewRepositoryConfigurator(t *testing.T) {
 		},
 		{
 			name:        "UnknownProvider",
-			url:         "git@gitthub.com:kharf/declcd.git",
+			url:         "git@gitthub.com:kharf/navecd.git",
 			expectedErr: nil,
 		},
 		{
 			name:        "GitLab",
-			url:         "git@gitlab.com:kharf/declcd.git",
+			url:         "git@gitlab.com:kharf/navecd.git",
 			expectedErr: nil,
 		},
 		{
 			name:        "GitHub",
-			url:         "git@github.com:kharf/declcd.git",
+			url:         "git@github.com:kharf/navecd.git",
 			expectedErr: nil,
 		},
 	}
@@ -312,7 +312,7 @@ func TestRepositoryConfigurator_CreateDeployKeySecretIfNotExists(t *testing.T) {
 				server, client := gittest.MockGitProvider(
 					t,
 					"owner/repo",
-					fmt.Sprintf("declcd-%s", projectName),
+					fmt.Sprintf("navecd-%s", projectName),
 					nil,
 					nil,
 				)
@@ -385,25 +385,25 @@ func TestNewRepository(t *testing.T) {
 	}{
 		{
 			name:         "GitHub",
-			url:          "git@github.com:kharf/declcd.git",
-			wantRepoID:   "kharf/declcd",
+			url:          "git@github.com:kharf/navecd.git",
+			wantRepoID:   "kharf/navecd",
 			wantProvider: vcs.GitHub,
 		},
 		{
 			name:         "GitLab",
-			url:          "git@gitlab.com:kharf/declcd.git",
-			wantRepoID:   "kharf/declcd",
+			url:          "git@gitlab.com:kharf/navecd.git",
+			wantRepoID:   "kharf/navecd",
 			wantProvider: vcs.GitLab,
 		},
 		{
 			name:         "Generic",
-			url:          "git@myscm.com:kharf/declcd.git",
-			wantRepoID:   "kharf/declcd",
+			url:          "git@myscm.com:kharf/navecd.git",
+			wantRepoID:   "kharf/navecd",
 			wantProvider: vcs.Generic,
 		},
 		{
 			name:         "Local",
-			url:          "/tmp/repo/declcd",
+			url:          "/tmp/repo/navecd",
 			wantRepoID:   "none/none",
 			wantProvider: vcs.Generic,
 		},

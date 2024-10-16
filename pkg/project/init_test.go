@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"cuelang.org/go/mod/modfile"
-	"github.com/kharf/declcd/pkg/project"
+	"github.com/kharf/navecd/pkg/project"
 	"gotest.tools/v3/assert"
 )
 
@@ -38,7 +38,7 @@ func TestInit(t *testing.T) {
 				path, err := os.MkdirTemp("", "")
 				assert.NilError(t, err)
 				err = project.Init(
-					"github.com/kharf/declcd/init@v0",
+					"github.com/kharf/navecd/init@v0",
 					"primary",
 					false,
 					path,
@@ -48,12 +48,12 @@ func TestInit(t *testing.T) {
 				return path
 			},
 			expectedFiles: []string{
-				"declcd/primary.cue",
-				"declcd/primary_system.cue",
-				"declcd/crd.cue",
+				"navecd/primary.cue",
+				"navecd/primary_system.cue",
+				"navecd/crd.cue",
 			},
 			assert: func(path string, expectedFiles []string) {
-				assertModule(t, path, "github.com/kharf/declcd/init@v0", expectedFiles)
+				assertModule(t, path, "github.com/kharf/navecd/init@v0", expectedFiles)
 			},
 		},
 		{
@@ -62,7 +62,7 @@ func TestInit(t *testing.T) {
 				path, err := os.MkdirTemp("", "")
 				assert.NilError(t, err)
 				err = project.Init(
-					"github.com/kharf/declcd/init@v0",
+					"github.com/kharf/navecd/init@v0",
 					"primary",
 					false,
 					path,
@@ -70,7 +70,7 @@ func TestInit(t *testing.T) {
 				)
 				assert.NilError(t, err)
 				err = project.Init(
-					"github.com/kharf/declcd/init@v0",
+					"github.com/kharf/navecd/init@v0",
 					"secondary",
 					true,
 					path,
@@ -80,13 +80,13 @@ func TestInit(t *testing.T) {
 				return path
 			},
 			expectedFiles: []string{
-				"declcd/primary.cue",
-				"declcd/primary_system.cue",
-				"declcd/crd.cue",
-				"declcd/secondary_system.cue",
+				"navecd/primary.cue",
+				"navecd/primary_system.cue",
+				"navecd/crd.cue",
+				"navecd/secondary_system.cue",
 			},
 			assert: func(path string, expectedFiles []string) {
-				assertModule(t, path, "github.com/kharf/declcd/init@v0", expectedFiles)
+				assertModule(t, path, "github.com/kharf/navecd/init@v0", expectedFiles)
 			},
 		},
 		{
@@ -100,7 +100,7 @@ func TestInit(t *testing.T) {
 						Version: "v0.8.0",
 					},
 					Deps: map[string]*modfile.Dep{
-						"github.com/kharf/declcd/schema@v0": {
+						"github.com/kharf/navecd/schema@v0": {
 							Version: "v0.1.0",
 						},
 					},
@@ -113,7 +113,7 @@ func TestInit(t *testing.T) {
 				err = os.WriteFile(filepath.Join(moduleDir, "module.cue"), content, 0666)
 				assert.NilError(t, err)
 				err = project.Init(
-					"github.com/kharf/declcd/init@v0",
+					"github.com/kharf/navecd/init@v0",
 					"primary",
 					false,
 					path,
@@ -123,9 +123,9 @@ func TestInit(t *testing.T) {
 				return path
 			},
 			expectedFiles: []string{
-				"declcd/primary.cue",
-				"declcd/primary_system.cue",
-				"declcd/crd.cue",
+				"navecd/primary.cue",
+				"navecd/primary_system.cue",
+				"navecd/crd.cue",
 			},
 			assert: func(path string, expectedFiles []string) {
 				assertModule(t, path, "mymodule@v0", expectedFiles)
@@ -136,14 +136,14 @@ func TestInit(t *testing.T) {
 			run: func() string {
 				path, err := os.MkdirTemp("", "")
 				assert.NilError(t, err)
-				declcdDir := filepath.Join(path, "declcd")
-				err = os.MkdirAll(declcdDir, 0755)
+				navecdDir := filepath.Join(path, "navecd")
+				err = os.MkdirAll(navecdDir, 0755)
 				assert.NilError(t, err)
 				content := []byte("hello")
-				err = os.WriteFile(filepath.Join(declcdDir, "primary.cue"), content, 0666)
+				err = os.WriteFile(filepath.Join(navecdDir, "primary.cue"), content, 0666)
 				assert.NilError(t, err)
 				err = project.Init(
-					"github.com/kharf/declcd/init",
+					"github.com/kharf/navecd/init",
 					"primary",
 					false,
 					path,
@@ -153,14 +153,14 @@ func TestInit(t *testing.T) {
 				return path
 			},
 			expectedFiles: []string{
-				"declcd/primary.cue",
-				"declcd/primary_system.cue",
-				"declcd/crd.cue",
+				"navecd/primary.cue",
+				"navecd/primary_system.cue",
+				"navecd/crd.cue",
 			},
 			assert: func(path string, expectedFiles []string) {
-				assertModule(t, path, "github.com/kharf/declcd/init", expectedFiles)
-				declcdDir := filepath.Join(path, "declcd")
-				content, err := os.ReadFile(filepath.Join(declcdDir, "primary.cue"))
+				assertModule(t, path, "github.com/kharf/navecd/init", expectedFiles)
+				navecdDir := filepath.Join(path, "navecd")
+				content, err := os.ReadFile(filepath.Join(navecdDir, "primary.cue"))
 				assert.NilError(t, err)
 				assert.Equal(t, string(content), "hello")
 			},
@@ -170,14 +170,14 @@ func TestInit(t *testing.T) {
 			run: func() string {
 				path, err := os.MkdirTemp("", "")
 				assert.NilError(t, err)
-				declcdDir := filepath.Join(path, "declcd")
-				err = os.MkdirAll(declcdDir, 0755)
+				navecdDir := filepath.Join(path, "navecd")
+				err = os.MkdirAll(navecdDir, 0755)
 				assert.NilError(t, err)
 				content := []byte("hello")
-				err = os.WriteFile(filepath.Join(declcdDir, "primary_system.cue"), content, 0666)
+				err = os.WriteFile(filepath.Join(navecdDir, "primary_system.cue"), content, 0666)
 				assert.NilError(t, err)
 				err = project.Init(
-					"github.com/kharf/declcd/init",
+					"github.com/kharf/navecd/init",
 					"primary",
 					false,
 					path,
@@ -187,14 +187,14 @@ func TestInit(t *testing.T) {
 				return path
 			},
 			expectedFiles: []string{
-				"declcd/primary.cue",
-				"declcd/primary_system.cue",
-				"declcd/crd.cue",
+				"navecd/primary.cue",
+				"navecd/primary_system.cue",
+				"navecd/crd.cue",
 			},
 			assert: func(path string, expectedFiles []string) {
-				assertModule(t, path, "github.com/kharf/declcd/init", expectedFiles)
-				declcdDir := filepath.Join(path, "declcd")
-				content, err := os.ReadFile(filepath.Join(declcdDir, "primary_system.cue"))
+				assertModule(t, path, "github.com/kharf/navecd/init", expectedFiles)
+				navecdDir := filepath.Join(path, "navecd")
+				content, err := os.ReadFile(filepath.Join(navecdDir, "primary_system.cue"))
 				assert.NilError(t, err)
 				assert.Equal(t, string(content), "hello")
 			},
@@ -228,7 +228,7 @@ func assertModule(t *testing.T, path string, module string, expectedFiles []stri
 	assert.Equal(t, moduleFile.Module, module)
 	assert.Assert(t, strings.HasPrefix(moduleFile.Language.Version, "v"))
 	assert.Assert(t, len(moduleFile.Deps) == 1)
-	schemaModule := moduleFile.Deps["github.com/kharf/declcd/schema@v0"]
+	schemaModule := moduleFile.Deps["github.com/kharf/navecd/schema@v0"]
 	assert.Equal(t, *schemaModule, modfile.Dep{
 		Version: "v0.1.0",
 	})

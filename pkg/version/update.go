@@ -27,9 +27,9 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-logr/logr"
 
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/vcs"
 )
 
 // UpdateIntegration defines the method on how to push updates to the version control system.
@@ -231,7 +231,7 @@ func (updater *Updater) createPR(
 	commitMessage string,
 	availableUpdate AvailableUpdate,
 ) (*Update, error) {
-	srcBranch := fmt.Sprintf("declcd/update-%s", targetName)
+	srcBranch := fmt.Sprintf("navecd/update-%s", targetName)
 	if err := updater.Repository.SwitchBranch(srcBranch, true); err != nil {
 		return nil, err
 	}

@@ -43,10 +43,10 @@
                 "^(.*?)testtemplates/templates.go$"
             ],
             "matchStrings": [
-                "\"github.com/kharf/declcd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",
-                "\"github.com/kharf/declcd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)},"
+                "\"github.com/kharf/navecd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",
+                "\"github.com/kharf/navecd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)},"
             ],
-            "depNameTemplate": "kharf/declcd",
+            "depNameTemplate": "kharf/navecd",
             "versioningTemplate": "semver-coerced",
             "datasourceTemplate": "github-releases"
         },

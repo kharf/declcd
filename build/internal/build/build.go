@@ -48,7 +48,7 @@ func (g apigen) run(ctx context.Context, request stepRequest) (*stepResult, erro
 		).
 		WithExec([]string{"go", "install", cueDep}).
 		WithExec([]string{controllerGen, "crd", "paths=./api/v1beta1/...", "output:crd:artifacts:config=internal/manifest"}).
-		WithExec([]string{"bin/cue", "import", "-f", "-o", "internal/manifest/crd.cue", "internal/manifest/gitops.declcd.io_gitopsprojects.yaml", "-l", "_crd:", "-p", "declcd"})
+		WithExec([]string{"bin/cue", "import", "-f", "-o", "internal/manifest/crd.cue", "internal/manifest/gitops.navecd.io_gitopsprojects.yaml", "-l", "_crd:", "-p", "navecd"})
 	_, err := gen.File("internal/manifest/crd.cue").
 		Export(ctx, "internal/manifest/crd.cue", dagger.FileExportOpts{AllowParentDirPath: false})
 	if err != nil {
@@ -104,7 +104,7 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 			[]string{
 				"sh",
 				"-c",
-				`git config --global url.https://kharf:$GITHUB_TOKEN@github.com/kharf/declcd.git.insteadOf git@github.com:kharf/declcd.git`,
+				`git config --global url.https://kharf:$GITHUB_TOKEN@github.com/kharf/navecd.git.insteadOf git@github.com:kharf/navecd.git`,
 			},
 		).
 		WithExec([]string{"git", "tag", prefixedVersion}).
@@ -124,11 +124,11 @@ func (p Publish) run(ctx context.Context, request stepRequest) (*stepResult, err
 		Directory(".").
 		DockerBuild().
 		WithRegistryAuth("ghcr.io", "kharf", token).
-		WithAnnotation("org.opencontainers.image.title", "declcd").
+		WithAnnotation("org.opencontainers.image.title", "navecd").
 		WithAnnotation("org.opencontainers.image.created", time.Now().String()).
-		WithAnnotation("org.opencontainers.image.source", "https://github.com/kharf/declcd").
-		WithAnnotation("org.opencontainers.image.url", "https://github.com/kharf/declcd").
-		Publish(ctx, "ghcr.io/kharf/declcd:"+version)
+		WithAnnotation("org.opencontainers.image.source", "https://github.com/kharf/navecd").
+		WithAnnotation("org.opencontainers.image.url", "https://github.com/kharf/navecd").
+		Publish(ctx, "ghcr.io/kharf/navecd:"+version)
 	if err != nil {
 		return nil, err
 	}

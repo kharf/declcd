@@ -15,11 +15,11 @@
 package component
 
 import (
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/kube"
 )
 
-// Instance represents a Declcd component with its id, dependencies and content.
+// Instance represents a Navecd component with its id, dependencies and content.
 // It is the Go equivalent of the CUE definition the user interacts with.
 // ID is constructed based on the content of the component.
 type Instance interface {

@@ -115,7 +115,7 @@ func NewAWSEnvironment(
 			token := awsToken{
 				AuthorizationData: []authorizationData{
 					{
-						AuthorizationToken: "ZGVjbGNkOmFiY2Q=",
+						AuthorizationToken: "bmF2ZWNkOmFiY2Q=",
 						ExpiresAt:          time.Now().Add(10 * time.Minute).Unix(),
 					},
 				},

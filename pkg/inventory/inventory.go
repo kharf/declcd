@@ -94,13 +94,13 @@ func (manifest *ManifestItem) GetID() string {
 	return manifest.ID
 }
 
-// Storage represents all stored Declcd items.
+// Storage represents all stored Navecd items.
 // It is effectively the current cluster state.
 type Storage struct {
 	items map[string]Item
 }
 
-// Items returns all stored Declcd items.
+// Items returns all stored Navecd items.
 func (inv Storage) Items() map[string]Item {
 	return inv.items
 }
@@ -234,7 +234,7 @@ func (instance Instance) StoreItem(item Item, contentReader io.Reader) error {
 }
 
 // DeleteItem removes the item from the inventory.
-// Declcd will not be tracking its current state anymore.
+// Navecd will not be tracking its current state anymore.
 func (instance Instance) DeleteItem(item Item) error {
 	dir := filepath.Join(instance.Path, itemNs(item))
 	dirFile, err := os.Open(dir)

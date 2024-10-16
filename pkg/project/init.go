@@ -22,11 +22,11 @@ import (
 	"path/filepath"
 
 	"cuelang.org/go/mod/modfile"
-	"github.com/kharf/declcd/internal/manifest"
+	"github.com/kharf/navecd/internal/manifest"
 )
 
 const (
-	ControllerNamespace = "declcd-system"
+	ControllerNamespace = "navecd-system"
 	controllerName      = "project-controller"
 )
 
@@ -50,7 +50,7 @@ func Init(
 				Version: "v0.10.0",
 			},
 			Deps: map[string]*modfile.Dep{
-				"github.com/kharf/declcd/schema@v0": {
+				"github.com/kharf/navecd/schema@v0": {
 					Version: "v" + version,
 				},
 			},
@@ -74,20 +74,20 @@ func Init(
 		}
 	}
 
-	declcdDir := filepath.Join(path, "declcd")
-	_, err = os.Stat(declcdDir)
+	navecdDir := filepath.Join(path, "navecd")
+	_, err = os.Stat(navecdDir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
 	if os.IsNotExist(err) {
-		if err := os.MkdirAll(declcdDir, 0700); err != nil {
+		if err := os.MkdirAll(navecdDir, 0700); err != nil {
 			return err
 		}
 	}
 
 	if !isSecondary {
-		primaryFile := filepath.Join(declcdDir, "primary.cue")
+		primaryFile := filepath.Join(navecdDir, "primary.cue")
 
 		_, err = os.Stat(primaryFile)
 		if err != nil && !os.IsNotExist(err) {
@@ -113,14 +113,14 @@ func Init(
 			}
 		}
 
-		crdFile := filepath.Join(declcdDir, "crd.cue")
+		crdFile := filepath.Join(navecdDir, "crd.cue")
 
 		if err := os.WriteFile(crdFile, []byte(manifest.CRD), 0666); err != nil {
 			return err
 		}
 	}
 
-	shardSystemFile := filepath.Join(declcdDir, fmt.Sprintf("%s_system.cue", shard))
+	shardSystemFile := filepath.Join(navecdDir, fmt.Sprintf("%s_system.cue", shard))
 	_, err = os.Stat(shardSystemFile)
 	if err != nil && !os.IsNotExist(err) {
 		return err

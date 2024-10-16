@@ -29,9 +29,9 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/kube"
 	"gopkg.in/yaml.v3"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"

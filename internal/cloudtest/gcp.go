@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/kharf/declcd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/cloud"
 )
 
 // A test Cloud Environment imitating GCP Metadata Server.

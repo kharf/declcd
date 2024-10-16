@@ -29,7 +29,7 @@ var (
 	localBin      = "bin"
 	envTest       = filepath.Join(localBin, "setup-envtest")
 	controllerGen = filepath.Join(localBin, "controller-gen")
-	workDir       = "/declcd"
+	workDir       = "/navecd"
 	tmp           = "/tmp"
 )
 

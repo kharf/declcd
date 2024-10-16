@@ -21,12 +21,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/projecttest"
-	"github.com/kharf/declcd/internal/testtemplates"
-	"github.com/kharf/declcd/pkg/project"
+	gitops "github.com/kharf/navecd/api/v1beta1"
+	"github.com/kharf/navecd/internal/gittest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/projecttest"
+	"github.com/kharf/navecd/internal/testtemplates"
+	"github.com/kharf/navecd/pkg/project"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,10 +39,10 @@ import (
 func useProjectOneTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/controller/projectone@v0"
+module: "github.com/kharf/navecd/internal/controller/projectone@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -51,7 +51,7 @@ deps: {
 package toola
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 #namespace: {
@@ -69,10 +69,10 @@ ns: component.#Manifest & {
 func useProjectTwoTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/controller/projecttwo@v0"
+module: "github.com/kharf/navecd/internal/controller/projecttwo@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -81,7 +81,7 @@ deps: {
 package toolb
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 #namespace: {
@@ -98,7 +98,7 @@ ns: component.#Manifest & {
 
 // Define utility constants for object names and testing timeouts/durations and intervals.
 const (
-	gitOpsProjectNamespace = "declcd-system"
+	gitOpsProjectNamespace = "navecd-system"
 
 	duration          = time.Second * 30
 	intervalInSeconds = 5
@@ -135,7 +135,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				gitOpsProjectName := "test"
 
 				err := project.Init(
-					"github.com/kharf/declcd/controller",
+					"github.com/kharf/navecd/controller",
 					"primary",
 					false,
 					env.LocalTestProject,
@@ -146,7 +146,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				gitServer, httpClient := gittest.MockGitProvider(
 					test,
 					"owner/repo",
-					fmt.Sprintf("declcd-%s", gitOpsProjectName),
+					fmt.Sprintf("navecd-%s", gitOpsProjectName),
 					nil,
 					nil,
 				)
@@ -172,7 +172,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				Expect(err).To(HaveOccurred())
 				Expect(
 					err.Error(),
-				).To(Equal("GitOpsProject.gitops.declcd.io \"" + "test" + "\" " +
+				).To(Equal("GitOpsProject.gitops.navecd.io \"" + "test" + "\" " +
 					"is invalid: spec.pullIntervalSeconds: " +
 					"Invalid value: 0: spec.pullIntervalSeconds in body should be greater than or equal to 5"))
 			})
@@ -188,7 +188,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 
 					ctx := context.Background()
 					err := project.Init(
-						"github.com/kharf/declcd/controller",
+						"github.com/kharf/navecd/controller",
 						"primary",
 						false,
 						env.LocalTestProject,
@@ -199,7 +199,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 					gitServer, httpClient := gittest.MockGitProvider(
 						test,
 						"owner/repo",
-						fmt.Sprintf("declcd-%s", gitOpsProjectName),
+						fmt.Sprintf("navecd-%s", gitOpsProjectName),
 						nil,
 						nil,
 					)
@@ -299,7 +299,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 			gitServer, httpClient := gittest.MockGitProvider(
 				test,
 				"owner/repo",
-				fmt.Sprintf("declcd-%s", "test"),
+				fmt.Sprintf("navecd-%s", "test"),
 				nil,
 				nil,
 			)
@@ -323,7 +323,7 @@ var _ = Describe("GitOpsProject controller", Ordered, func() {
 				)
 
 				err := project.Init(
-					"github.com/kharf/declcd/controller",
+					"github.com/kharf/navecd/controller",
 					"primary",
 					false,
 					env.LocalTestProject,

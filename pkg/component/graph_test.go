@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/kharf/declcd/pkg/component"
+	"github.com/kharf/navecd/pkg/component"
 	"gotest.tools/v3/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
