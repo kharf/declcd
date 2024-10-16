@@ -201,9 +201,13 @@ func (updater *Updater) Update(
 		)
 
 		update, err := updater.update(commitMessage, availableUpdate)
-		if err != nil {
+		if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
 			log.Error(err, "Unable to update")
 			return nil, err
+		}
+
+		if errors.Is(err, git.ErrEmptyCommit) {
+			return nil, nil
 		}
 
 		if err := updater.Repository.Push(updater.Branch, updater.Branch); err != nil &&
@@ -227,22 +231,36 @@ func (updater *Updater) createPR(
 	commitMessage string,
 	availableUpdate AvailableUpdate,
 ) (*Update, error) {
-	src := fmt.Sprintf("declcd/update-%s", targetName)
-	if err := updater.Repository.SwitchBranch(src, true); err != nil {
+	srcBranch := fmt.Sprintf("declcd/update-%s", targetName)
+	if err := updater.Repository.SwitchBranch(srcBranch, true); err != nil {
 		return nil, err
 	}
+
+	defer func() {
+		if err := updater.Repository.DeleteLocalBranch(srcBranch); err != nil {
+			updater.Log.Error(err, "Unable to delete local branch", "branch", srcBranch)
+		}
+	}()
 
 	update, err := updater.update(commitMessage, availableUpdate)
-	if err != nil {
+	if err != nil && !errors.Is(err, git.ErrEmptyCommit) {
 		return nil, err
 	}
 
-	if err := updater.Repository.Push(src, src); err != nil &&
+	if errors.Is(err, git.ErrEmptyCommit) {
+		return nil, nil
+	}
+
+	if err := updater.Repository.Push(srcBranch, srcBranch); err != nil &&
 		!errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return nil, err
 	}
 
-	if err := updater.Repository.CreatePullRequest(commitMessage, availableUpdate.URL, src, updater.Branch); err != nil {
+	if errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return nil, nil
+	}
+
+	if err := updater.Repository.CreatePullRequest(commitMessage, availableUpdate.URL, srcBranch, updater.Branch); err != nil {
 		return nil, err
 	}
 

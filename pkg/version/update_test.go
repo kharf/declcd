@@ -26,13 +26,14 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-logr/logr"
 	"github.com/kharf/declcd/internal/gittest"
 	inttxtar "github.com/kharf/declcd/internal/txtar"
 	"github.com/kharf/declcd/pkg/vcs"
 	"github.com/kharf/declcd/pkg/version"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/tools/txtar"
 	"gotest.tools/v3/assert"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 type updateTestCase struct {
@@ -148,17 +149,36 @@ image: "myimage:1.15.0"
 				UnstructuredKey: "image",
 			},
 		},
-		wantPullRequest: &vcs.PullRequestRequest{
-			RepoID:     vcs.DefaultRepoID,
-			Title:      "chore(update): bump myimage to 1.15.0",
-			Branch:     "declcd/update-myimage",
-			BaseBranch: "main",
+		wantPullRequest: nil,
+		wantUpdate:      nil,
+	}
+
+	prIntegrationNoChanges = updateTestCase{
+		name: "PR-Integration-No-Changes",
+		haveFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.15.0"
+`,
+		wantFiles: `
+-- apps/myapp.cue --
+image: "myimage:1.15.0"
+`,
+		haveAvailableUpdate: version.AvailableUpdate{
+			CurrentVersion: "1.14.0",
+			NewVersion:     "1.15.0",
+			Integration:    version.PR,
+			File:           "apps/myapp.cue",
+			Line:           1,
+			Target: &version.ContainerUpdateTarget{
+				Image: "myimage:1.14.0",
+				UnstructuredNode: map[string]any{
+					"image": "myimage:1.14.0",
+				},
+				UnstructuredKey: "image",
+			},
 		},
-		wantUpdate: &version.Update{
-			CommitHash: "",
-			NewVersion: "1.15.0",
-			IsPR:       true,
-		},
+		wantPullRequest: nil,
+		wantUpdate:      nil,
 	}
 
 	existingPullRequest = updateTestCase{
@@ -206,6 +226,7 @@ func TestUpdater_Update(t *testing.T) {
 		updates,
 		existingBranch,
 		existingBranchWithChanges,
+		prIntegrationNoChanges,
 		existingPullRequest,
 	}
 
@@ -267,8 +288,14 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	err = vcsRepository.SwitchBranch("main", false)
 	assert.NilError(t, err)
 
+	logOpts := zap.Options{
+		Development: true,
+		Level:       zapcore.Level(-1),
+	}
+	log := zap.New(zap.UseFlagOptions(&logOpts))
+
 	updater := &version.Updater{
-		Log:        logr.Discard(),
+		Log:        log,
 		Repository: vcsRepository,
 		Branch:     "main",
 	}

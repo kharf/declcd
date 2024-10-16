@@ -32,7 +32,6 @@ import (
 	"github.com/kharf/declcd/pkg/version"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/poll"
 	"k8s.io/kubernetes/pkg/util/parsers"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -54,11 +53,11 @@ type scheduleTestCase struct {
 }
 
 var (
-	update = scheduleTestCase{
-		name: "update",
+	newJobs = scheduleTestCase{
+		name: "New-Jobs",
 		haveTags: map[string][]string{
-			"myimage":  []string{"1.16.5"},
-			"myimage2": []string{"1.17.5"},
+			"myimage":  {"1.16.5"},
+			"myimage2": {"1.17.5"},
 		},
 		haveImages: []image{
 			{
@@ -82,8 +81,8 @@ var (
 	missingSchedule = scheduleTestCase{
 		name: "Missing-Schedule",
 		haveTags: map[string][]string{
-			"myimage":  []string{"1.16.5"},
-			"myimage2": []string{"1.17.5"},
+			"myimage":  {"1.16.5"},
+			"myimage2": {"1.17.5"},
 		},
 		haveImages: []image{
 			{
@@ -102,7 +101,7 @@ func TestUpdateScheduler_Schedule(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []scheduleTestCase{
-		update,
+		newJobs,
 		missingSchedule,
 	}
 
@@ -208,12 +207,19 @@ func runScheduleTestCase(t *testing.T, ctx context.Context, tc scheduleTestCase)
 	assert.NilError(t, err)
 
 	assert.Equal(t, jobCount, tc.wantJobCount)
+	assert.Equal(t, len(scheduler.Jobs()), tc.wantJobCount)
 	check := func(t poll.LogT) poll.Result {
 		if len(repository.CommitsMade) != len(tc.wantCommits) {
 			return poll.Continue("")
 		}
 
-		return poll.Compare(cmp.DeepEqual(repository.CommitsMade, tc.wantCommits))
+		for _, wantCommit := range tc.wantCommits {
+			if !slices.Contains(repository.CommitsMade, wantCommit) {
+				return poll.Continue("missing commit")
+			}
+		}
+
+		return poll.Success()
 	}
 
 	if jobCount != 0 {

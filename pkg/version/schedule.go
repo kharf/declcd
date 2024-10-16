@@ -41,6 +41,15 @@ func (scheduler *UpdateScheduler) Schedule(
 ) (int, error) {
 	updateChan := make(chan AvailableUpdate, len(updateInstructions))
 
+	for _, job := range scheduler.Scheduler.Jobs() {
+		if !haveJobForInstructions(job, updateInstructions) {
+			scheduler.Log.V(1).Info("Removing cron job", "name", job.Name())
+			if err := scheduler.Scheduler.RemoveJob(job.ID()); err != nil {
+				scheduler.Log.Error(err, "Unable to remove job", "name", job.Name())
+			}
+		}
+	}
+
 	for _, instruction := range updateInstructions {
 		cronJob := gocron.CronJob(instruction.Schedule, true)
 		task := gocron.NewTask(
@@ -52,15 +61,6 @@ func (scheduler *UpdateScheduler) Schedule(
 
 		if err := scheduler.upsertJob(instruction, cronJob, task); err != nil {
 			scheduler.Log.Error(err, "Unable to upsert job", "name", instruction.Target.Name())
-		}
-	}
-
-	for _, job := range scheduler.Scheduler.Jobs() {
-		if !haveJobForInstructions(job, updateInstructions) {
-			scheduler.Log.V(1).Info("Removing cron job", "name", job.Name())
-			if err := scheduler.Scheduler.RemoveJob(job.ID()); err != nil {
-				scheduler.Log.Error(err, "Unable to remove job", "name", job.Name())
-			}
 		}
 	}
 
@@ -125,15 +125,10 @@ func (scheduler *UpdateScheduler) upsertJob(
 
 	for _, job := range scheduler.Scheduler.Jobs() {
 		if job.Name() == instruction.Target.Name() {
-			scheduleChanged := true
 			matchedFile := false
 			matchedLine := false
 
 			for _, tag := range job.Tags() {
-				if tag == scheduleTag {
-					scheduleChanged = false
-				}
-
 				if tag == fileTag {
 					matchedFile = true
 				}
@@ -144,16 +139,14 @@ func (scheduler *UpdateScheduler) upsertJob(
 			}
 
 			if matchedFile && matchedLine {
-				if scheduleChanged {
-					log.Info("Updating cron job")
-					if _, err := scheduler.Scheduler.Update(
-						job.ID(),
-						cronJob,
-						task,
-						identifiers...,
-					); err != nil {
-						return err
-					}
+				log.Info("Updating cron job")
+				if _, err := scheduler.Scheduler.Update(
+					job.ID(),
+					cronJob,
+					task,
+					identifiers...,
+				); err != nil {
+					return err
 				}
 
 				return nil
@@ -178,20 +171,14 @@ func keyValueTag(key, value string) string {
 
 func haveJobForInstructions(job gocron.Job, updateInstructions []UpdateInstruction) bool {
 	for _, instruction := range updateInstructions {
-		scheduleTag := keyValueTag("schedule", instruction.Schedule)
 		fileTag := keyValueTag("file", instruction.File)
 		lineTag := keyValueTag("line", strconv.Itoa(instruction.Line))
 
 		if job.Name() == instruction.Target.Name() {
-			matchedSchedule := false
 			matchedFile := false
 			matchedLine := false
 
 			for _, tag := range job.Tags() {
-				if tag == scheduleTag {
-					matchedSchedule = true
-				}
-
 				if tag == fileTag {
 					matchedFile = true
 				}
@@ -201,7 +188,7 @@ func haveJobForInstructions(job gocron.Job, updateInstructions []UpdateInstructi
 				}
 			}
 
-			if matchedFile && matchedLine && matchedSchedule {
+			if matchedFile && matchedLine {
 				return true
 			}
 		}

@@ -364,6 +364,10 @@ type FakeRepository struct {
 	CommitsMade []string
 }
 
+func (f *FakeRepository) DeleteLocalBranch(branch string) error {
+	return nil
+}
+
 func (f *FakeRepository) Commit(file string, message string) (string, error) {
 	f.mu.Lock()
 	f.CommitsMade = append(f.CommitsMade, message)
