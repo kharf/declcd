@@ -25,10 +25,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kharf/declcd/internal/manifest"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/kharf/navecd/internal/manifest"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/vcs"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -67,8 +67,8 @@ func NewInstallAction(
 }
 
 func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error {
-	declcdDir := filepath.Join(act.projectRoot, "declcd")
-	projectFileName := filepath.Join(declcdDir, fmt.Sprintf("%s_project.cue", opts.Name))
+	navecdDir := filepath.Join(act.projectRoot, "navecd")
+	projectFileName := filepath.Join(navecdDir, fmt.Sprintf("%s_project.cue", opts.Name))
 
 	_, err := os.Stat(projectFileName)
 	if err != nil && !os.IsNotExist(err) {
@@ -99,7 +99,7 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 	}
 
 	buildResult, err := act.componentBuilder.Build(
-		component.WithPackagePath("./declcd"),
+		component.WithPackagePath("./navecd"),
 		component.WithProjectRoot(act.projectRoot),
 	)
 	if err != nil {
@@ -123,7 +123,7 @@ func (act InstallAction) Install(ctx context.Context, opts InstallOptions) error
 			return ErrHelmInstallationUnsupported
 		}
 
-		if opts.Shard == manifest.GetLabels()["declcd/shard"] {
+		if opts.Shard == manifest.GetLabels()["navecd/shard"] {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel()
 

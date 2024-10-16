@@ -19,14 +19,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/internal/testtemplates"
-	"github.com/kharf/declcd/internal/txtar"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/version"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/internal/testtemplates"
+	"github.com/kharf/navecd/internal/txtar"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/version"
 	"go.uber.org/goleak"
 	"gotest.tools/v3/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -35,10 +35,10 @@ import (
 func useAllFeaturesTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -47,8 +47,8 @@ deps: {
 package success
 
 import (
-	"github.com/kharf/declcd/schema/component"
-	"github.com/kharf/declcd/schema/workloadidentity"
+	"github.com/kharf/navecd/schema/component"
+	"github.com/kharf/navecd/schema/workloadidentity"
 )
 
 #namespace: {
@@ -278,10 +278,10 @@ crd: component.#Manifest & {
 		kind:       "CustomResourceDefinition"
 		metadata: {
 			annotations: "controller-gen.kubebuilder.io/version": "v0.15.0"
-			name: "gitopsprojects.gitops.declcd.io"
+			name: "gitopsprojects.gitops.navecd.io"
 		}
 		spec: {
-			group: "gitops.declcd.io"
+			group: "gitops.navecd.io"
 			names: {
 				kind:     "GitOpsProject"
 				listKind: "GitOpsProjectList"
@@ -318,12 +318,12 @@ crd: component.#Manifest & {
 							description: "GitOpsProjectSpec defines the desired state of GitOpsProject"
 							properties: {
 								branch: {
-									description: "The branch of the gitops repository holding the declcd configuration."
+									description: "The branch of the gitops repository holding the navecd configuration."
 									minLength:   1
 									type:        "string"
 								}
 								pullIntervalSeconds: {
-									description: "This defines how often declcd will try to fetch changes from the gitops repository."
+									description: "This defines how often navecd will try to fetch changes from the gitops repository."
 									minimum:     5
 									type:        "integer"
 								}
@@ -450,10 +450,10 @@ crd: component.#Manifest & {
 func useContentWrongTypeTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -473,10 +473,10 @@ namespace: {
 func usePatchesWrongTypeTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -508,10 +508,10 @@ release: {
 func useMissingIDTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -536,10 +536,10 @@ secret: {
 func useMissingMetadataTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -565,10 +565,10 @@ secret: {
 func useMissingMetadataNameWithSchemaTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -577,7 +577,7 @@ deps: {
 package metadatanameschemamissing
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 secret: component.#Manifest & {
@@ -598,10 +598,10 @@ secret: component.#Manifest & {
 func useMissingMetadataNameTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -629,10 +629,10 @@ secret: {
 func useMissingApiVersionTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -660,10 +660,10 @@ secret: {
 func useMissingKindTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -691,10 +691,10 @@ secret: {
 func useEmptyReleaseNameWithSchemaTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -703,7 +703,7 @@ deps: {
 package emptyreleasenamewithschema
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 release: component.#HelmRelease & {
@@ -724,10 +724,10 @@ release: component.#HelmRelease & {
 func useEmptyReleaseChartNameWithSchemaTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -736,7 +736,7 @@ deps: {
 package emptyreleasechartnamewithschema
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 release: component.#HelmRelease & {
@@ -757,10 +757,10 @@ release: component.#HelmRelease & {
 func useEmptyReleaseChartVersionWithSchemaTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -769,7 +769,7 @@ deps: {
 package emptyreleasechartversionwithschema
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 release: component.#HelmRelease & {
@@ -790,10 +790,10 @@ release: component.#HelmRelease & {
 func useWrongPrefixReleaseChartUrlWithSchemaTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -802,7 +802,7 @@ deps: {
 package wrongprefixreleasecharturlwithschema
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 release: component.#HelmRelease & {
@@ -823,10 +823,10 @@ release: component.#HelmRelease & {
 func useConflictingChartAuthTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -835,8 +835,8 @@ deps: {
 package conflictingchartauth
 
 import (
-	"github.com/kharf/declcd/schema/component"
-	"github.com/kharf/declcd/schema/workloadidentity"
+	"github.com/kharf/navecd/schema/component"
+	"github.com/kharf/navecd/schema/workloadidentity"
 )
 
 #namespace: {
@@ -877,10 +877,10 @@ release: component.#HelmRelease & {
 func useAllowCRDsUpgradeTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -889,7 +889,7 @@ deps: {
 package allowcrdsupgrade
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 release: component.#HelmRelease & {
@@ -913,10 +913,10 @@ release: component.#HelmRelease & {
 func useWrongUpdateBuildAttributeUsageTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/component/build@v0"
+module: "github.com/kharf/navecd/internal/component/build@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -925,7 +925,7 @@ deps: {
 package wrongupdatebuildattributeusage
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 deployment: component.#Manifest & {
@@ -1368,7 +1368,7 @@ func TestBuilder_Build(t *testing.T) {
 						Dependencies: []string{"prometheus___Namespace"},
 					},
 					&Manifest{
-						ID: "gitopsprojects.gitops.declcd.io__apiextensions.k8s.io_CustomResourceDefinition",
+						ID: "gitopsprojects.gitops.navecd.io__apiextensions.k8s.io_CustomResourceDefinition",
 						Content: ExtendedUnstructured{
 							Unstructured: &unstructured.Unstructured{
 								Object: map[string]any{
@@ -1378,10 +1378,10 @@ func TestBuilder_Build(t *testing.T) {
 										"annotations": map[string]any{
 											"controller-gen.kubebuilder.io/version": "v0.15.0",
 										},
-										"name": "gitopsprojects.gitops.declcd.io",
+										"name": "gitopsprojects.gitops.navecd.io",
 									},
 									"spec": map[string]any{
-										"group": "gitops.declcd.io",
+										"group": "gitops.navecd.io",
 										"names": map[string]any{
 											"kind":     "GitOpsProject",
 											"listKind": "GitOpsProjectList",
@@ -1422,12 +1422,12 @@ More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-
 																"description": "GitOpsProjectSpec defines the desired state of GitOpsProject",
 																"properties": map[string]any{
 																	"branch": map[string]any{
-																		"description": "The branch of the gitops repository holding the declcd configuration.",
+																		"description": "The branch of the gitops repository holding the navecd configuration.",
 																		"minLength":   int64(1),
 																		"type":        "string",
 																	},
 																	"pullIntervalSeconds": map[string]any{
-																		"description": "This defines how often declcd will try to fetch changes from the gitops repository.",
+																		"description": "This defines how often navecd will try to fetch changes from the gitops repository.",
 																		"minimum":     int64(5),
 																		"type":        "integer",
 																	},

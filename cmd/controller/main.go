@@ -32,7 +32,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/kharf/declcd/internal/controller"
+	"github.com/kharf/navecd/internal/controller"
 )
 
 var (

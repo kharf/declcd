@@ -28,7 +28,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/kube"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -187,7 +187,7 @@ func (g *GenericRepository) Commit(file string, message string) (string, error) 
 		message,
 		&git.CommitOptions{
 			Author: &object.Signature{
-				Name: "declcd-bot",
+				Name: "navecd-bot",
 				When: time.Now(),
 			},
 		},
@@ -406,7 +406,7 @@ func (manager *RepositoryManager) LoadLocally(
 	return newRepo, nil
 }
 
-// RepositoryConfigurator is capable of setting up Declcd with a Git provider.
+// RepositoryConfigurator is capable of setting up Navecd with a Git provider.
 type RepositoryConfigurator struct {
 	controllerNamespace string
 	kubeClient          kube.Client[unstructured.Unstructured, unstructured.Unstructured]

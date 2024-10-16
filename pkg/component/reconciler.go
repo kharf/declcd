@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/kube"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

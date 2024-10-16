@@ -30,11 +30,11 @@ type GitOpsProjectSpec struct {
 	URL string `json:"url"`
 
 	//+kubebuilder:validation:MinLength=1
-	// The branch of the gitops repository holding the declcd configuration.
+	// The branch of the gitops repository holding the navecd configuration.
 	Branch string `json:"branch"`
 
 	//+kubebuilder:validation:Minimum=5
-	// This defines how often declcd will try to fetch changes from the gitops repository.
+	// This defines how often navecd will try to fetch changes from the gitops repository.
 	PullIntervalSeconds int `json:"pullIntervalSeconds"`
 
 	// This flag tells the controller to suspend subsequent executions, it does

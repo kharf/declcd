@@ -21,22 +21,22 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/internal/projecttest"
-	"github.com/kharf/declcd/internal/testtemplates"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/project"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/internal/projecttest"
+	"github.com/kharf/navecd/internal/testtemplates"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/project"
 	"gotest.tools/v3/assert"
 )
 
 func useManagerTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/controller/projectone@v0"
+module: "github.com/kharf/navecd/internal/controller/projectone@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -45,7 +45,7 @@ deps: {
 package toola
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 #namespace: {
@@ -62,7 +62,7 @@ ns: component.#Manifest & {
 package toolb
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 #namespace: {

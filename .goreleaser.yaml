@@ -15,7 +15,7 @@ builds:
 
   - main: ./cmd/cli
     id: cli
-    binary: declcd
+    binary: navecd
     ldflags:
       - -s -w -X "main.Version={{.Version}}" -X "main.OS={{.Os}}" -X "main.Arch={{.Arch}}"
     env:

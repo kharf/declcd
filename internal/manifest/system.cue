@@ -1,7 +1,7 @@
-package declcd
+package navecd
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 _{{.Shard}}Labels: {
@@ -201,7 +201,7 @@ _{{.Shard}}LeaderRoleName: "{{.Shard}}-leader-election"
 					containers: [
 						{
 							name:  "{{.Name}}"
-							image: "ghcr.io/kharf/declcd:{{ .Version }}"
+							image: "ghcr.io/kharf/navecd:{{ .Version }}"
 							command: [
 								"/controller",
 							]

@@ -33,10 +33,10 @@ _cueModuleVersionManager: #cueModuleManager & {
 
 _cueModuleDepVersionManager: #cueModuleManager & {
 	matchStrings: [
-		"\"github.com/kharf/declcd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",
-		"\"github.com/kharf/declcd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)},",
+		"\"github.com/kharf/navecd/schema@v.\": {\n(\t*)v: \"(?<currentValue>.*?)\"\n(\t*)}",
+		"\"github.com/kharf/navecd/schema@v.\": {\n(\t*)Version: \"(?<currentValue>.*?)\",\n(\t*)},",
 	]
-	depNameTemplate:    "kharf/declcd"
+	depNameTemplate:    "kharf/navecd"
 	datasourceTemplate: "github-releases"
 }
 

@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kharf/declcd/build/internal/build"
+	"github.com/kharf/navecd/build/internal/build"
 )
 
 func main() {

@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/version"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/version"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -31,7 +31,7 @@ var (
 	ErrLoadProject = errors.New("Could not load project")
 )
 
-// Manager loads a declcd project and resolves the component dependency graph.
+// Manager loads a navecd project and resolves the component dependency graph.
 type Manager struct {
 	componentBuilder component.Builder
 	workerPoolSize   int

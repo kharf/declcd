@@ -20,14 +20,14 @@ import (
 
 	"gotest.tools/v3/assert"
 
-	gitops "github.com/kharf/declcd/api/v1beta1"
+	gitops "github.com/kharf/navecd/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/vcs"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/kubectl/pkg/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"

@@ -20,13 +20,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/internal/cloudtest"
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/version"
+	"github.com/kharf/navecd/internal/cloudtest"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/version"
 	"github.com/opencontainers/go-digest"
 	"go.uber.org/zap/zapcore"
 	"gotest.tools/v3/assert"
@@ -209,10 +209,10 @@ var (
 			},
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "creds",
-				Namespace: "declcd-system",
+				Namespace: "navecd-system",
 			},
 			Data: map[string][]byte{
-				"username": []byte("declcd"),
+				"username": []byte("navecd"),
 				"password": []byte("abcd"),
 			},
 		},
@@ -394,10 +394,10 @@ var (
 			},
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "creds",
-				Namespace: "declcd-system",
+				Namespace: "navecd-system",
 			},
 			Data: map[string][]byte{
-				"username": []byte("declcd"),
+				"username": []byte("navecd"),
 				"password": []byte("abcd"),
 			},
 		},
@@ -452,10 +452,10 @@ var (
 			},
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "creds",
-				Namespace: "declcd-system",
+				Namespace: "navecd-system",
 			},
 			Data: map[string][]byte{
-				"username": []byte("declcd"),
+				"username": []byte("navecd"),
 				"password": []byte("abcd"),
 			},
 		},
@@ -490,14 +490,14 @@ var (
 			},
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "creds",
-				Namespace: "declcd-system",
+				Namespace: "navecd-system",
 			},
 			Data: map[string][]byte{
 				"username": []byte("abcd"),
 				"password": []byte("abcd"),
 			},
 		},
-		wantErr: "Unexpected response: wrong credentials: got Basic YWJjZDphYmNk, expected Basic ZGVjbGNkOmFiY2Q=",
+		wantErr: "Unexpected response: wrong credentials: got Basic YWJjZDphYmNk, expected Basic bmF2ZWNkOmFiY2Q=",
 	}
 
 	secretAuthRegistryWrongCredentials = scanTestCase{
@@ -528,7 +528,7 @@ var (
 			},
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "creds",
-				Namespace: "declcd-system",
+				Namespace: "navecd-system",
 			},
 			Data: map[string][]byte{
 				"username": []byte("abcd"),
@@ -566,7 +566,7 @@ var (
 			},
 			ObjectMeta: v1.ObjectMeta{
 				Name:      "creds",
-				Namespace: "declcd-system",
+				Namespace: "navecd-system",
 			},
 			Data: map[string][]byte{
 				"username": []byte("abcd"),
@@ -729,7 +729,7 @@ func runScanTestCase(
 			Kind:       "Namespace",
 		},
 		ObjectMeta: v1.ObjectMeta{
-			Name: "declcd-system",
+			Name: "navecd-system",
 		},
 	}
 
@@ -845,15 +845,15 @@ func runScanTestCase(
 				expectedCreds = "Basic b2F1dGgyYWNjZXNzdG9rZW46YWFhYQ=="
 
 			case cloud.AWS:
-				expectedCreds = "Basic ZGVjbGNkOmFiY2Q="
+				expectedCreds = "Basic bmF2ZWNkOmFiY2Q="
 
 			case cloud.Azure:
 				expectedCreds = "Basic MDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwOmFhYWE="
 
 			default:
-				expectedCreds = "Basic ZGVjbGNkOmFiY2Q="
+				expectedCreds = "Basic bmF2ZWNkOmFiY2Q="
 			}
-			// declcd:abcd
+			// navecd:abcd
 			if auth[0] != expectedCreds {
 				w.WriteHeader(401)
 				_, _ = w.Write(

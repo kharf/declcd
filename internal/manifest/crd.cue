@@ -1,14 +1,14 @@
-package declcd
+package navecd
 
 _crd: {
 	apiVersion: "apiextensions.k8s.io/v1"
 	kind:       "CustomResourceDefinition"
 	metadata: {
 		annotations: "controller-gen.kubebuilder.io/version": "v0.15.0"
-		name: "gitopsprojects.gitops.declcd.io"
+		name: "gitopsprojects.gitops.navecd.io"
 	}
 	spec: {
-		group: "gitops.declcd.io"
+		group: "gitops.navecd.io"
 		names: {
 			kind:     "GitOpsProject"
 			listKind: "GitOpsProjectList"
@@ -45,12 +45,12 @@ _crd: {
 						description: "GitOpsProjectSpec defines the desired state of GitOpsProject"
 						properties: {
 							branch: {
-								description: "The branch of the gitops repository holding the declcd configuration."
+								description: "The branch of the gitops repository holding the navecd configuration."
 								minLength:   1
 								type:        "string"
 							}
 							pullIntervalSeconds: {
-								description: "This defines how often declcd will try to fetch changes from the gitops repository."
+								description: "This defines how often navecd will try to fetch changes from the gitops repository."
 								minimum:     5
 								type:        "integer"
 							}

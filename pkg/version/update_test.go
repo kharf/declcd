@@ -26,10 +26,10 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/kharf/declcd/internal/gittest"
-	inttxtar "github.com/kharf/declcd/internal/txtar"
-	"github.com/kharf/declcd/pkg/vcs"
-	"github.com/kharf/declcd/pkg/version"
+	"github.com/kharf/navecd/internal/gittest"
+	inttxtar "github.com/kharf/navecd/internal/txtar"
+	"github.com/kharf/navecd/pkg/vcs"
+	"github.com/kharf/navecd/pkg/version"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/tools/txtar"
 	"gotest.tools/v3/assert"
@@ -105,11 +105,11 @@ image: "myimage:1.14.0"
 				UnstructuredKey: "image",
 			},
 		},
-		haveBranch: "declcd/update-myimage",
+		haveBranch: "navecd/update-myimage",
 		wantPullRequest: &vcs.PullRequestRequest{
 			RepoID:     vcs.DefaultRepoID,
 			Title:      "chore(update): bump myimage to 1.15.0",
-			Branch:     "declcd/update-myimage",
+			Branch:     "navecd/update-myimage",
 			BaseBranch: "main",
 		},
 		wantUpdate: &version.Update{
@@ -130,7 +130,7 @@ image: "myimage:1.14.0"
 image: "myimage:1.14.0"
 `,
 		haveBranchWithChanges: map[string]string{
-			"declcd/update-myimage": `
+			"navecd/update-myimage": `
 -- apps/myapp.cue --
 image: "myimage:1.15.0"
 `,
@@ -192,13 +192,13 @@ image: "myimage:1.14.0"
 image: "myimage:1.14.0"
 `,
 		havePullRequest: &vcs.PullRequestRequest{
-			Branch:     "declcd/update-myimage",
+			Branch:     "navecd/update-myimage",
 			BaseBranch: "main",
 		},
 		wantPullRequest: &vcs.PullRequestRequest{
 			RepoID:     vcs.DefaultRepoID,
 			Title:      "chore(update): bump myimage to 1.15.0",
-			Branch:     "declcd/update-myimage",
+			Branch:     "navecd/update-myimage",
 			BaseBranch: "main",
 		},
 		haveAvailableUpdate: version.AvailableUpdate{
@@ -255,7 +255,7 @@ func runUpdateTestCase(t *testing.T, ctx context.Context, tc updateTestCase) {
 	server, client := gittest.MockGitProvider(
 		t,
 		vcs.DefaultRepoID,
-		fmt.Sprintf("declcd-%s", `dev`),
+		fmt.Sprintf("navecd-%s", `dev`),
 		wantPRs,
 		havePRs,
 	)

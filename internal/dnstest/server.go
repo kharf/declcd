@@ -19,7 +19,7 @@ import (
 	"net"
 
 	"github.com/foxcpp/go-mockdns"
-	"github.com/kharf/declcd/internal/cloudtest"
+	"github.com/kharf/navecd/internal/cloudtest"
 )
 
 type nullLogger struct{}
@@ -37,20 +37,20 @@ func (server *DNSServer) Close() {
 }
 
 // Create a mock dns server which binds several hostnames to 127.0.0.1.
-// All OCI tests have to use declcd.io as registry host.
+// All OCI tests have to use navecd.io as registry host.
 func NewDNSServer() (*DNSServer, error) {
 	dnsServer, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
-		"declcd.io.": {
+		"navecd.io.": {
 			A: []string{"127.0.0.1"},
 		},
 		"metadata.google.internal.": {
 			A: []string{"127.0.0.1"},
 		},
 		"docker.io.": {
-			CNAME: "declcd.io",
+			CNAME: "navecd.io",
 		},
 		"index.docker.io.": {
-			CNAME: "declcd.io",
+			CNAME: "navecd.io",
 		},
 		fmt.Sprintf("%s.", cloudtest.AWSRegistryHost): {
 			A: []string{"127.0.0.1"},

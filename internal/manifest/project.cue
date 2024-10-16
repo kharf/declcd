@@ -1,7 +1,7 @@
-package declcd
+package navecd
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 {{.Name}}: component.#Manifest & {
@@ -10,7 +10,7 @@ import (
 		ns.id,
 	]
 	content: {
-		apiVersion: "gitops.declcd.io/v1beta1"
+		apiVersion: "gitops.navecd.io/v1beta1"
 		kind:       "GitOpsProject"
 		metadata: {
 			name:      "{{.Name}}"

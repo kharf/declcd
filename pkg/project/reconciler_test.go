@@ -31,20 +31,20 @@ import (
 	"cuelabs.dev/go/oci/ociregistry"
 	"github.com/go-co-op/gocron/v2"
 	"github.com/go-git/go-git/v5"
-	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/internal/cloudtest"
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/helmtest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/internal/projecttest"
-	"github.com/kharf/declcd/internal/testtemplates"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/project"
+	gitops "github.com/kharf/navecd/api/v1beta1"
+	"github.com/kharf/navecd/internal/cloudtest"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/helmtest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/internal/projecttest"
+	"github.com/kharf/navecd/internal/testtemplates"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/project"
 	"github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -87,10 +87,10 @@ func useBroadTemplate(data broadTemplateData) *broadProjectTemplate {
 	return &broadProjectTemplate{
 		template: fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/projecttest/broad@v0"
+module: "github.com/kharf/navecd/internal/projecttest/broad@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -99,7 +99,7 @@ deps: {
 package toola
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 #namespace: {
@@ -140,8 +140,8 @@ _secret: {
 package toolb
 
 import (
-	"github.com/kharf/declcd/schema/component"
-	"github.com/kharf/declcd/internal/projecttest/broad/infra/toola"
+	"github.com/kharf/navecd/schema/component"
+	"github.com/kharf/navecd/internal/projecttest/broad/infra/toola"
 )
 
 release: component.#HelmRelease & {
@@ -204,7 +204,7 @@ release: component.#HelmRelease & {
 package toolb
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 ns: component.#Manifest & {
@@ -222,8 +222,8 @@ secret: component.#Manifest & {
 package subtool
 
 import (
-	"github.com/kharf/declcd/schema/component"
-	"github.com/kharf/declcd/internal/projecttest/broad/infra/toolb"
+	"github.com/kharf/navecd/schema/component"
+	"github.com/kharf/navecd/internal/projecttest/broad/infra/toolb"
 )
 
 deployment: component.#Manifest & {
@@ -244,7 +244,7 @@ anotherDeployment: component.#Manifest & {
 package subtool
 
 import (
-	"github.com/kharf/declcd/internal/projecttest/broad/infra/toolb"
+	"github.com/kharf/navecd/internal/projecttest/broad/infra/toolb"
 )
 
 _deployment: {
@@ -425,7 +425,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 	suspend := false
 	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
+			APIVersion: "gitops.navecd.io/v1",
 			Kind:       "GitOpsProject",
 		},
 		ObjectMeta: v1.ObjectMeta{
@@ -703,10 +703,10 @@ func TestReconciler_Reconcile(t *testing.T) {
 func useMiniTemplate() string {
 	return fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/projecttest/mini@v0"
+module: "github.com/kharf/navecd/internal/projecttest/mini@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -715,7 +715,7 @@ deps: {
 package toola
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 )
 
 #namespace: {
@@ -776,7 +776,7 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 	suspend := false
 	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
+			APIVersion: "gitops.navecd.io/v1",
 			Kind:       "GitOpsProject",
 		},
 		ObjectMeta: v1.ObjectMeta{
@@ -934,10 +934,10 @@ func useWorkloadIdentityTemplate(
 	return &workloadIdentityProjectTemplate{
 		template: fmt.Sprintf(`
 -- cue.mod/module.cue --
-module: "github.com/kharf/declcd/internal/projecttest/mini@v0"
+module: "github.com/kharf/navecd/internal/projecttest/mini@v0"
 language: version: "%s"
 deps: {
-	"github.com/kharf/declcd/schema@v0": {
+	"github.com/kharf/navecd/schema@v0": {
 		v: "v0.0.99"
 	}
 }
@@ -946,8 +946,8 @@ deps: {
 package toola
 
 import (
-	"github.com/kharf/declcd/schema/component"
-	"github.com/kharf/declcd/schema/workloadidentity"
+	"github.com/kharf/navecd/schema/component"
+	"github.com/kharf/navecd/schema/workloadidentity"
 )
 
 #namespace: {
@@ -1127,7 +1127,7 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	suspend := false
 	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
+			APIVersion: "gitops.navecd.io/v1",
 			Kind:       "GitOpsProject",
 		},
 		ObjectMeta: v1.ObjectMeta{
@@ -1285,7 +1285,7 @@ func TestReconciler_Reconcile_Suspend(t *testing.T) {
 	suspend := true
 	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
+			APIVersion: "gitops.navecd.io/v1",
 			Kind:       "GitOpsProject",
 		},
 		ObjectMeta: v1.ObjectMeta{
@@ -1407,7 +1407,7 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 	suspend := false
 	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
+			APIVersion: "gitops.navecd.io/v1",
 			Kind:       "GitOpsProject",
 		},
 		ObjectMeta: v1.ObjectMeta{
@@ -1597,7 +1597,7 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 	suspend := false
 	gProject := gitops.GitOpsProject{
 		TypeMeta: v1.TypeMeta{
-			APIVersion: "gitops.declcd.io/v1",
+			APIVersion: "gitops.navecd.io/v1",
 			Kind:       "GitOpsProject",
 		},
 		ObjectMeta: v1.ObjectMeta{

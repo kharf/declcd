@@ -1,7 +1,7 @@
 package infrastructure
 
 import (
-	"github.com/kharf/declcd/schema/component"
+	"github.com/kharf/navecd/schema/component"
 	corev1 "k8s.io/api/core/v1"
 )
 

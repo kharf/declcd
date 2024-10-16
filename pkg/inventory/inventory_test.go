@@ -22,7 +22,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kharf/declcd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/inventory"
 	"go.uber.org/goleak"
 	"gotest.tools/v3/assert"
 )

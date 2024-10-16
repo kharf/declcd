@@ -42,7 +42,7 @@ func run() error {
 		From("node:20.18.0-alpine").
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithSecretVariable("RENOVATE_TOKEN", pat).
-		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/declcd").
+		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/navecd").
 		WithExec([]string{"apk", "add", "--no-cache", "git", "go"}).
 		WithExec([]string{"sh", "-c", "npm install -g renovate"}).
 		WithEnvVariable("CACHEBUSTER", time.Now().String()).

@@ -18,16 +18,16 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/kube"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // Collector inspects the inventory for dangling manifests or helm releases,
-// which are undefined in the declcd gitops repository, and uninstalls them from
+// which are undefined in the navecd gitops repository, and uninstalls them from
 // the Kubernetes cluster and inventory.
 type Collector struct {
 	Log logr.Logger
@@ -44,7 +44,7 @@ type Collector struct {
 }
 
 // Collect inspects the inventory for dangling manifests or helm releases,
-// which are undefined in the declcd gitops repository, and uninstalls them from
+// which are undefined in the navecd gitops repository, and uninstalls them from
 // the Kubernetes cluster and inventory.
 // The DependencyGraph is a representation of the gitops repository.
 func (c *Collector) Collect(

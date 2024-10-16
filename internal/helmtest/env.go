@@ -30,12 +30,12 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/internal/txtar"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/internal/gittest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/internal/txtar"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/kube"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	helmKube "helm.sh/helm/v3/pkg/kube"
@@ -1460,7 +1460,7 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 			username = "00000000-0000-0000-0000-000000000000"
 			pw = "aaaa"
 		default:
-			username = "declcd"
+			username = "navecd"
 			pw = "abcd"
 		}
 		err = helmRegistryClient.Login(
@@ -1532,8 +1532,8 @@ func NewHelmEnvironment(t *testing.T, opts ...Option) (*Environment, error) {
 					return
 				}
 
-				// declcd:abcd
-				if auth[0] != "Basic ZGVjbGNkOmFiY2Q=" {
+				// navecd:abcd
+				if auth[0] != "Basic bmF2ZWNkOmFiY2Q=" {
 					w.WriteHeader(500)
 					return
 				}

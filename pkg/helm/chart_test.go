@@ -37,16 +37,16 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/kharf/declcd/internal/cloudtest"
-	"github.com/kharf/declcd/internal/dnstest"
-	"github.com/kharf/declcd/internal/helmtest"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/internal/ocitest"
-	"github.com/kharf/declcd/pkg/cloud"
-	"github.com/kharf/declcd/pkg/helm"
-	. "github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/internal/cloudtest"
+	"github.com/kharf/navecd/internal/dnstest"
+	"github.com/kharf/navecd/internal/helmtest"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/internal/ocitest"
+	"github.com/kharf/navecd/pkg/cloud"
+	"github.com/kharf/navecd/pkg/helm"
+	. "github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/kube"
 )
 
 func newHelmEnvironment(
@@ -83,7 +83,7 @@ func applyRepoAuthSecret(
 				"namespace": namespace,
 			},
 			"data": map[string][]byte{
-				"username": []byte("declcd"),
+				"username": []byte("navecd"),
 				"password": []byte("abcd"),
 			},
 		},

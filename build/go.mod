@@ -1,4 +1,4 @@
-module github.com/kharf/declcd/build
+module github.com/kharf/navecd/build
 
 go 1.23.0
 

@@ -14,7 +14,7 @@
 
 package helm
 
-// ReleaseComponent represents a Declcd component with its id, dependencies and content.
+// ReleaseComponent represents a Navecd component with its id, dependencies and content.
 // It is the Go equivalent of the CUE definition the user interacts with.
 // See [ReleaseDeclaration] for more.
 type ReleaseComponent struct {
@@ -66,7 +66,7 @@ type ReleaseDeclaration struct {
 // Helm CRD handling configuration.
 type CRDs struct {
 	// Helm only supports installation by default.
-	// This option extends Helm to allow Declcd to upgrade CRDs packaged with a Chart.
+	// This option extends Helm to allow Navecd to upgrade CRDs packaged with a Chart.
 	AllowUpgrade bool `json:"allowUpgrade"`
 }
 

@@ -22,8 +22,8 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/kharf/declcd/internal/kubetest"
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/internal/kubetest"
+	"github.com/kharf/navecd/pkg/kube"
 	"gotest.tools/v3/assert"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

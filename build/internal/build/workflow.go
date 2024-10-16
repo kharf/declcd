@@ -81,8 +81,8 @@ func (_ commitWorkflows) run(ctx context.Context, request stepRequest) (*stepRes
 		lastContainer = commitContainer.
 			WithSecretVariable("GH_PAT", pat).
 			WithExec([]string{"git", "config", "--global", "user.email", "kevinfritz210@gmail.com"}).
-			WithExec([]string{"git", "config", "--global", "user.name", "Declcd Bot"}).
-			WithExec([]string{"sh", "-c", "git remote set-url origin https://$GH_PAT@github.com/kharf/declcd.git"}).
+			WithExec([]string{"git", "config", "--global", "user.name", "Navecd Bot"}).
+			WithExec([]string{"sh", "-c", "git remote set-url origin https://$GH_PAT@github.com/kharf/navecd.git"}).
 			WithExec([]string{"git", "add", ".github/workflows"}).
 			WithExec([]string{"git", "commit", "-m", "chore: update yaml workflows"}).
 			WithExec([]string{"git", "push"})

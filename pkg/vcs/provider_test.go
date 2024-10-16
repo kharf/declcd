@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kharf/declcd/internal/gittest"
-	"github.com/kharf/declcd/pkg/vcs"
+	"github.com/kharf/navecd/internal/gittest"
+	"github.com/kharf/navecd/pkg/vcs"
 	"gotest.tools/v3/assert"
 )
 
@@ -28,7 +28,7 @@ func TestGithubClient_CreateDeployKey(t *testing.T) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", `dev`),
+		fmt.Sprintf("navecd-%s", `dev`),
 		nil,
 		nil,
 	)
@@ -51,7 +51,7 @@ func TestGithubClient_CreatePullRequest(t *testing.T) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", `dev`),
+		fmt.Sprintf("navecd-%s", `dev`),
 		[]vcs.PullRequestRequest{req},
 		nil,
 	)
@@ -66,7 +66,7 @@ func TestGitlabClient_CreateDeployKey(t *testing.T) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", `dev`),
+		fmt.Sprintf("navecd-%s", `dev`),
 		nil,
 		nil,
 	)
@@ -90,7 +90,7 @@ func TestGitlabClient_CreatePullRequest(t *testing.T) {
 	server, client := gittest.MockGitProvider(
 		t,
 		"owner/repo",
-		fmt.Sprintf("declcd-%s", `dev`),
+		fmt.Sprintf("navecd-%s", `dev`),
 		[]vcs.PullRequestRequest{req},
 		nil,
 	)

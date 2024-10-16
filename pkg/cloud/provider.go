@@ -23,7 +23,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/kube"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 

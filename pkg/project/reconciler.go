@@ -21,14 +21,14 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/go-logr/logr"
-	gitops "github.com/kharf/declcd/api/v1beta1"
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/garbage"
-	"github.com/kharf/declcd/pkg/helm"
-	"github.com/kharf/declcd/pkg/inventory"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/vcs"
-	"github.com/kharf/declcd/pkg/version"
+	gitops "github.com/kharf/navecd/api/v1beta1"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/garbage"
+	"github.com/kharf/navecd/pkg/helm"
+	"github.com/kharf/navecd/pkg/inventory"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/vcs"
+	"github.com/kharf/navecd/pkg/version"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/rest"
 )
@@ -41,7 +41,7 @@ type Reconciler struct {
 
 	KubeConfig *rest.Config
 
-	// Manager loads a declcd project and resolves the component dependency graph.
+	// Manager loads a navecd project and resolves the component dependency graph.
 	ProjectManager Manager
 
 	// RepositoryManager clones a remote vcs repository to a local path.
@@ -53,7 +53,7 @@ type Reconciler struct {
 	// Managers identify distinct workflows that are modifying the object (especially useful on conflicts!),
 	FieldManager string
 
-	// Defines the concurrency level of Declcd operations.
+	// Defines the concurrency level of Navecd operations.
 	WorkerPoolSize int
 
 	// InsecureSkipVerify controls whether Helm clients verify server
@@ -128,7 +128,7 @@ func (reconciler *Reconciler) Reconcile(
 	}
 
 	projectUID := string(gProject.GetUID())
-	repositoryDir := filepath.Join(reconciler.CacheDir, "declcd", projectUID)
+	repositoryDir := filepath.Join(reconciler.CacheDir, "navecd", projectUID)
 
 	inventoryInstance := &inventory.Instance{
 		// /inventory is mounted as volume.
@@ -190,7 +190,7 @@ func (reconciler *Reconciler) Reconcile(
 	if err != nil {
 		log.Error(
 			err,
-			"Unable to load declcd project",
+			"Unable to load navecd project",
 		)
 		return nil, err
 	}

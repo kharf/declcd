@@ -19,7 +19,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/kharf/declcd/pkg/kube"
+	"github.com/kharf/navecd/pkg/kube"
 	"gopkg.in/yaml.v3"
 	"helm.sh/helm/v3/pkg/postrender"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"

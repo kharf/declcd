@@ -18,14 +18,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// IgnoreInstruction is an instruction to tell Declcd to ignore fields or structs on certain events when applying Kubernetes Manifests.
+// IgnoreInstruction is an instruction to tell Navecd to ignore fields or structs on certain events when applying Kubernetes Manifests.
 type IgnoreInstruction int
 
 const (
-	// Default. Declcd will enforce the field/struct.
+	// Default. Navecd will enforce the field/struct.
 	None IgnoreInstruction = iota
 
-	// This tells Declcd to omit the field/struct 'tagged' with this value on a retry ssa patch request.
+	// This tells Navecd to omit the field/struct 'tagged' with this value on a retry ssa patch request.
 	OnConflict
 )
 
@@ -47,7 +47,7 @@ type ExtendedUnstructured struct {
 	Metadata *ManifestMetadata `json:"-"`
 }
 
-// Manifest represents a Declcd component with its id, dependencies and content.
+// Manifest represents a Navecd component with its id, dependencies and content.
 // It is the Go equivalent of the CUE definition the user interacts with.
 // See [unstructured.Unstructured] for more.
 type Manifest struct {

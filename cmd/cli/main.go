@@ -21,9 +21,9 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/kharf/declcd/pkg/component"
-	"github.com/kharf/declcd/pkg/kube"
-	"github.com/kharf/declcd/pkg/project"
+	"github.com/kharf/navecd/pkg/component"
+	"github.com/kharf/navecd/pkg/kube"
+	"github.com/kharf/navecd/pkg/project"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -49,7 +49,7 @@ type RootCommandBuilder struct {
 
 func (builder RootCommandBuilder) Build() *cobra.Command {
 	rootCmd := cobra.Command{
-		Use:   "declcd",
+		Use:   "navecd",
 		Short: "A GitOps Declarative Continuous Delivery toolkit",
 	}
 	rootCmd.AddCommand(builder.initCommandBuilder.Build())
@@ -66,7 +66,7 @@ func (builder InitCommandBuilder) Build() *cobra.Command {
 	var isSecondary bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Init a Declcd Project in the current directory",
+		Short: "Init a Navecd Project in the current directory",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
@@ -83,9 +83,9 @@ func (builder InitCommandBuilder) Build() *cobra.Command {
 		},
 	}
 	cmd.Flags().
-		StringVar(&shard, "shard", "primary", "Instance of the Declcd Project")
+		StringVar(&shard, "shard", "primary", "Instance of the Navecd Project")
 	cmd.Flags().
-		BoolVar(&isSecondary, "secondary", false, "Indicates a secondary Declcd instance")
+		BoolVar(&isSecondary, "secondary", false, "Indicates a secondary Navecd instance")
 	return cmd
 }
 
@@ -94,7 +94,7 @@ type VerifyCommandBuilder struct{}
 func (builder VerifyCommandBuilder) Build() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify",
-		Short: "Verify a Declcd Repository in the current directory, whether it contains valid code and can be compiled",
+		Short: "Verify a Navecd Repository in the current directory, whether it contains valid code and can be compiled",
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()
@@ -117,10 +117,10 @@ type VersionCommandBuilder struct{}
 func (builder VersionCommandBuilder) Build() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Print declcd version",
+		Short: "Print navecd version",
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			fmt.Printf("declcd v%s\non %s_%s\n", Version, OS, Arch)
+			fmt.Printf("navecd v%s\non %s_%s\n", Version, OS, Arch)
 			return nil
 		},
 	}
@@ -140,7 +140,7 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 	var persistToken bool
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install Declcd on a Kubernetes Cluster",
+		Short: "Install Navecd on a Kubernetes Cluster",
 		Args:  cobra.MinimumNArgs(0),
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			kubeConfig, err := config.GetConfig()
@@ -180,9 +180,9 @@ func (builder InstallCommandBuilder) Build() *cobra.Command {
 		StringVar(&name, "name", "", "Name of the GitOps Project")
 	cmd.Flags().StringVarP(&token, "token", "t", "", "Access token used for authentication")
 	cmd.Flags().
-		IntVarP(&interval, "interval", "i", 30, "Definition of how often Declcd will reconcile its cluster state. Value is defined in seconds")
+		IntVarP(&interval, "interval", "i", 30, "Definition of how often Navecd will reconcile its cluster state. Value is defined in seconds")
 	cmd.Flags().
-		StringVar(&shard, "shard", "primary", "Instance associated with the Declcd Project")
+		StringVar(&shard, "shard", "primary", "Instance associated with the Navecd Project")
 	cmd.Flags().
 		BoolVar(&persistToken, "persist-token", false, "When true, the access token is stored as a kubernetes secret, which is needed for pull request creation")
 
