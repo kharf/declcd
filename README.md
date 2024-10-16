@@ -23,7 +23,7 @@ making it easier to define and maintain your desired cluster state.
 ![Overview](./docs/navecd-flow.png)
 
 ## Documentation
-To learn more about Navecd, visit [navecd.io](https://navecd.io/documentation/overview/)
+To learn more about Navecd, visit [navecd.dev](https://navecd.dev/documentation/overview/)
 
 ## Contributions
 
