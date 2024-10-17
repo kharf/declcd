@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"dagger.io/dagger"
 )
@@ -39,14 +38,13 @@ func run() error {
 	defer client.Close()
 	pat := client.SetSecret("pat", os.Getenv("RENOVATE_TOKEN"))
 	_, err = client.Container().
-		From("node:20.18.0-alpine").
+		From("golang:1.23").
 		WithEnvVariable("LOG_LEVEL", "DEBUG").
 		WithSecretVariable("RENOVATE_TOKEN", pat).
 		WithEnvVariable("RENOVATE_REPOSITORIES", "kharf/navecd").
-		WithExec([]string{"apk", "add", "--no-cache", "git", "go"}).
-		WithExec([]string{"sh", "-c", "npm install -g renovate"}).
-		WithEnvVariable("CACHEBUSTER", time.Now().String()).
-		WithExec([]string{"renovate"}).
+		WithExec([]string{"sh", "-c", "apt-get update; apt-get install -y --no-install-recommends npm"}).
+		WithEnvVariable("NVM_DIR", "/root/.nvm").
+		WithExec([]string{"sh", "-c", "curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash && . $NVM_DIR/nvm.sh && nvm install 20 && npm install -g renovate && renovate"}).
 		Sync(ctx)
 	if err != nil {
 		return err
