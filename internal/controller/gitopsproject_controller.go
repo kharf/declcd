@@ -27,6 +27,7 @@ import (
 
 	goRuntime "runtime"
 
+	"golang.org/x/sync/errgroup"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	"go.uber.org/zap/zapcore"
@@ -357,9 +358,14 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Schedul
 	schedulerQuitChan := make(chan struct{}, 1)
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	go func() {
 		<-signalChan
 		schedulerQuitChan <- struct{}{}
+		if err := schedulerEg.Wait(); err != nil {
+			log.Error(err, "Unable to quit update scheduler listener")
+		}
 	}()
 
 	if err := (&GitOpsProjectController{
@@ -380,6 +386,7 @@ func Setup(cfg *rest.Config, options ...option) (manager.Manager, gocron.Schedul
 			Namespace:             namespace,
 			Scheduler:             scheduler,
 			SchedulerQuitChan:     schedulerQuitChan,
+			SchedulerErrGroup:     schedulerEg,
 		},
 	}).SetupWithManager(mgr, controllerName); err != nil {
 		log.Error(err, "Unable to create controller")

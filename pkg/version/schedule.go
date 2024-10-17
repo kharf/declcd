@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/go-logr/logr"
+	"golang.org/x/sync/errgroup"
 )
 
 // UpdateScheduler runs background tasks periodically to update Container or Helm Charts.
@@ -32,6 +33,7 @@ type UpdateScheduler struct {
 
 	Scheduler gocron.Scheduler
 
+	ErrGroup *errgroup.Group
 	QuitChan chan struct{}
 }
 
@@ -64,7 +66,8 @@ func (scheduler *UpdateScheduler) Schedule(
 		}
 	}
 
-	go func() {
+	// that will generate more and more goroutines
+	_ = scheduler.ErrGroup.TryGo(func() error {
 		for {
 			select {
 			case availableUpdate := <-updateChan:
@@ -74,7 +77,8 @@ func (scheduler *UpdateScheduler) Schedule(
 						err,
 						"Unable to pull gitops project repository for update",
 					)
-					return
+
+					continue
 				}
 
 				_, err = scheduler.Updater.Update(ctx, availableUpdate)
@@ -92,10 +96,10 @@ func (scheduler *UpdateScheduler) Schedule(
 				}
 
 			case <-scheduler.QuitChan:
-				return
+				return nil
 			}
 		}
-	}()
+	})
 
 	return len(scheduler.Scheduler.Jobs()), nil
 }
@@ -216,4 +220,8 @@ func (scheduler *UpdateScheduler) scan(
 	if hasUpdate {
 		updateChan <- *availableUpdate
 	}
+}
+
+func Listen() {
+
 }

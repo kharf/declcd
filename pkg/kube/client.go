@@ -37,8 +37,8 @@ import (
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 )
 
 // InMemoryRESTClientGetter is a Helm RESTClientGetter implementatiion, which caches
@@ -130,7 +130,6 @@ type Client[T any, R any] interface {
 type DynamicClient struct {
 	dynamicClient *dynamic.DynamicClient
 	restMapper    meta.RESTMapper
-	invalidate    func()
 }
 
 var _ Client[unstructured.Unstructured, unstructured.Unstructured] = (*DynamicClient)(nil)
@@ -138,31 +137,31 @@ var _ Client[unstructured.Unstructured, unstructured.Unstructured] = (*DynamicCl
 // NewDynamicClient constructs a new DynamicClient,
 // which connects to a Kubernetes cluster to create, read, update and delete unstructured manifests/objects.
 func NewDynamicClient(config *rest.Config) (*DynamicClient, error) {
-	dynClient, err := dynamic.NewForConfig(config)
+	httpClient, err := rest.HTTPClientFor(config)
 	if err != nil {
 		return nil, err
 	}
 
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	restMapper, err := apiutil.NewDynamicRESTMapper(config, httpClient)
 	if err != nil {
 		return nil, err
 	}
 
-	cacheClient := memory.NewMemCacheClient(discoveryClient)
-	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cacheClient)
+	config = dynamic.ConfigFor(config)
+	// for serializing the options
+	config.GroupVersion = &schema.GroupVersion{}
+
+	restClient, err := rest.RESTClientForConfigAndClient(config, httpClient)
+	if err != nil {
+		return nil, err
+	}
+
+	dynClient := dynamic.New(restClient)
 
 	return &DynamicClient{
 		dynamicClient: dynClient,
 		restMapper:    restMapper,
-		invalidate:    restMapper.Reset,
 	}, nil
-}
-
-// Invalidate resets the internally cached Discovery information and will
-// cause the next mapping request to re-discover.
-func (client *DynamicClient) Invalidate() error {
-	client.invalidate()
-	return nil
 }
 
 // Apply applies changes to an object through a Server-Side Apply
@@ -232,13 +231,6 @@ func (client *DynamicClient) apply(
 		}
 	}
 
-	if obj.GetKind() == "CustomResourceDefinition" {
-		// clear cache because we just introduced a new crd
-		if err := client.Invalidate(); err != nil {
-			return nil, err
-		}
-	}
-
 	return runtimeObj, nil
 }
 
@@ -286,14 +278,6 @@ func (client *DynamicClient) patch(
 	)
 	if err != nil {
 		return nil, err
-	}
-
-	// clear cache because we just introduced a new crd
-	if obj.GetKind() == "CustomResourceDefinition" {
-
-		if err := client.Invalidate(); err != nil {
-			return nil, err
-		}
 	}
 
 	return runtimeObj, nil

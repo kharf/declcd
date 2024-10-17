@@ -30,7 +30,9 @@ import (
 	"github.com/kharf/navecd/internal/ocitest"
 	inttxtar "github.com/kharf/navecd/internal/txtar"
 	"github.com/kharf/navecd/pkg/version"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/sync/errgroup"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/poll"
 	"k8s.io/kubernetes/pkg/util/parsers"
@@ -98,6 +100,10 @@ var (
 )
 
 func TestUpdateScheduler_Schedule(t *testing.T) {
+	defer goleak.VerifyNone(
+		t,
+	)
+
 	ctx := context.Background()
 
 	testCases := []scheduleTestCase{
@@ -118,6 +124,8 @@ func runScheduleTestCase(t *testing.T, ctx context.Context, tc scheduleTestCase)
 	assert.NilError(t, err)
 	scheduler.Start()
 	quitChan := make(chan struct{}, 1)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	defer func() {
 		quitChan <- struct{}{}
 		_ = scheduler.Shutdown()
@@ -197,6 +205,7 @@ func runScheduleTestCase(t *testing.T, ctx context.Context, tc scheduleTestCase)
 			Branch:     "main",
 		},
 		QuitChan: quitChan,
+		ErrGroup: schedulerEg,
 	}
 
 	jobCount, err := updateScheduler.Schedule(ctx, updateInstructions)

@@ -46,6 +46,7 @@ import (
 	"github.com/kharf/navecd/pkg/kube"
 	"github.com/kharf/navecd/pkg/project"
 	"github.com/opencontainers/go-digest"
+	"golang.org/x/sync/errgroup"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/poll"
@@ -403,6 +404,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 	assert.NilError(t, err)
 	scheduler.Start()
 	quitChan := make(chan struct{}, 1)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	defer func() {
 		quitChan <- struct{}{}
 		_ = scheduler.Shutdown()
@@ -420,6 +423,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		CacheDir:              env.TestRoot,
 		Scheduler:             scheduler,
 		SchedulerQuitChan:     quitChan,
+		SchedulerErrGroup:     schedulerEg,
 	}
 
 	suspend := false
@@ -754,6 +758,8 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 	scheduler, err := gocron.NewScheduler()
 	assert.NilError(t, err)
 	quitChan := make(chan struct{}, 1)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	defer func() {
 		quitChan <- struct{}{}
 		_ = scheduler.Shutdown()
@@ -771,6 +777,7 @@ func TestReconciler_Reconcile_Impersonation(t *testing.T) {
 		CacheDir:              env.TestRoot,
 		Scheduler:             scheduler,
 		SchedulerQuitChan:     quitChan,
+		SchedulerErrGroup:     schedulerEg,
 	}
 
 	suspend := false
@@ -1105,6 +1112,8 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 	assert.NilError(t, err)
 	scheduler.Start()
 	quitChan := make(chan struct{}, 1)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	defer func() {
 		quitChan <- struct{}{}
 		_ = scheduler.Shutdown()
@@ -1122,6 +1131,7 @@ func TestReconciler_Reconcile_WorkloadIdentity(t *testing.T) {
 		CacheDir:              env.TestRoot,
 		Scheduler:             scheduler,
 		SchedulerQuitChan:     quitChan,
+		SchedulerErrGroup:     schedulerEg,
 	}
 
 	suspend := false
@@ -1385,6 +1395,8 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 	scheduler, err := gocron.NewScheduler()
 	assert.NilError(t, err)
 	quitChan := make(chan struct{}, 1)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	defer func() {
 		quitChan <- struct{}{}
 		_ = scheduler.Shutdown()
@@ -1402,6 +1414,7 @@ func TestReconciler_Reconcile_Conflict(t *testing.T) {
 		CacheDir:              env.TestRoot,
 		Scheduler:             scheduler,
 		SchedulerQuitChan:     quitChan,
+		SchedulerErrGroup:     schedulerEg,
 	}
 
 	suspend := false
@@ -1575,6 +1588,8 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 	scheduler, err := gocron.NewScheduler()
 	assert.NilError(t, err)
 	quitChan := make(chan struct{}, 1)
+	schedulerEg := &errgroup.Group{}
+	schedulerEg.SetLimit(1)
 	defer func() {
 		quitChan <- struct{}{}
 		_ = scheduler.Shutdown()
@@ -1592,6 +1607,7 @@ func TestReconciler_Reconcile_IgnoreConflicts(t *testing.T) {
 		CacheDir:              env.TestRoot,
 		Scheduler:             scheduler,
 		SchedulerQuitChan:     quitChan,
+		SchedulerErrGroup:     schedulerEg,
 	}
 
 	suspend := false
