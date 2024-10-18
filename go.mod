@@ -5,7 +5,7 @@ go 1.23.0
 require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20240906074133-82eb438dd565
 	cuelang.org/go v0.10.0
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.15.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.0
 	github.com/aws/aws-sdk-go-v2 v1.32.2
 	github.com/aws/aws-sdk-go-v2/config v1.28.0
